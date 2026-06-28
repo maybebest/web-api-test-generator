@@ -2,7 +2,7 @@
   "name": "web-api-test-generator",
   "version": "1.0.0",
   "private": true,
-  "description": "Monorepo combining an AI-assisted Playwright web E2E suite (packages/web, CommonJS) and a HAR-based API test generator (packages/api, ESM). npm workspaces keep each suite fully modular; the root only orchestrates.",
+  "description": "Monorepo combining an AI-assisted Playwright web E2E suite (packages/web, CommonJS) that generates UI tests from Markdown specs and Chrome DevTools Recorder exports, and a HAR-based API test generator (packages/api, ESM). npm workspaces keep each suite fully modular and independent; the root only orchestrates.",
   "workspaces": [
     "packages/*"
   ],
@@ -21,7 +21,11 @@
     "web:test:regression": "npm run -w packages/web test:e2e:regression",
     "web:test:ui": "npm run -w packages/web test:e2e:ui",
     "web:report": "npm run -w packages/web test:e2e:report",
+    "web:ai:generate": "npm run -w packages/web ai:generate-test --",
     "web:ai:gate": "npm run -w packages/web ai:test:gate:all",
+    "web:ai:recording:validate": "npm run -w packages/web ai:recording:validate --",
+    "web:ai:recording:generate": "npm run -w packages/web ai:recording:generate-test --",
+    "web:ai:recording:gate": "npm run -w packages/web ai:recording:gate:all",
     "web:ai:self": "npm run -w packages/web ai:test:self",
     "web:ai:brain:doctor": "npm run -w packages/web ai:brain:doctor",
     "api:build": "npm run -w packages/api build",

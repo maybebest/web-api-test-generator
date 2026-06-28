@@ -6,13 +6,29 @@ workspace boundary *is* the module boundary, so modularity is preserved end to e
 
 | Package | Path | What it is | Module system | Runner |
 |---|---|---|---|---|
-| `playwright-aqa-web` | [`packages/web`](packages/web) | AI-assisted Playwright **web E2E** framework (Page Objects, fixtures, specs/recordings, ~40 `ai:*` generation/review/gate scripts, Allure, accessibility, visual). | CommonJS | Playwright |
+| `playwright-aqa-web` | [`packages/web`](packages/web) | AI-assisted Playwright **web E2E** framework. Generates UI tests from **Markdown specs** *and* from **Chrome DevTools Recorder** exports (Page Objects, fixtures, ~40 `ai:*` generation/review/gate scripts, drift checks, Allure, accessibility, visual). | CommonJS | Playwright |
 | `har-api-tests` | [`packages/api`](packages/api) | Generates maintainable Playwright **API tests from HAR** files (parser → generator → CLI → calibration), plus modular `channel-management/` and `partners-advertisers/` sub-packages. | ESM (NodeNext) | Vitest + Playwright |
 
 The two suites deliberately stay separate at the package level: their module systems
 (CommonJS vs ESM/NodeNext) and Playwright configs are mutually exclusive and cannot share
 one root `package.json` / `tsconfig` / `playwright.config`. Workspaces let them coexist
 with **one install** while each runs exactly as it did standalone.
+
+## What the combined solution generates
+
+Three generation paths feed two independent suites — pick the input you already have:
+
+| Input you have | Generated output | Suite | Entry command (from repo root) |
+|---|---|---|---|
+| **HAR capture** (browser / WebInspector network export) | Playwright **API** tests | `packages/api` | `npm run api:generate -- --har ./examples` |
+| **Markdown spec / docs** (acceptance criteria + data cases) | Playwright **UI (E2E)** tests | `packages/web` | `npm run web:ai:generate -- <spec>` → `npm run web:ai:gate` |
+| **Chrome DevTools Recorder JSON** (`packages/web/recordings/*.json`) | Playwright **UI (E2E)** tests | `packages/web` | `npm run web:ai:recording:generate -- recordings/<flow>.json` → `npm run web:ai:recording:gate` |
+
+Each path is contract-first (the HAR / spec / recording is the source of truth), stamps a hashed
+header into its output, and is drift-checked and gated before a generated test is accepted. The two
+UI paths share `packages/web`'s page objects, fixtures, locator policy, and gates; the API path
+lives entirely in `packages/api`. **The web and api suites stay independent** — different module
+systems, configs, `.env`, and CI workflows — so neither depends on the other.
 
 ## Requirements
 
