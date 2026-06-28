@@ -1,0 +1,175 @@
+import type { HarApiTestConfig } from '../types/config.js';
+
+export const defaultConfig: HarApiTestConfig = {
+  staticAssetExtensions: [
+    '.avif',
+    '.bmp',
+    '.css',
+    '.gif',
+    '.ico',
+    '.jpeg',
+    '.jpg',
+    '.js',
+    '.mjs',
+    '.map',
+    '.mp3',
+    '.mp4',
+    '.otf',
+    '.png',
+    '.svg',
+    '.ttf',
+    '.txt',
+    '.webm',
+    '.webp',
+    '.woff',
+    '.woff2'
+  ],
+  trackingDomains: [
+    'amplitude.com',
+    'analytics.google.com',
+    'braze.com',
+    'customer.io',
+    'datadoghq.com',
+    'doubleclick.net',
+    'facebook.com',
+    'fullstory.com',
+    'google-analytics.com',
+    'googleapis.com',
+    'googletagmanager.com',
+    'heap.io',
+    'hotjar.com',
+    'intercom.com',
+    'intercom.io',
+    'intercomcdn.com',
+    'launchdarkly.com',
+    'mixpanel.com',
+    'newrelic.com',
+    'nr-data.net',
+    'segment.com',
+    'segment.io',
+    'sentry.io'
+  ],
+  // Telemetry/beacon path fragments dropped regardless of host (analytics endpoints return 2xx
+  // for any payload, so negative/boundary inference against them is meaningless noise).
+  beaconPaths: ['/ping', '/metrics', '/track', '/collect', '/batch', '/beacon', '/telemetry', '/pixel'],
+  ignoredHeaderNames: [
+    ':authority',
+    ':method',
+    ':path',
+    ':scheme',
+    'accept-encoding',
+    'accept-language',
+    'baggage',
+    'connection',
+    'content-length',
+    'host',
+    'origin',
+    'priority',
+    'referer',
+    'sec-ch-ua',
+    'sec-ch-ua-mobile',
+    'sec-ch-ua-platform',
+    'sec-fetch-dest',
+    'sec-fetch-mode',
+    'sec-fetch-site',
+    'sentry-trace',
+    'x-socket-id',
+    'user-agent'
+  ],
+  secretHeaderNames: ['authorization', 'cookie', 'set-cookie', 'x-api-key', 'api-key', 'x-csrf-token', 'x-xsrf-token'],
+  secretFieldNames: [
+    '_csrf',
+    'accessToken',
+    'apiKey',
+    'apikey',
+    'authorization',
+    'cookie',
+    'csrf',
+    'email',
+    'idToken',
+    'key',
+    'password',
+    'refreshToken',
+    'secret',
+    'session',
+    'token',
+    'xsrf'
+  ],
+  responseTimeBudgetMs: 2000,
+  grouping: 'domain-and-first-segment',
+  output: {
+    supportDir: 'support',
+    fixturesDir: 'fixtures',
+    schemasDir: 'schemas'
+  },
+  filters: {
+    ignoredDomains: [],
+    firstPartyDomains: [],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+    statuses: [],
+    include: [],
+    exclude: []
+  },
+  generation: {
+    modes: ['smoke', 'extended'],
+    inferenceLevel: 'balanced',
+    inferredRunMode: 'mixed',
+    negativeStatusPolicy: 'family',
+    mutationPolicy: 'guarded',
+    expectedStatuses: {
+      negative: {
+        'missing-field': { kind: 'exact', status: 400 },
+        'invalid-type': { kind: 'exact', status: 422 },
+        'invalid-path-param': { kind: 'family', family: '4xx' },
+        boundary: { kind: 'family', family: '4xx' }
+      },
+      security: {
+        'missing-header': { kind: 'family', family: '4xx' },
+        'invalid-header': { kind: 'family', family: '4xx' },
+        'missing-auth': { kind: 'exact', status: 401 },
+        'invalid-auth': { kind: 'exact', status: 401 },
+        'missing-csrf': { kind: 'exact', status: 403 },
+        'invalid-csrf': { kind: 'exact', status: 403 }
+      }
+    },
+    destructivePathPatterns: [
+      '/logout\\b',
+      '/sign-?out\\b',
+      '/password\\b',
+      '/2fa\\b',
+      '/two-?step',
+      '/action/',
+      '\\b(delete|remove|destroy|deactivate|disable|revoke|reset|close)\\b',
+      '(new-position|start-hiring|register)\\b'
+    ]
+  }
+};
+
+export function mergeConfig(config: Partial<HarApiTestConfig>): HarApiTestConfig {
+  return {
+    ...defaultConfig,
+    ...config,
+    output: {
+      ...defaultConfig.output,
+      ...config.output
+    },
+    filters: {
+      ...defaultConfig.filters,
+      ...config.filters
+    },
+    generation: {
+      ...defaultConfig.generation,
+      ...config.generation,
+      expectedStatuses: {
+        negative: {
+          ...defaultConfig.generation.expectedStatuses.negative,
+          ...config.generation?.expectedStatuses?.negative
+        },
+        security: {
+          ...defaultConfig.generation.expectedStatuses.security,
+          ...config.generation?.expectedStatuses?.security
+        }
+      }
+    }
+  };
+}

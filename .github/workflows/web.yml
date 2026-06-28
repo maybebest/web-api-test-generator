@@ -1,0 +1,333 @@
+# Web E2E suite (packages/web). Relocated from packages/web/.github/workflows/playwright.yml
+# and adapted for the npm-workspaces monorepo: deps install once at the repo root, all
+# package scripts run with working-directory: packages/web, and `uses:` action paths (cache,
+# artifacts, github-script) are repo-root-relative so they carry the packages/web/ prefix.
+name: Web E2E
+
+on:
+  pull_request:
+    paths:
+      - 'packages/web/**'
+      - '.github/workflows/web.yml'
+      - 'package.json'
+      - 'package-lock.json'
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'packages/web/**'
+      - '.github/workflows/web.yml'
+      - 'package.json'
+      - 'package-lock.json'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: packages/web
+
+jobs:
+  quality:
+    name: Playwright quality gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PLAYWRIGHT_TEST_BASE_URL: ${{ secrets.PLAYWRIGHT_TEST_BASE_URL || 'http://localhost:3000' }}
+      CI: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies (workspace root)
+        working-directory: ${{ github.workspace }}
+        run: npm ci
+
+      - name: Get Playwright version
+        id: pw-version
+        run: echo "version=$(node -p 'require("@playwright/test/package.json").version')" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-chromium-${{ steps.pw-version.outputs.version }}-${{ hashFiles('package-lock.json') }}
+
+      # Quality gates run smoke + accessibility on chromium only; skip the
+      # firefox/webkit downloads. Local full install stays on npm run pw:install.
+      - name: Install Playwright browsers (chromium)
+        run: npx playwright install --with-deps chromium
+
+      - name: Typecheck
+        run: npm run typecheck --if-present
+
+      - name: Lint
+        run: npm run lint --if-present
+
+      - name: Run AI script self-tests
+        run: npm run ai:test:self
+
+      - name: Check tree is free of runtime artifacts
+        run: npm run ai:clean:check
+
+      - name: Report selected AI brain
+        run: npm run ai:brain:doctor
+
+      - name: Validate agent-browser skill integration
+        run: npm run ai:browser:skill -- --check
+
+      - name: Install and diagnose agent-browser Chrome
+        if: vars.RUN_AGENT_BROWSER_DOCTOR == 'true'
+        run: |
+          npm run ai:browser:install
+          npm run ai:browser:doctor
+
+      - name: Validate all flow specs (strict)
+        run: npm run ai:spec:validate -- --dir specs --strict
+
+      - name: Check spec drift
+        run: npm run ai:spec:drift
+
+      - name: Validate all Chrome Recorder recordings
+        run: npm run ai:recording:validate -- --dir recordings
+
+      - name: Check recording drift
+        run: npm run ai:recording:drift
+
+      - name: Gate all generated spec/test pairs
+        run: npm run ai:test:gate:all
+
+      - name: Gate all recorded test pairs
+        run: npm run ai:recording:gate:all
+
+      - name: Run smoke tests
+        run: npm run test:e2e:smoke
+
+      - name: Run accessibility tests
+        run: npm run test:e2e:accessibility
+
+      # Generate only when results exist (a failed gate can stop the suite before
+      # any test runs); a real generate failure must fail the step, not be masked.
+      - name: Generate Allure report
+        if: ${{ always() && hashFiles('packages/web/allure-results/**') != '' }}
+        run: npm run allure:generate
+
+      - name: Upload Allure results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-allure-results
+          path: packages/web/allure-results/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload Allure report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-allure-report
+          path: packages/web/allure-report/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Write spec coverage catalog
+        if: always()
+        run: npm run ai:spec:catalog
+
+      - name: Upload spec coverage catalog
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-ai-spec-coverage
+          path: packages/web/docs/ai-testing/coverage.md
+          if-no-files-found: ignore
+          retention-days: 14
+
+      # Fork PRs get a read-only GITHUB_TOKEN: createComment would throw and fail
+      # the job. Same-repo guard plus continue-on-error keeps the gate signal clean.
+      - name: Post PR coverage summary
+        if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = 'packages/web/docs/ai-testing/coverage.md';
+            const marker = '<!-- ai-playwright-coverage-summary -->';
+            const coverage = fs.existsSync(path)
+              ? fs.readFileSync(path, 'utf8')
+              : 'Coverage catalog was not generated.';
+            const body = [
+              marker,
+              '## AI Playwright Coverage Summary',
+              '',
+              coverage,
+              '',
+              `Workflow run: ${context.runId}`
+            ].join('\n');
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              per_page: 100
+            });
+            const existing = comments.find((comment) => comment.body && comment.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body
+              });
+            }
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-playwright-report
+          path: packages/web/playwright-report/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-test-results
+          path: packages/web/test-results/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      # Gates copy failure evidence into .ai-runs/<run>/evidence and successive
+      # gate runs overwrite playwright-report/ — this is the only durable copy.
+      - name: Upload gate failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-ai-gate-evidence
+          path: packages/web/.ai-runs/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  regression-matrix:
+    name: Regression ${{ matrix.project }}
+    needs: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # Chromium-only by default to match the generated-test execution policy.
+        # Cross-browser is opt-in: set the repo variable PW_PROJECTS to e.g.
+        # ["chromium","firefox","webkit"].
+        project: ${{ fromJSON(vars.PW_PROJECTS || '["chromium"]') }}
+    env:
+      PLAYWRIGHT_TEST_BASE_URL: ${{ secrets.PLAYWRIGHT_TEST_BASE_URL || 'http://localhost:3000' }}
+      CI: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies (workspace root)
+        working-directory: ${{ github.workspace }}
+        run: npm ci
+
+      - name: Get Playwright version
+        id: pw-version
+        run: echo "version=$(node -p 'require("@playwright/test/package.json").version')" >> "$GITHUB_OUTPUT"
+
+      # Map the Playwright project name to its browser engine so derived
+      # projects (mobile-chrome, chromium-auth, ...) install the right binary.
+      - name: Resolve browser engine
+        id: engine
+        env:
+          PROJECT: ${{ matrix.project }}
+        run: |
+          case "$PROJECT" in
+            chromium|chromium-*|mobile-chrome) engine=chromium ;;
+            firefox|firefox-*) engine=firefox ;;
+            webkit|webkit-*|mobile-safari) engine=webkit ;;
+            *) engine="$PROJECT" ;;
+          esac
+          echo "engine=$engine" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ steps.engine.outputs.engine }}-${{ steps.pw-version.outputs.version }}-${{ hashFiles('package-lock.json') }}
+
+      # Install only the matrix project's engine instead of all three browsers.
+      - name: Install Playwright browsers (${{ steps.engine.outputs.engine }})
+        run: npx playwright install --with-deps ${{ steps.engine.outputs.engine }}
+
+      - name: Run regression tests
+        run: npx playwright test tests/regression --project=${{ matrix.project }}
+
+      - name: Generate Allure report
+        if: ${{ always() && hashFiles('packages/web/allure-results/**') != '' }}
+        run: npm run allure:generate
+
+      - name: Upload Allure results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-allure-results-${{ matrix.project }}
+          path: packages/web/allure-results/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload Allure report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-allure-report-${{ matrix.project }}
+          path: packages/web/allure-report/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-playwright-report-${{ matrix.project }}
+          path: packages/web/playwright-report/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-test-results-${{ matrix.project }}
+          path: packages/web/test-results/
+          if-no-files-found: ignore
+          retention-days: 14

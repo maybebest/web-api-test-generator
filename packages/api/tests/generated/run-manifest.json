@@ -1,0 +1,421 @@
+{
+  "generatedBy": "har-api-tests",
+  "sources": {
+    "harFiles": [
+      "examples/Login-logout.md",
+      "examples/User-profile-calendar.md",
+      "examples/User-profile-notifications.md",
+      "examples/User-profile-pref-default.md",
+      "examples/User-profile-preferences.md",
+      "examples/User-profile-recent-activ.md",
+      "examples/User-profile-security.md",
+      "examples/User-profile-support.md",
+      "examples/User-profile-talk-settings.md",
+      "examples/User-profile-two-step-auth.md",
+      "examples/User-profile.md",
+      "examples/change_pass.md",
+      "examples/session.har"
+    ],
+    "parsedEntries": 224,
+    "filteredEntries": 67
+  },
+  "summary": {
+    "totalTests": 107,
+    "endpointTests": 99,
+    "scenarioTests": 8,
+    "schemaCount": 0,
+    "schemaCoverage": "none",
+    "smokeEndpoints": 36,
+    "smokeEndpointsWithResponseBody": 0,
+    "categories": {
+      "smoke": 36,
+      "negative": 49,
+      "security": 14,
+      "crud": 6,
+      "scenario": 2
+    },
+    "executions": {
+      "active": 60,
+      "fixme": 47,
+      "skip": 0
+    },
+    "mutationRisks": {
+      "none": 28,
+      "guarded": 69,
+      "unsafe": 10
+    }
+  },
+  "environment": {
+    "required": [
+      "API_TOKEN",
+      "QUERY_ID",
+      "TEST_EMAIL",
+      "TEST_PASSWORD",
+      "USER_ID"
+    ],
+    "optional": [
+      "API_COOKIE",
+      "AUTH_BASE_URL",
+      "AUTH_BEARER_HOSTS",
+      "AUTH_COOKIE_DOMAIN",
+      "AUTH_COOKIE_HOST",
+      "AUTH_CSRF_HEADER",
+      "AUTH_CSRF_JSON_PATH",
+      "AUTH_CSRF_SOURCE_PATH",
+      "AUTH_LOGIN_BODY",
+      "AUTH_LOGIN_CONTENT_TYPE",
+      "AUTH_LOGIN_HEADERS",
+      "AUTH_LOGIN_METHOD",
+      "AUTH_LOGIN_PATH",
+      "AUTH_LOGIN_URL",
+      "AUTH_SETUP_ENABLED",
+      "BASE_URL",
+      "CACHE_BUSTER",
+      "CSRF_TOKEN",
+      "X_SITE_UUID"
+    ],
+    "variables": [
+      {
+        "name": "API_COOKIE",
+        "required": false,
+        "usedIn": [
+          "auth login setup"
+        ]
+      },
+      {
+        "name": "API_TOKEN",
+        "required": true,
+        "usedIn": [
+          "crud: stageautomation.heartpace.dev user/notifications create-read flow step 1: POST /user/notifications/ returns 200 payload",
+          "security: POST /user/notifications/ rejects invalid x-csrf-token payload",
+          "security: POST /user/notifications/ rejects missing x-csrf-token payload",
+          "smoke: POST /user/notifications/ returns 200 payload"
+        ]
+      },
+      {
+        "name": "AUTH_BASE_URL",
+        "required": false,
+        "usedIn": [
+          "auth login setup"
+        ]
+      },
+      {
+        "name": "AUTH_BEARER_HOSTS",
+        "required": false,
+        "usedIn": [
+          "auth login setup"
+        ]
+      },
+      {
+        "name": "AUTH_COOKIE_DOMAIN",
+        "required": false,
+        "usedIn": [
+          "auth login setup"
+        ]
+      },
+      {
+        "name": "AUTH_COOKIE_HOST",
+        "required": false,
+        "usedIn": [
+          "auth login setup"
+        ]
+      },
+      {
+        "name": "AUTH_CSRF_HEADER",
+        "required": false,
+        "usedIn": [
+          "auth login setup"
+        ]
+      },
+      {
+        "name": "AUTH_CSRF_JSON_PATH",
+        "required": false,
+        "usedIn": [
+          "auth login setup"
+        ]
+      },
+      {
+        "name": "AUTH_CSRF_SOURCE_PATH",
+        "required": false,
+        "usedIn": [
+          "auth login setup"
+        ]
+      },
+      {
+        "name": "AUTH_LOGIN_BODY",
+        "required": false,
+        "usedIn": [
+          "auth login setup"
+        ]
+      },
+      {
+        "name": "AUTH_LOGIN_CONTENT_TYPE",
+        "required": false,
+        "usedIn": [
+          "auth login setup"
+        ]
+      },
+      {
+        "name": "AUTH_LOGIN_HEADERS",
+        "required": false,
+        "usedIn": [
+          "auth login setup"
+        ]
+      },
+      {
+        "name": "AUTH_LOGIN_METHOD",
+        "required": false,
+        "usedIn": [
+          "auth login setup"
+        ]
+      },
+      {
+        "name": "AUTH_LOGIN_PATH",
+        "required": false,
+        "usedIn": [
+          "auth login setup"
+        ]
+      },
+      {
+        "name": "AUTH_LOGIN_URL",
+        "required": false,
+        "usedIn": [
+          "auth login setup"
+        ]
+      },
+      {
+        "name": "AUTH_SETUP_ENABLED",
+        "required": false,
+        "usedIn": [
+          "auth login setup"
+        ]
+      },
+      {
+        "name": "BASE_URL",
+        "required": false,
+        "usedIn": [
+          "base URL override"
+        ]
+      },
+      {
+        "name": "CACHE_BUSTER",
+        "required": false,
+        "usedIn": [
+          "security: GET /user/session rejects invalid x-csrf-token path",
+          "security: GET /user/session rejects missing x-csrf-token path",
+          "smoke: GET /user/session returns 200 path"
+        ]
+      },
+      {
+        "name": "CSRF_TOKEN",
+        "required": false,
+        "usedIn": [
+          "crud: stageautomation.heartpace.dev user/notifications create-read flow step 1: POST /user/notifications/ returns 200 header x-csrf-token",
+          "crud: stageautomation.heartpace.dev user/notifications create-read flow step 1: POST /user/notifications/ returns 200 payload",
+          "crud: stageautomation.heartpace.dev user/password read-update flow step 2: POST /user/password/{param} returns 200 header x-csrf-token",
+          "crud: stageautomation.heartpace.dev user/password read-update flow step 2: POST /user/password/{param} returns 200 payload",
+          "crud: stageautomation.heartpace.dev user/preferences read-update flow step 2: POST /user/preferences/{param} returns 200 header x-csrf-token",
+          "crud: stageautomation.heartpace.dev user/preferences read-update flow step 2: POST /user/preferences/{param} returns 200 payload",
+          "crud: stageautomation.heartpace.dev user/security read-update flow step 2: POST /user/security/{param} returns 200 header x-csrf-token",
+          "crud: stageautomation.heartpace.dev user/security read-update flow step 2: POST /user/security/{param} returns 200 payload",
+          "crud: stageautomation.heartpace.dev user/talk-settings read-update flow step 2: POST /user/talk-settings/{param} returns 200 header x-csrf-token",
+          "crud: stageautomation.heartpace.dev user/talk-settings read-update flow step 2: POST /user/talk-settings/{param} returns 200 payload",
+          "negative: POST /user/password/{param} rejects invalid path parameter header x-csrf-token",
+          "negative: POST /user/password/{param} rejects invalid path parameter payload",
+          "negative: POST /user/password/{param} rejects missing PasswordForm[password] header x-csrf-token",
+          "negative: POST /user/password/{param} rejects missing PasswordForm[password] payload",
+          "negative: POST /user/password/{param} rejects missing PasswordForm[password_old] header x-csrf-token",
+          "negative: POST /user/password/{param} rejects missing PasswordForm[password_old] payload",
+          "negative: POST /user/password/{param} rejects missing PasswordForm[password_repeat] header x-csrf-token",
+          "negative: POST /user/password/{param} rejects missing PasswordForm[password_repeat] payload",
+          "negative: POST /user/password/{param} rejects missing _csrf header x-csrf-token",
+          "negative: POST /user/preferences/{param} rejects invalid path parameter header x-csrf-token",
+          "negative: POST /user/preferences/{param} rejects invalid path parameter payload",
+          "negative: POST /user/preferences/{param} rejects missing PreferencesForm[dateFormat] header x-csrf-token",
+          "negative: POST /user/preferences/{param} rejects missing PreferencesForm[dateFormat] payload",
+          "negative: POST /user/preferences/{param} rejects missing PreferencesForm[language] header x-csrf-token",
+          "negative: POST /user/preferences/{param} rejects missing PreferencesForm[language] payload",
+          "negative: POST /user/preferences/{param} rejects missing PreferencesForm[timeFormat] header x-csrf-token",
+          "negative: POST /user/preferences/{param} rejects missing PreferencesForm[timeFormat] payload",
+          "negative: POST /user/preferences/{param} rejects missing PreferencesForm[timeZone] header x-csrf-token",
+          "negative: POST /user/preferences/{param} rejects missing PreferencesForm[timeZone] payload",
+          "negative: POST /user/preferences/{param} rejects missing _csrf header x-csrf-token",
+          "negative: POST /user/security/{param} rejects invalid path parameter header x-csrf-token",
+          "negative: POST /user/security/{param} rejects invalid path parameter payload",
+          "negative: POST /user/security/{param} rejects missing Security[support_can_login] header x-csrf-token",
+          "negative: POST /user/security/{param} rejects missing Security[support_can_login] payload",
+          "negative: POST /user/security/{param} rejects missing _csrf header x-csrf-token",
+          "negative: POST /user/talk-settings/{param} rejects invalid path parameter header x-csrf-token",
+          "negative: POST /user/talk-settings/{param} rejects invalid path parameter payload",
+          "negative: POST /user/talk-settings/{param} rejects missing TalkSettingsForm[talkDuration] header x-csrf-token",
+          "negative: POST /user/talk-settings/{param} rejects missing TalkSettingsForm[talkDuration] payload",
+          "negative: POST /user/talk-settings/{param} rejects missing _csrf header x-csrf-token",
+          "scenario: stageautomation.heartpace.dev profile read flow step 5: GET /me/account/oauth returns 200 header x-csrf-token",
+          "security: POST /user/notifications/ rejects invalid x-csrf-token payload",
+          "security: POST /user/notifications/ rejects missing x-csrf-token payload",
+          "security: POST /user/password/{param} rejects invalid x-csrf-token payload",
+          "security: POST /user/password/{param} rejects missing x-csrf-token payload",
+          "security: POST /user/preferences/{param} rejects invalid x-csrf-token payload",
+          "security: POST /user/preferences/{param} rejects missing x-csrf-token payload",
+          "security: POST /user/security/{param} rejects invalid x-csrf-token payload",
+          "security: POST /user/security/{param} rejects missing x-csrf-token payload",
+          "security: POST /user/talk-settings/{param} rejects invalid x-csrf-token payload",
+          "security: POST /user/talk-settings/{param} rejects missing x-csrf-token payload",
+          "smoke: GET /me/account/oauth returns 200 header x-csrf-token",
+          "smoke: GET /user/session returns 200 header x-csrf-token",
+          "smoke: POST /user/notifications/ returns 200 header x-csrf-token",
+          "smoke: POST /user/notifications/ returns 200 payload",
+          "smoke: POST /user/password/{param} returns 200 header x-csrf-token",
+          "smoke: POST /user/password/{param} returns 200 payload",
+          "smoke: POST /user/preferences/{param} returns 200 header x-csrf-token",
+          "smoke: POST /user/preferences/{param} returns 200 payload",
+          "smoke: POST /user/security/{param} returns 200 header x-csrf-token",
+          "smoke: POST /user/security/{param} returns 200 payload",
+          "smoke: POST /user/talk-settings/{param} returns 200 header x-csrf-token",
+          "smoke: POST /user/talk-settings/{param} returns 200 payload"
+        ]
+      },
+      {
+        "name": "QUERY_ID",
+        "required": true,
+        "usedIn": [
+          "crud: stageautomation.heartpace.dev user/notifications create-read flow step 1: POST /user/notifications/ returns 200 path",
+          "security: POST /user/notifications/ rejects invalid x-csrf-token path",
+          "security: POST /user/notifications/ rejects missing x-csrf-token path",
+          "smoke: POST /user/notifications/ returns 200 path"
+        ]
+      },
+      {
+        "name": "TEST_EMAIL",
+        "required": true,
+        "usedIn": [
+          "auth login setup",
+          "crud: stageautomation.heartpace.dev auth/main/login create-read flow step 1: POST /auth/main/login returns 200 payload.email",
+          "negative: POST /auth/main/login rejects missing password payload.email",
+          "scenario: stageautomation.heartpace.dev login account logout flow step 1: POST /auth/main/login returns 200 payload.email",
+          "smoke: POST /auth/main/login returns 200 payload.email"
+        ]
+      },
+      {
+        "name": "TEST_PASSWORD",
+        "required": true,
+        "usedIn": [
+          "auth login setup",
+          "crud: stageautomation.heartpace.dev auth/main/login create-read flow step 1: POST /auth/main/login returns 200 payload.password",
+          "crud: stageautomation.heartpace.dev user/password read-update flow step 2: POST /user/password/{param} returns 200 payload",
+          "negative: POST /auth/main/login rejects missing email payload.password",
+          "negative: POST /user/password/{param} rejects invalid path parameter payload",
+          "negative: POST /user/password/{param} rejects missing PasswordForm[password] payload",
+          "negative: POST /user/password/{param} rejects missing PasswordForm[password_old] payload",
+          "negative: POST /user/password/{param} rejects missing PasswordForm[password_repeat] payload",
+          "negative: POST /user/password/{param} rejects missing _csrf payload",
+          "scenario: stageautomation.heartpace.dev login account logout flow step 1: POST /auth/main/login returns 200 payload.password",
+          "security: POST /user/password/{param} rejects invalid x-csrf-token payload",
+          "security: POST /user/password/{param} rejects missing x-csrf-token payload",
+          "smoke: POST /auth/main/login returns 200 payload.password",
+          "smoke: POST /user/password/{param} returns 200 payload"
+        ]
+      },
+      {
+        "name": "USER_ID",
+        "required": true,
+        "usedIn": [
+          "crud: stageautomation.heartpace.dev user/notifications create-read flow step 2: GET /user/notifications/{param} returns 200 path",
+          "crud: stageautomation.heartpace.dev user/password read-update flow step 1: GET /user/password/{param} returns 200 path",
+          "crud: stageautomation.heartpace.dev user/password read-update flow step 2: POST /user/password/{param} returns 200 path",
+          "crud: stageautomation.heartpace.dev user/preferences read-update flow step 1: GET /user/preferences/{param} returns 200 path",
+          "crud: stageautomation.heartpace.dev user/preferences read-update flow step 2: POST /user/preferences/{param} returns 200 path",
+          "crud: stageautomation.heartpace.dev user/security read-update flow step 1: GET /user/security/{param} returns 200 path",
+          "crud: stageautomation.heartpace.dev user/security read-update flow step 2: POST /user/security/{param} returns 200 path",
+          "crud: stageautomation.heartpace.dev user/talk-settings read-update flow step 1: GET /user/talk-settings/{param} returns 200 path",
+          "crud: stageautomation.heartpace.dev user/talk-settings read-update flow step 2: POST /user/talk-settings/{param} returns 200 path",
+          "negative: POST /user/password/{param} rejects missing PasswordForm[password] path",
+          "negative: POST /user/password/{param} rejects missing PasswordForm[password_old] path",
+          "negative: POST /user/password/{param} rejects missing PasswordForm[password_repeat] path",
+          "negative: POST /user/password/{param} rejects missing _csrf path",
+          "negative: POST /user/preferences/{param} rejects missing PreferencesForm[dateFormat] path",
+          "negative: POST /user/preferences/{param} rejects missing PreferencesForm[language] path",
+          "negative: POST /user/preferences/{param} rejects missing PreferencesForm[timeFormat] path",
+          "negative: POST /user/preferences/{param} rejects missing PreferencesForm[timeZone] path",
+          "negative: POST /user/preferences/{param} rejects missing _csrf path",
+          "negative: POST /user/security/{param} rejects missing Security[support_can_login] path",
+          "negative: POST /user/security/{param} rejects missing _csrf path",
+          "negative: POST /user/talk-settings/{param} rejects missing TalkSettingsForm[talkDuration] path",
+          "negative: POST /user/talk-settings/{param} rejects missing _csrf path",
+          "scenario: stageautomation.heartpace.dev login account logout flow step 2: GET /me/account/settings/{param} returns 200 path",
+          "scenario: stageautomation.heartpace.dev profile read flow step 1: GET /users/user/{param} returns 200 path",
+          "scenario: stageautomation.heartpace.dev profile read flow step 2: GET /me/account/settings/{param} returns 200 path",
+          "security: POST /user/password/{param} rejects invalid x-csrf-token path",
+          "security: POST /user/password/{param} rejects missing x-csrf-token path",
+          "security: POST /user/preferences/{param} rejects invalid x-csrf-token path",
+          "security: POST /user/preferences/{param} rejects missing x-csrf-token path",
+          "security: POST /user/security/{param} rejects invalid x-csrf-token path",
+          "security: POST /user/security/{param} rejects missing x-csrf-token path",
+          "security: POST /user/talk-settings/{param} rejects invalid x-csrf-token path",
+          "security: POST /user/talk-settings/{param} rejects missing x-csrf-token path",
+          "smoke: GET /me/account/settings/{param} returns 200 path",
+          "smoke: GET /user/activity/{param} returns 200 path",
+          "smoke: GET /user/notifications/{param} returns 200 path",
+          "smoke: GET /user/password/{param} returns 200 path",
+          "smoke: GET /user/preferences/{param} returns 200 path",
+          "smoke: GET /user/security/{param} returns 200 path",
+          "smoke: GET /user/support/{param} returns 200 path",
+          "smoke: GET /user/talk-settings/{param} returns 200 path",
+          "smoke: GET /user/twostepauthsettings/{param} returns 200 path",
+          "smoke: GET /users/user/{param} returns 200 path",
+          "smoke: POST /user/password/{param} returns 200 path",
+          "smoke: POST /user/preferences/{param} returns 200 path",
+          "smoke: POST /user/security/{param} returns 200 path",
+          "smoke: POST /user/talk-settings/{param} returns 200 path"
+        ]
+      },
+      {
+        "name": "X_SITE_UUID",
+        "required": false,
+        "usedIn": [
+          "negative: POST /v1/approval/my-team/running-chains/requests rejects missing current_approver_uuid header x-site-uuid",
+          "negative: POST /v1/approval/my-team/running-chains/requests rejects missing order_by header x-site-uuid",
+          "negative: POST /v1/approval/my-team/running-chains/requests rejects missing page header x-site-uuid",
+          "negative: POST /v1/approval/my-team/running-chains/requests rejects missing per_page header x-site-uuid",
+          "negative: POST /v1/approval/my-team/running-chains/requests rejects missing perspective header x-site-uuid",
+          "negative: POST /v1/dashboard/activities/employees-stats/subordinates rejects missing perspective header x-site-uuid",
+          "negative: POST /v1/dashboard/activities/overall/tasks rejects missing page header x-site-uuid",
+          "negative: POST /v1/dashboard/activities/overall/tasks rejects missing per_page header x-site-uuid",
+          "negative: POST /v1/dashboard/activities/overall/tasks rejects missing period header x-site-uuid",
+          "negative: POST /v1/dashboard/activities/overall/tasks rejects missing perspective header x-site-uuid",
+          "negative: POST /v1/dashboard/employees/celebrations rejects missing page header x-site-uuid",
+          "negative: POST /v1/dashboard/employees/celebrations rejects missing per_page header x-site-uuid",
+          "negative: POST /v1/dashboard/employees/celebrations rejects missing perspective header x-site-uuid",
+          "negative: POST /v1/dashboard/employees/celebrations rejects missing today header x-site-uuid",
+          "negative: POST /v1/dashboard/employees/team rejects missing level header x-site-uuid",
+          "negative: POST /v1/dashboard/employees/team rejects missing page header x-site-uuid",
+          "negative: POST /v1/dashboard/employees/team rejects missing per_page header x-site-uuid",
+          "negative: POST /v1/dashboard/news-feed rejects missing perspective header x-site-uuid",
+          "negative: POST /v1/dashboard/talks/insights rejects missing period header x-site-uuid",
+          "negative: POST /v1/dashboard/talks/insights rejects missing perspective header x-site-uuid",
+          "scenario: stageautomation.heartpace.dev login account logout flow step 4: GET /me/account returns 200 header x-site-uuid",
+          "scenario: stageautomation.heartpace.dev profile read flow step 4: GET /me/account returns 200 header x-site-uuid",
+          "scenario: stageautomation.heartpace.dev profile read flow step 5: GET /me/account/oauth returns 200 header x-site-uuid",
+          "security: GET /me/account/oauth rejects invalid x-csrf-token header x-site-uuid",
+          "security: GET /me/account/oauth rejects missing x-csrf-token header x-site-uuid",
+          "smoke: GET /me/account returns 200 header x-site-uuid",
+          "smoke: GET /me/account/oauth returns 200 header x-site-uuid",
+          "smoke: GET /v1/navigation/top returns 200 header x-site-uuid",
+          "smoke: GET /v1/navigation/top/meta returns 200 header x-site-uuid",
+          "smoke: POST /v1/approval/my-team/running-chains/requests returns 200 header x-site-uuid",
+          "smoke: POST /v1/dashboard/activities/employees-stats/subordinates returns 200 header x-site-uuid",
+          "smoke: POST /v1/dashboard/activities/overall/tasks returns 200 header x-site-uuid",
+          "smoke: POST /v1/dashboard/employees/celebrations returns 200 header x-site-uuid",
+          "smoke: POST /v1/dashboard/employees/manager returns 200 header x-site-uuid",
+          "smoke: POST /v1/dashboard/employees/team returns 200 header x-site-uuid",
+          "smoke: POST /v1/dashboard/meta returns 200 header x-site-uuid",
+          "smoke: POST /v1/dashboard/meta/links returns 200 header x-site-uuid",
+          "smoke: POST /v1/dashboard/news-feed returns 200 header x-site-uuid",
+          "smoke: POST /v1/dashboard/talks/insights returns 200 header x-site-uuid",
+          "smoke: POST /v1/hiring/hiring-processes/my-team/action/new-position returns 200 header x-site-uuid",
+          "smoke: POST /v1/hiring/hiring-processes/my-team/action/start-hiring returns 200 header x-site-uuid"
+        ]
+      }
+    ]
+  }
+}

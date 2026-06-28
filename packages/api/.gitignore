@@ -1,0 +1,13 @@
+node_modules/
+dist/
+test-results/
+playwright-report/
+.env
+.env.local
+.auth/
+.DS_Store
+tests/.tmp/
+.calibration/
+# Unmasked WebInspector/HAR network captures (contain real tokens/cookies/PII).
+# Kept locally for reference; the generator only consumes examples/*.har (sanitized).
+examples/*.md

@@ -1,0 +1,10 @@
+# Root-level ignores for the workspaces monorepo.
+# Per-suite ignores (reports, .env, dist/, .auth/, .calibration/, allure-*, etc.)
+# live in packages/web/.gitignore and packages/api/.gitignore and still apply.
+node_modules/
+.DS_Store
+.idea/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

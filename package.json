@@ -1,0 +1,36 @@
+{
+  "name": "web-api-test-generator",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Monorepo combining an AI-assisted Playwright web E2E suite (packages/web, CommonJS) and a HAR-based API test generator (packages/api, ESM). npm workspaces keep each suite fully modular; the root only orchestrates.",
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "typecheck": "npm run web:typecheck && npm run api:lint",
+    "verify": "npm run web:typecheck && npm run api:lint && npm run api:build && npm run api:test",
+    "test": "npm run api:test",
+    "web:typecheck": "npm run -w packages/web typecheck",
+    "web:browsers:install": "npm run -w packages/web pw:install",
+    "web:test": "npm run -w packages/web test:e2e",
+    "web:test:list": "npm run -w packages/web test:e2e:list",
+    "web:test:smoke": "npm run -w packages/web test:e2e:smoke",
+    "web:test:regression": "npm run -w packages/web test:e2e:regression",
+    "web:test:ui": "npm run -w packages/web test:e2e:ui",
+    "web:report": "npm run -w packages/web test:e2e:report",
+    "web:ai:gate": "npm run -w packages/web ai:test:gate:all",
+    "web:ai:self": "npm run -w packages/web ai:test:self",
+    "web:ai:brain:doctor": "npm run -w packages/web ai:brain:doctor",
+    "api:build": "npm run -w packages/api build",
+    "api:lint": "npm run -w packages/api lint",
+    "api:test": "npm run -w packages/api test:unit",
+    "api:ci": "npm run -w packages/api ci",
+    "api:generate": "npm run -w packages/api generate --",
+    "api:test:generated": "npm run -w packages/api test:api:generated",
+    "api:test:smoke": "npm run -w packages/api test:api:smoke",
+    "api:calibrate:report": "npm run -w packages/api calibrate:report"
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "name": "har-api-tests",
+  "version": "0.1.0",
+  "description": "Generate maintainable Playwright API tests from HAR files.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "ci": "npm run lint && npm run build && npm run test:unit && npm run scan:secrets",
+    "scan:secrets": "node scripts/scan-secrets.mjs tests/generated config",
+    "generate": "tsx src/cli/generate.ts",
+    "test": "npm run test:unit",
+    "test:unit": "vitest run",
+    "test:api:smoke": "playwright test tests/generated --grep \"@smoke\"",
+    "test:api:smoke:read": "playwright test tests/generated --grep \"smoke: GET\"",
+    "test:api:generated": "playwright test tests/generated",
+    "test:api:calibrate": "CALIBRATION_MODE=true playwright test tests/generated --grep \"@calibrate\"",
+    "calibrate:report": "node scripts/calibration-report.mjs",
+    "lint": "tsc --noEmit -p tsconfig.test.json",
+    "format": "prettier --write \"**/*.{ts,json,md}\""
+  },
+  "keywords": [
+    "har",
+    "api-testing",
+    "playwright",
+    "sdet",
+    "aqa"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@playwright/test": "^1.54.0",
+    "ajv": "^8.17.1",
+    "dotenv": "^16.4.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.7",
+    "prettier": "^3.4.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vitest": "^4.1.7"
+  }
+}

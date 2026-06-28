@@ -1,0 +1,14 @@
+{
+  "$schema": "https://agent-browser.dev/schema.json",
+  "contentBoundaries": true,
+  "maxOutput": 50000,
+  "allowedDomains": [
+    "localhost",
+    "*.localhost",
+    "127.0.0.1",
+    "0.0.0.0",
+    "www.dev.rtd.js-devops.co.uk",
+    "www.dev.pollen.js-devops.co.uk"
+  ],
+  "args": "--disable-gpu"
+}

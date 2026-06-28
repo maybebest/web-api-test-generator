@@ -1,0 +1,317 @@
+[
+  {
+    "title": "negative: GET /me/account/settings/{param} rejects invalid path parameter",
+    "hostname": "stageautomation.heartpace.dev",
+    "observedStatus": 404
+  },
+  {
+    "title": "negative: GET /user/activity/{param} rejects invalid path parameter",
+    "hostname": "stageautomation.heartpace.dev",
+    "observedStatus": 404
+  },
+  {
+    "title": "negative: GET /user/notifications/{param} rejects invalid path parameter",
+    "hostname": "stageautomation.heartpace.dev",
+    "observedStatus": 404
+  },
+  {
+    "title": "negative: GET /user/password/{param} rejects invalid path parameter",
+    "hostname": "stageautomation.heartpace.dev",
+    "observedStatus": 404
+  },
+  {
+    "title": "negative: GET /user/preferences/{param} rejects invalid path parameter",
+    "hostname": "stageautomation.heartpace.dev",
+    "observedStatus": 404
+  },
+  {
+    "title": "negative: GET /user/security/{param} rejects invalid path parameter",
+    "hostname": "stageautomation.heartpace.dev",
+    "observedStatus": 404
+  },
+  {
+    "title": "negative: GET /user/support/{param} rejects invalid path parameter",
+    "hostname": "stageautomation.heartpace.dev",
+    "observedStatus": 404
+  },
+  {
+    "title": "negative: GET /user/talk-settings/{param} rejects invalid path parameter",
+    "hostname": "stageautomation.heartpace.dev",
+    "observedStatus": 404
+  },
+  {
+    "title": "negative: GET /user/twostepauthsettings/{param} rejects invalid path parameter",
+    "hostname": "stageautomation.heartpace.dev",
+    "observedStatus": 404
+  },
+  {
+    "title": "negative: GET /users/user/{param} rejects invalid path parameter",
+    "hostname": "stageautomation.heartpace.dev",
+    "observedStatus": 404
+  },
+  {
+    "title": "negative: POST /auth/main/login rejects missing email",
+    "hostname": "stageautomation.heartpace.dev",
+    "observedStatus": 200
+  },
+  {
+    "title": "negative: POST /auth/main/login rejects missing password",
+    "hostname": "stageautomation.heartpace.dev",
+    "observedStatus": 200
+  },
+  {
+    "title": "negative: POST /user/password/{param} rejects invalid path parameter",
+    "hostname": "stageautomation.heartpace.dev",
+    "observedStatus": 404
+  },
+  {
+    "title": "negative: POST /user/password/{param} rejects missing _csrf",
+    "hostname": "stageautomation.heartpace.dev",
+    "observedStatus": 200
+  },
+  {
+    "title": "negative: POST /user/password/{param} rejects missing PasswordForm[password_old]",
+    "hostname": "stageautomation.heartpace.dev",
+    "observedStatus": 200
+  },
+  {
+    "title": "negative: POST /user/password/{param} rejects missing PasswordForm[password_repeat]",
+    "hostname": "stageautomation.heartpace.dev",
+    "observedStatus": 200
+  },
+  {
+    "title": "negative: POST /user/password/{param} rejects missing PasswordForm[password]",
+    "hostname": "stageautomation.heartpace.dev",
+    "observedStatus": 200
+  },
+  {
+    "title": "negative: POST /user/preferences/{param} rejects invalid path parameter",
+    "hostname": "stageautomation.heartpace.dev",
+    "observedStatus": 404
+  },
+  {
+    "title": "negative: POST /user/preferences/{param} rejects missing _csrf",
+    "hostname": "stageautomation.heartpace.dev",
+    "observedStatus": 200
+  },
+  {
+    "title": "negative: POST /user/preferences/{param} rejects missing PreferencesForm[dateFormat]",
+    "hostname": "stageautomation.heartpace.dev",
+    "observedStatus": 200
+  },
+  {
+    "title": "negative: POST /user/preferences/{param} rejects missing PreferencesForm[language]",
+    "hostname": "stageautomation.heartpace.dev",
+    "observedStatus": 200
+  },
+  {
+    "title": "negative: POST /user/preferences/{param} rejects missing PreferencesForm[timeFormat]",
+    "hostname": "stageautomation.heartpace.dev",
+    "observedStatus": 200
+  },
+  {
+    "title": "negative: POST /user/preferences/{param} rejects missing PreferencesForm[timeZone]",
+    "hostname": "stageautomation.heartpace.dev",
+    "observedStatus": 200
+  },
+  {
+    "title": "negative: POST /user/security/{param} rejects invalid path parameter",
+    "hostname": "stageautomation.heartpace.dev",
+    "observedStatus": 404
+  },
+  {
+    "title": "negative: POST /user/security/{param} rejects missing _csrf",
+    "hostname": "stageautomation.heartpace.dev",
+    "observedStatus": 200
+  },
+  {
+    "title": "negative: POST /user/security/{param} rejects missing Security[support_can_login]",
+    "hostname": "stageautomation.heartpace.dev",
+    "observedStatus": 200
+  },
+  {
+    "title": "negative: POST /user/talk-settings/{param} rejects invalid path parameter",
+    "hostname": "stageautomation.heartpace.dev",
+    "observedStatus": 404
+  },
+  {
+    "title": "negative: POST /user/talk-settings/{param} rejects missing _csrf",
+    "hostname": "stageautomation.heartpace.dev",
+    "observedStatus": 200
+  },
+  {
+    "title": "negative: POST /user/talk-settings/{param} rejects missing TalkSettingsForm[talkDuration]",
+    "hostname": "stageautomation.heartpace.dev",
+    "observedStatus": 200
+  },
+  {
+    "title": "negative: POST /v1/approval/my-team/running-chains/requests rejects missing current_approver_uuid",
+    "hostname": "workforce.heartpace.dev",
+    "observedStatus": 200
+  },
+  {
+    "title": "negative: POST /v1/approval/my-team/running-chains/requests rejects missing order_by",
+    "hostname": "workforce.heartpace.dev",
+    "observedStatus": 200
+  },
+  {
+    "title": "negative: POST /v1/approval/my-team/running-chains/requests rejects missing page",
+    "hostname": "workforce.heartpace.dev",
+    "observedStatus": 422
+  },
+  {
+    "title": "negative: POST /v1/approval/my-team/running-chains/requests rejects missing per_page",
+    "hostname": "workforce.heartpace.dev",
+    "observedStatus": 200
+  },
+  {
+    "title": "negative: POST /v1/approval/my-team/running-chains/requests rejects missing perspective",
+    "hostname": "workforce.heartpace.dev",
+    "observedStatus": 200
+  },
+  {
+    "title": "negative: POST /v1/dashboard/activities/employees-stats/subordinates rejects missing perspective",
+    "hostname": "apps.heartpace.dev",
+    "observedStatus": 200
+  },
+  {
+    "title": "negative: POST /v1/dashboard/activities/overall/tasks rejects missing page",
+    "hostname": "apps.heartpace.dev",
+    "observedStatus": 200
+  },
+  {
+    "title": "negative: POST /v1/dashboard/activities/overall/tasks rejects missing per_page",
+    "hostname": "apps.heartpace.dev",
+    "observedStatus": 200
+  },
+  {
+    "title": "negative: POST /v1/dashboard/activities/overall/tasks rejects missing period",
+    "hostname": "apps.heartpace.dev",
+    "observedStatus": 422
+  },
+  {
+    "title": "negative: POST /v1/dashboard/activities/overall/tasks rejects missing perspective",
+    "hostname": "apps.heartpace.dev",
+    "observedStatus": 422
+  },
+  {
+    "title": "negative: POST /v1/dashboard/employees/celebrations rejects missing page",
+    "hostname": "apps.heartpace.dev",
+    "observedStatus": 422
+  },
+  {
+    "title": "negative: POST /v1/dashboard/employees/celebrations rejects missing per_page",
+    "hostname": "apps.heartpace.dev",
+    "observedStatus": 422
+  },
+  {
+    "title": "negative: POST /v1/dashboard/employees/celebrations rejects missing perspective",
+    "hostname": "apps.heartpace.dev",
+    "observedStatus": 422
+  },
+  {
+    "title": "negative: POST /v1/dashboard/employees/celebrations rejects missing today",
+    "hostname": "apps.heartpace.dev",
+    "observedStatus": 422
+  },
+  {
+    "title": "negative: POST /v1/dashboard/employees/team rejects missing level",
+    "hostname": "apps.heartpace.dev",
+    "observedStatus": 200
+  },
+  {
+    "title": "negative: POST /v1/dashboard/employees/team rejects missing page",
+    "hostname": "apps.heartpace.dev",
+    "observedStatus": 422
+  },
+  {
+    "title": "negative: POST /v1/dashboard/employees/team rejects missing per_page",
+    "hostname": "apps.heartpace.dev",
+    "observedStatus": 422
+  },
+  {
+    "title": "negative: POST /v1/dashboard/news-feed rejects missing perspective",
+    "hostname": "apps.heartpace.dev",
+    "observedStatus": 422
+  },
+  {
+    "title": "negative: POST /v1/dashboard/talks/insights rejects missing period",
+    "hostname": "apps.heartpace.dev",
+    "observedStatus": 422
+  },
+  {
+    "title": "negative: POST /v1/dashboard/talks/insights rejects missing perspective",
+    "hostname": "apps.heartpace.dev",
+    "observedStatus": 422
+  },
+  {
+    "title": "security: GET /me/account/oauth rejects invalid x-csrf-token",
+    "hostname": "stageautomation.heartpace.dev",
+    "observedStatus": 200
+  },
+  {
+    "title": "security: GET /me/account/oauth rejects missing x-csrf-token",
+    "hostname": "stageautomation.heartpace.dev",
+    "observedStatus": 200
+  },
+  {
+    "title": "security: GET /user/session rejects invalid x-csrf-token",
+    "hostname": "stageautomation.heartpace.dev",
+    "observedStatus": 200
+  },
+  {
+    "title": "security: GET /user/session rejects missing x-csrf-token",
+    "hostname": "stageautomation.heartpace.dev",
+    "observedStatus": 200
+  },
+  {
+    "title": "security: POST /user/notifications/ rejects invalid x-csrf-token",
+    "hostname": "stageautomation.heartpace.dev",
+    "observedStatus": 200
+  },
+  {
+    "title": "security: POST /user/notifications/ rejects missing x-csrf-token",
+    "hostname": "stageautomation.heartpace.dev",
+    "observedStatus": 200
+  },
+  {
+    "title": "security: POST /user/password/{param} rejects invalid x-csrf-token",
+    "hostname": "stageautomation.heartpace.dev",
+    "observedStatus": 200
+  },
+  {
+    "title": "security: POST /user/password/{param} rejects missing x-csrf-token",
+    "hostname": "stageautomation.heartpace.dev",
+    "observedStatus": 200
+  },
+  {
+    "title": "security: POST /user/preferences/{param} rejects invalid x-csrf-token",
+    "hostname": "stageautomation.heartpace.dev",
+    "observedStatus": 200
+  },
+  {
+    "title": "security: POST /user/preferences/{param} rejects missing x-csrf-token",
+    "hostname": "stageautomation.heartpace.dev",
+    "observedStatus": 200
+  },
+  {
+    "title": "security: POST /user/security/{param} rejects invalid x-csrf-token",
+    "hostname": "stageautomation.heartpace.dev",
+    "observedStatus": 200
+  },
+  {
+    "title": "security: POST /user/security/{param} rejects missing x-csrf-token",
+    "hostname": "stageautomation.heartpace.dev",
+    "observedStatus": 200
+  },
+  {
+    "title": "security: POST /user/talk-settings/{param} rejects invalid x-csrf-token",
+    "hostname": "stageautomation.heartpace.dev",
+    "observedStatus": 200
+  },
+  {
+    "title": "security: POST /user/talk-settings/{param} rejects missing x-csrf-token",
+    "hostname": "stageautomation.heartpace.dev",
+    "observedStatus": 200
+  }
+]

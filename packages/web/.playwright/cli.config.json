@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "defaults": {
+    "headed": true,
+    "artifactDirectory": ".playwright-cli"
+  },
+  "allowedOrigins": [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://0.0.0.0:3000",
+    "https://www.dev.rtd.js-devops.co.uk",
+    "https://www.dev.pollen.js-devops.co.uk"
+  ],
+  "notes": "Safe minimal defaults only. allowedOrigins is the MCP/CLI domain boundary and must mirror agent-browser.json allowedDomains (plus the dev-server port) — update both together; see ai/workflows/playwright-mcp-workflow.md. Add team-specific Playwright CLI settings here once the local CLI schema is confirmed."
+}
