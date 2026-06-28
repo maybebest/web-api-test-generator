@@ -1,0 +1,26 @@
+# Repo-wide secret-scan config for gitleaks (https://github.com/gitleaks/gitleaks),
+# consumed by .github/workflows/secret-scan.yml. Extends gitleaks' built-in ruleset and
+# allowlists the deliberately-fake fixtures and sanitized placeholders that are committed on
+# purpose.
+#
+# NOTE: this gate could not be executed in the authoring sandbox (no gitleaks binary). The
+# allowlist below covers every committed secret-shaped string found via `git grep` at authoring
+# time (the two test-fixture trees plus the sample-capture demo token). If a first CI run flags
+# another sanitized fixture, add its path or a specific regex here rather than weakening a rule.
+
+title = "web-api-test-generator gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Deliberately-fake test fixtures and sanitized committed placeholders"
+paths = [
+  # Self-test fixtures that intentionally embed fake tokens/keys to exercise secret detectors.
+  '''packages/web/scripts/ai/__tests__/.*''',
+  '''packages/api/tests/unit/.*''',
+]
+regexes = [
+  # Sanitized demo bearer token in the committed sample capture (packages/api/examples/session.har).
+  '''demo-token-that-should-never-be-generated''',
+]

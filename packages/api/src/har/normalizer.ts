@@ -4,6 +4,7 @@ import type { JsonValue } from '../types/json.js';
 import { maskHeaders, maskJsonValue, maskString, normalizeHeaderName } from '../utils/masking.js';
 import {
   buildPathWithQuery,
+  buildPathWithQueryFromPairs,
   firstStablePathSegment,
   inferPathPattern,
   makeEndpointId,
@@ -41,7 +42,8 @@ export function normalizeHarEntry(
 ): NormalizedHarEntry {
   const url = new URL(entry.request.url);
   const method = entry.request.method.toUpperCase() as SupportedHttpMethod;
-  const rawQuery = toRecord(entry.request.queryString ?? urlSearchParamsToHarPairs(url.searchParams));
+  const queryPairs = entry.request.queryString ?? urlSearchParamsToHarPairs(url.searchParams);
+  const rawQuery = toRecord(queryPairs);
   const query = maskQuery(rawQuery);
   const { pattern, dynamicSegments } = inferPathPattern(url.pathname);
   const { maskedPath, placeholders } = maskDynamicPath(url.pathname);
@@ -63,7 +65,9 @@ export function normalizeHarEntry(
     hostname: url.hostname,
     path: url.pathname,
     pathPattern: pattern,
-    pathWithQuery: buildPathWithQuery(maskedPath, query),
+    pathWithQuery: config.generation.preserveDuplicateQueryParams
+      ? buildPathWithQueryFromPairs(maskedPath, maskQueryPairs(queryPairs))
+      : buildPathWithQuery(maskedPath, query),
     query,
     requestHeaders: maskHeaders(toRecord(entry.request.headers ?? []), config),
     requestBody: requestBody === undefined ? undefined : maskPayload(requestBody, config, entry.request.postData?.mimeType),
@@ -99,6 +103,16 @@ function maskQuery(query: Record<string, string>): Record<string, string> {
     output[key] = maskQueryValue(key, value);
   }
   return output;
+}
+
+// Ordered, duplicate-preserving counterpart to maskQuery: keeps repeated names and original order
+// (key normalized to lower-case to match the collapsed record's masking decisions). Used only when
+// generation.preserveDuplicateQueryParams is enabled.
+function maskQueryPairs(pairs: HarNameValue[]): Array<[string, string]> {
+  return pairs.map((pair) => {
+    const key = normalizeHeaderName(pair.name);
+    return [key, maskQueryValue(key, pair.value)];
+  });
 }
 
 function maskQueryValue(key: string, value: string): string {

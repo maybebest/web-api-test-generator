@@ -5,6 +5,12 @@
 name: API
 
 on:
+  # Manual re-run button (flake investigation / on-demand regeneration) plus a nightly
+  # deterministic run: lint + build + unit + drift + the mock-backed replay below need no
+  # live credentials, so the scheduled run is safe and self-contained.
+  workflow_dispatch: {}
+  schedule:
+    - cron: '0 6 * * *'
   pull_request:
     paths:
       - 'packages/api/**'
@@ -58,11 +64,30 @@ jobs:
       - name: Validate
         run: npm run ci
 
-      - name: Generated suite drift check
+      - name: Audit dependencies (advisory)
+        working-directory: ${{ github.workspace }}
+        run: npm audit --audit-level=high || true
+
+      # Deterministic, credential-free execution of the generated @smoke suite against an in-repo
+      # mock (scripts/replay-mock-server.mjs). Proves the generated tests run and assert green
+      # without a live system-under-test — unlike the opt-in live smoke below.
+      - name: Generated suite replay (mock-backed)
+        run: npm run test:api:replay
+
+      # The committed tests/generated suite is produced from the captures recorded in
+      # run-manifest.json. Most are gitignored raw WebInspector captures (examples/*.md) that
+      # contain real secrets and are therefore absent in CI checkouts (only the sanitized
+      # examples/session.har is committed). Regenerating without them cannot reproduce the committed
+      # output, so only run the regenerate-and-diff when every source capture is actually present
+      # (e.g. locally) — otherwise skip with a notice rather than false-fail. The mock-backed replay
+      # above is what exercises the committed suite in CI.
+      - name: Generated suite drift check (when source captures are present)
         run: |
-          npm run generate -- --har ./examples
-          git add -A tests/generated
-          git diff --cached --exit-code -- tests/generated
+          if node -e "const fs=require('fs');const m=require('./tests/generated/run-manifest.json');const miss=m.sources.harFiles.filter(f=>!fs.existsSync(f));if(miss.length){console.log('Drift check skipped — source captures not in this checkout: '+miss.join(', '));process.exit(1)}"; then
+            npm run generate -- --har ./examples
+            git add -A tests/generated
+            git diff --cached --exit-code -- tests/generated
+          fi
 
       - name: Generated API smoke
         if: ${{ env.RUN_GENERATED_API_SMOKE == 'true' && env.SMOKE_BASE_URL != '' && env.SMOKE_USER_ID != '' }}

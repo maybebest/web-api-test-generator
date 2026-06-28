@@ -8,6 +8,7 @@
     "config/**/*.ts",
     "tests/**/*.ts",
     "playwright.config.ts",
+    "playwright.replay.config.ts",
     "vitest.config.ts"
   ],
   "exclude": ["node_modules", "dist"]

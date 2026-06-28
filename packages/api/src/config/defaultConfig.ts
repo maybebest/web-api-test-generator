@@ -141,7 +141,8 @@ export const defaultConfig: HarApiTestConfig = {
       '/action/',
       '\\b(delete|remove|destroy|deactivate|disable|revoke|reset|close)\\b',
       '(new-position|start-hiring|register)\\b'
-    ]
+    ],
+    preserveDuplicateQueryParams: false
   }
 };
 

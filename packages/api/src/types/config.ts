@@ -54,6 +54,10 @@ export interface HarApiTestConfig {
     // Path patterns (regex, matched case-insensitively against pathPattern) that mark a mutating
     // smoke as destructive -> generated as test.fixme so it can't run unattended.
     destructivePathPatterns?: string[];
+    // When true, the generated request path preserves repeated query parameters (?id=1&id=2) in
+    // their original order instead of collapsing them to the last value. Default false keeps the
+    // collapsed, key-sorted query string (and therefore committed output) unchanged.
+    preserveDuplicateQueryParams?: boolean;
   };
 }
 

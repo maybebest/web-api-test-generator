@@ -5,6 +5,11 @@
 name: Web E2E
 
 on:
+  # Manual re-run button for flake investigation / on-demand cross-browser runs (set the
+  # PW_PROJECTS repo variable). No `schedule:` here on purpose: the web suite's
+  # smoke/accessibility/regression need a live SUT (PLAYWRIGHT_TEST_BASE_URL), so a cron would
+  # go red without a persistent environment — add one once that environment is wired.
+  workflow_dispatch: {}
   pull_request:
     paths:
       - 'packages/web/**'
@@ -70,6 +75,10 @@ jobs:
       # firefox/webkit downloads. Local full install stays on npm run pw:install.
       - name: Install Playwright browsers (chromium)
         run: npx playwright install --with-deps chromium
+
+      - name: Audit dependencies (advisory)
+        working-directory: ${{ github.workspace }}
+        run: npm audit --audit-level=high || true
 
       - name: Typecheck
         run: npm run typecheck --if-present

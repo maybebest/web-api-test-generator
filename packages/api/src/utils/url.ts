@@ -92,6 +92,20 @@ export function buildPathWithQuery(pathname: string, query: Record<string, strin
   return queryString ? `${pathname}?${queryString}` : pathname;
 }
 
+// Variant that serializes ordered name/value pairs, preserving repeated keys (?id=1&id=2) and
+// their original order. Used only when generation.preserveDuplicateQueryParams is enabled; the
+// default path uses buildPathWithQuery (collapsed, key-sorted) to keep committed output stable.
+export function buildPathWithQueryFromPairs(
+  pathname: string,
+  pairs: ReadonlyArray<readonly [string, string]>
+): string {
+  const queryString = pairs
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeQueryValue(value)}`)
+    .join('&');
+
+  return queryString ? `${pathname}?${queryString}` : pathname;
+}
+
 export function toBaseUrl(url: URL): string {
   return `${url.protocol}//${url.host}`;
 }

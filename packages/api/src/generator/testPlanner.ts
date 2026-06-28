@@ -534,6 +534,8 @@ function buildScenario(
 ): GeneratedScenarioTestCase {
   const id = `${slugify(title)}-${shortHash(entries.map((entry) => entry.id).join('|'), 6)}`;
 
+  warnPossibleMissingCorrelation(`${category}: ${title}`, entries);
+
   return {
     id,
     title: `${category}: ${title}`,
@@ -554,6 +556,65 @@ function buildScenario(
       responseTimeBudgetMs: Math.max(config.responseTimeBudgetMs, entry.responseTimeMs)
     }))
   };
+}
+
+// Generation-time advisory (stderr only — emits NO test output, so committed specs are unchanged).
+// Generated scenarios replay each observed step verbatim and resolve ${PLACEHOLDER} values from the
+// environment; they do NOT chain data from one step's response into the next. When a step that
+// follows a create/login reuses such a placeholder, the flow may not actually exercise correlated
+// data (e.g. a read using a static ${USER_ID} rather than the id returned by the preceding create).
+// Surface that so the author can verify or wire correlation manually.
+function warnPossibleMissingCorrelation(title: string, entries: NormalizedHarEntry[]): void {
+  if (entries.length < 2) {
+    return;
+  }
+
+  const producerIndex = entries.findIndex(
+    (entry) =>
+      entry.method === 'POST' && (/login/i.test(entry.pathPattern) || !hasTrailingDynamicSegment(entry))
+  );
+  if (producerIndex === -1) {
+    return;
+  }
+
+  const reused = new Set<string>();
+  entries.forEach((entry, index) => {
+    if (index <= producerIndex) {
+      return;
+    }
+    for (const name of placeholdersInStep(entry)) {
+      reused.add(name);
+    }
+  });
+  if (reused.size === 0) {
+    return;
+  }
+
+  console.warn(
+    `[har-api-tests] scenario "${title}" reuses ${[...reused].sort().join(', ')} from the environment ` +
+      `in a step after a create/login, not from the prior step's response. Generated scenarios do not ` +
+      `chain response data — verify the flow exercises correlated values (or wire the correlation manually).`
+  );
+}
+
+function placeholdersInStep(entry: NormalizedHarEntry): string[] {
+  const haystacks = [
+    entry.pathWithQuery,
+    ...Object.values(entry.requestHeaders),
+    entry.requestBody === undefined
+      ? ''
+      : typeof entry.requestBody === 'string'
+        ? entry.requestBody
+        : JSON.stringify(entry.requestBody)
+  ];
+
+  const names = new Set<string>();
+  for (const haystack of haystacks) {
+    for (const match of haystack.matchAll(/\$\{([A-Z0-9_]+)\}/g)) {
+      names.add(match[1]);
+    }
+  }
+  return [...names];
 }
 
 function dedupeEntries(entries: NormalizedHarEntry[]): NormalizedHarEntry[] {
