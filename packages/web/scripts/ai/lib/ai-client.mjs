@@ -3,9 +3,12 @@
 // claude/codex are accepted aliases for the CLI brains):
 //   1. ANTHROPIC_API_KEY set (env or .env) -> 'anthropic'   (Anthropic Messages REST API via fetch)
 //   2. OPENAI_API_KEY set (env or .env)    -> 'openai'      (OpenAI Chat Completions via fetch)
-//   3. `claude` binary on PATH             -> 'claude-cli'  (Claude Code CLI, headless `claude -p`)
-//   4. `codex` binary on PATH              -> 'codex-cli'   (`codex exec`)
+//   3. `claude` binary resolvable          -> 'claude-cli'  (Claude Code CLI, headless `claude -p`)
+//   4. `codex` binary resolvable           -> 'codex-cli'   (`codex exec`)
 //   5. otherwise                           -> 'none'
+// "Resolvable" (see resolveBinary) means: an AI_BRAIN_<NAME>_PATH override, OR on PATH, OR in a
+// common off-PATH install location (e.g. ~/.claude/local/claude) — so the CLI brains work with no
+// API key even when the installed app/CLI is not on the bare PATH.
 // AI_BRAIN forces a specific kind and errors clearly when the forced brain is
 // unavailable (missing key or missing binary). selectBrain is pure: it only reads
 // env + the filesystem (PATH lookup) and never makes a network call or spawns a
@@ -175,41 +178,72 @@ export function keySource(resolved, name) {
   return resolved.sources[name] === '.env' ? '.env' : 'environment';
 }
 
-// Checks whether an executable named `name` exists on process.env.PATH.
-// On darwin/linux verifies the file is executable (X_OK); Windows-ish fallback
-// appends common executable extensions.
-export function hasBinary(name, env = process.env) {
-  const rawPath = env.PATH ?? env.Path ?? '';
-  if (!rawPath) {
+function isExecutableFile(fullPath) {
+  if (!fullPath || !existsSync(fullPath)) {
     return false;
   }
+  if (process.platform === 'win32') {
+    return true;
+  }
+  try {
+    accessSync(fullPath, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
-  const dirs = rawPath.split(path.delimiter).filter(Boolean);
+// Per-binary off-PATH install locations so an installed Claude/Codex CLI is found even when its
+// directory is not on PATH (e.g. the Claude Code CLI installs to ~/.claude/local/claude).
+function commonBinaryLocations(name, env) {
+  const home = (env.HOME ?? env.USERPROFILE ?? '').trim();
+  if (!home) {
+    return [];
+  }
+  const byName = {
+    claude: [path.join(home, '.claude', 'local', 'claude')],
+    codex: [path.join(home, '.codex', 'bin', 'codex')]
+  };
+  return byName[name] ?? [];
+}
+
+// Resolves an executable named `name` to an absolute path, or undefined. Resolution order:
+//   1. AI_BRAIN_<NAME>_PATH override (point directly at a binary anywhere; e.g. AI_BRAIN_CLAUDE_PATH)
+//   2. process.env.PATH entries (darwin/linux verify X_OK; Windows-ish appends .exe/.cmd/.bat)
+//   3. common off-PATH install locations (e.g. ~/.claude/local/claude)
+// This is what lets the CLI brains be used with no API key even when the installed app/CLI is not
+// on the bare PATH.
+export function resolveBinary(name, env = process.env) {
+  const override = (env['AI_BRAIN_' + name.toUpperCase() + '_PATH'] ?? '').trim();
+  if (override) {
+    return isExecutableFile(override) ? override : undefined;
+  }
+
+  const rawPath = env.PATH ?? env.Path ?? '';
   const candidates = process.platform === 'win32'
     ? [name, `${name}.exe`, `${name}.cmd`, `${name}.bat`]
     : [name];
-
-  for (const dir of dirs) {
+  for (const dir of rawPath.split(path.delimiter).filter(Boolean)) {
     for (const candidate of candidates) {
       const fullPath = path.join(dir, candidate);
-      if (!existsSync(fullPath)) {
-        continue;
-      }
-
-      if (process.platform === 'win32') {
-        return true;
-      }
-
-      try {
-        accessSync(fullPath, constants.X_OK);
-        return true;
-      } catch {
-        // Not executable; keep looking.
+      if (isExecutableFile(fullPath)) {
+        return fullPath;
       }
     }
   }
 
-  return false;
+  for (const fullPath of commonBinaryLocations(name, env)) {
+    if (isExecutableFile(fullPath)) {
+      return fullPath;
+    }
+  }
+
+  return undefined;
+}
+
+// Checks whether an executable named `name` is resolvable (PATH, override, or common location).
+export function hasBinary(name, env = process.env) {
+  return resolveBinary(name, env) !== undefined;
 }
 
 // Pure: returns the chosen brain descriptor without any network/process side effects.
@@ -321,9 +355,9 @@ export async function runBrain(prompt, {
       return { text, brain, usage };
     }
     case 'claude-cli':
-      return { text: runCliBrain('claude', ['-p', prompt], { signal, timeoutMs, spawnSyncImpl }), brain };
+      return { text: runCliBrain(resolveBinary('claude', env) ?? 'claude', ['-p', prompt], { signal, timeoutMs, spawnSyncImpl }), brain };
     case 'codex-cli':
-      return { text: runCliBrain('codex', ['exec', prompt], { signal, timeoutMs, spawnSyncImpl }), brain };
+      return { text: runCliBrain(resolveBinary('codex', env) ?? 'codex', ['exec', prompt], { signal, timeoutMs, spawnSyncImpl }), brain };
     default:
       throw new Error(
         'No AI brain available: set ANTHROPIC_API_KEY or OPENAI_API_KEY (environment or .env), or install the claude or codex CLI.'

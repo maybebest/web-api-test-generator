@@ -3,7 +3,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { hasBinary, keySource, resolveEnv, selectBrain } from './lib/ai-client.mjs';
+import { hasBinary, keySource, resolveBinary, resolveEnv, selectBrain } from './lib/ai-client.mjs';
 
 function printHelp() {
   console.log(`Usage:
@@ -17,9 +17,11 @@ exits 1 when no brain is available so CI can fail closed.
 Selection order (override with AI_BRAIN; forced brains error when unavailable):
   1. ANTHROPIC_API_KEY set (env or .env) -> anthropic  (Anthropic Messages API)
   2. OPENAI_API_KEY set (env or .env)    -> openai     (OpenAI Chat Completions API)
-  3. claude CLI on PATH                  -> claude-cli (Claude Code CLI)
-  4. codex CLI on PATH                   -> codex-cli  (Codex CLI)
+  3. claude CLI resolvable               -> claude-cli (Claude Code CLI)
+  4. codex CLI resolvable                -> codex-cli  (Codex CLI)
   5. otherwise                           -> none
+  (CLI brains resolve via AI_BRAIN_<NAME>_PATH, then PATH, then a common install
+   location such as ~/.claude/local/claude — no API key needed when installed.)
 
 Env knobs (set in the environment or in <repo>/.env):
   AI_BRAIN             auto | anthropic | openai | claude-cli | codex-cli
@@ -31,6 +33,8 @@ Env knobs (set in the environment or in <repo>/.env):
   ANTHROPIC_MAX_TOKENS Anthropic max_tokens (default 16000)
   OPENAI_MAX_TOKENS    OpenAI max_tokens (default 16000)
   AI_BRAIN_TIMEOUT_MS  per-call timeout for REST and CLI brains (default 120000)
+  AI_BRAIN_CLAUDE_PATH path to the claude binary if not on PATH (e.g. ~/.claude/local/claude)
+  AI_BRAIN_CODEX_PATH  path to the codex binary if not on PATH
   AI_DOTENV_PATH       override the .env path (real environment only)`);
 }
 
@@ -60,11 +64,11 @@ function runCli() {
   }
 
   if (brain.kind === 'claude-cli') {
-    console.log(`- claude binary on PATH: ${hasBinary('claude') ? 'yes' : 'no'}`);
+    console.log(`- claude binary: ${resolveBinary('claude', resolved.env) ?? 'not found'}`);
   }
 
   if (brain.kind === 'codex-cli') {
-    console.log(`- codex binary on PATH: ${hasBinary('codex') ? 'yes' : 'no'}`);
+    console.log(`- codex binary: ${resolveBinary('codex', resolved.env) ?? 'not found'}`);
   }
 
   console.log('');
@@ -74,13 +78,17 @@ function runCli() {
   const aiBrainValue = (resolved.env.AI_BRAIN ?? '').trim() || 'auto';
   const aiBrainSource = keySource(resolved, 'AI_BRAIN');
   console.log(`- AI_BRAIN: ${aiBrainValue} (${aiBrainSource === 'absent' ? 'default' : aiBrainSource})`);
-  console.log(`- claude CLI on PATH: ${hasBinary('claude') ? 'yes' : 'no'}`);
-  console.log(`- codex CLI on PATH: ${hasBinary('codex') ? 'yes' : 'no'}`);
+  console.log(`- claude CLI resolvable: ${hasBinary('claude', resolved.env) ? 'yes (' + resolveBinary('claude', resolved.env) + ')' : 'no'}`);
+  console.log(`- codex CLI resolvable: ${hasBinary('codex', resolved.env) ? 'yes (' + resolveBinary('codex', resolved.env) + ')' : 'no'}`);
   console.log('');
   console.log('Selection order: ANTHROPIC_API_KEY -> OPENAI_API_KEY -> claude CLI -> codex CLI -> none.');
   console.log(
+    'CLI brains are resolved via AI_BRAIN_<NAME>_PATH, then PATH, then a common install location ' +
+    '(e.g. ~/.claude/local/claude) — so no API key is needed when the claude/codex app is installed.'
+  );
+  console.log(
     'Env knobs: AI_BRAIN, ANTHROPIC_API_KEY, OPENAI_API_KEY, AI_ANTHROPIC_MODEL, AI_OPENAI_MODEL, ' +
-    'ANTHROPIC_MAX_TOKENS, OPENAI_MAX_TOKENS, AI_BRAIN_TIMEOUT_MS, AI_DOTENV_PATH.'
+    'ANTHROPIC_MAX_TOKENS, OPENAI_MAX_TOKENS, AI_BRAIN_TIMEOUT_MS, AI_BRAIN_CLAUDE_PATH, AI_BRAIN_CODEX_PATH, AI_DOTENV_PATH.'
   );
 
   if (brain.kind === 'none') {

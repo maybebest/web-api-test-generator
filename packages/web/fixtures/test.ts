@@ -1,6 +1,7 @@
 import { test as base, expect, type APIRequestContext } from '@playwright/test';
 
 import { defaultTestData, type TestData } from '../data/test-data';
+import { createTestDataManager, type TestDataManager } from './test-data-manager';
 
 type ApiHelpers = {
   getJson<T>(path: string): Promise<T>;
@@ -9,6 +10,10 @@ type ApiHelpers = {
 type Fixtures = {
   testData: TestData;
   api: ApiHelpers;
+  // API-driven test-data management (channel config, catalogue, plan seeding). Reads are
+  // implemented; mutating helpers throw NotImplementedTestDataError until the backend op is wired
+  // (see fixtures/test-data-manager.ts and MISSING_TEST_DATA_FUNCTIONS).
+  dataManager: TestDataManager;
 };
 
 export const test = base.extend<Fixtures>({
@@ -18,6 +23,10 @@ export const test = base.extend<Fixtures>({
 
   api: async ({ request }, use) => {
     await use(createApiHelpers(request));
+  },
+
+  dataManager: async ({}, use) => {
+    await use(createTestDataManager());
   }
 });
 

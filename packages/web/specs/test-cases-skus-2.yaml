@@ -1,0 +1,3505 @@
+# Nectar360 Pollen test suite (machine-readable)
+# Companion to TEST-SUITE.md. Framework-agnostic; drive any automation tool from this.
+sourceDocuments:
+- NUP-18944.xlsx
+- NUP-20507.xlsx
+- NUP-20675.xlsx
+- NUP-20679.xlsx
+- NUP-20681.xlsx
+- NUP-20956.xlsx
+- NUP-21959-21969.xlsx
+- NUP-19140.xlsx
+- NUP-19216.xlsx
+- NUP-21975.xlsx
+- NUP-21976.xlsx
+- NUP-21978.xlsx
+- NUP-18943.xlsx
+- NUP-20233.xlsx
+- NUP-19529.xlsx
+- NUP-19273.xlsx
+- NUP-19967.xlsx
+- NUP-19328.xlsx
+testCaseCount: 138
+testCases:
+  - id: TC-MAX-001
+    title: "FIX: max+1 boundary warning numeral must equal the configured max, not a literal 3 (re-baselines IND-018/CHAN-012 assertion)"
+    area: Maximum Hero SKUs per channel validation
+    priority: High
+    type: E2E
+    technique: [Boundary-BVA, Error-Message, Negative]
+    traces:
+      tickets: [NUP-18944, NUP-20675]
+      sourceRefs: [_test_scenarios.md#NUP-18944, _test_scenarios.md#NUP-20675]
+    preconditions:
+    - Channel offSite (Meta) configured with maxHeroSkus = 2 (deliberately NOT 3, to prove the numeral is data-driven).
+    - Brand-linked catalogue includes SKUs 1,2,3.
+    testData:
+    - maxHeroSkus = 2
+    - "Hero assigned: 1,2,3 (count == max+1 == 3)"
+    - "Verbatim warning expected: 'Media limit: 2 Hero SKUs. Edit SKUs' (numeral == configured max 2, NOT 3)"
+    steps:
+    - 1. Configure the channel max to 2.
+    - 2. Assign 3 Hero SKUs (1,2,3) to offSite Meta (exceeds max of 2).
+    - 3. Apply and wait.
+    - 4. Inspect the exact warning text and the booking control.
+    expected:
+    - "Warning text is EXACTLY 'Media limit: 2 Hero SKUs. Edit SKUs' - the numeral equals the configured maxHeroSkus (2)."
+    - The numeral is NOT hardcoded to 3 (the spec example value); it is interpolated from channel config.
+    - Channel still added with all 3 SKUs; booking blocked.
+    automationNotes: "FIX/guard for the draft cases (IND-018, CHAN-012, IND-021, CHAN-015) that assert the literal string 'Media limit: 3 Hero SKUs. Edit SKUs'. Those cases only validate the message when max happens to be 3 and risk masking a hardcoded-3 bug. This case proves the numeral tracks max by using max=2. Automation must read MAX from config and assert the numeral equals it."
+  - id: TC-MAX-002
+    title: Hero SKU count below channel max (count = max-1) — channel added, no warning
+    area: Maximum Hero SKUs per channel validation
+    priority: High
+    type: E2E
+    technique: [Boundary Value Analysis, Equivalence Partitioning]
+    traces:
+      tickets: [NUP-18944]
+      sourceRefs: [NUP-18944 Scenario 2]
+    preconditions:
+    - Logged into Nectar AI Media Planner
+    - "Channel 'Sponsored Search' configured with maxHeroSkus=3, minHeroSkus=0 (assumption: max=3 per ticket example)"
+    testData:
+    - channel=Sponsored Search
+    - maxHeroSkus=3
+    - selected Hero SKUs=2 (SKU-1001, SKU-1002)
+    steps:
+    - 1. Start a new media plan
+    - 2. Select channel 'Sponsored Search'
+    - 3. Assign exactly 2 Hero SKUs (SKU-1001, SKU-1002) to the channel
+    - 4. Observe the summary panel and any warnings
+    - 5. Attempt to proceed to booking/save
+    expected:
+    - Channel 'Sponsored Search' is added to the summary panel with both selected Hero SKUs
+    - No 'Media limit' warning is displayed
+    - User is allowed to proceed to booking/save without being blocked
+    automationNotes: Parameterized max=3 (assumption). Assert summary panel contains channel + 2 SKU rows; assert no element with text matching /Media limit:/; assert booking control is enabled.
+  - id: TC-MAX-003
+    title: Hero SKU count equals channel max (count = max) — channel added, no warning, not blocked
+    area: Maximum Hero SKUs per channel validation
+    priority: Critical
+    type: E2E
+    technique: [Boundary Value Analysis]
+    traces:
+      tickets: [NUP-18944]
+      sourceRefs: [NUP-18944 Scenario 2]
+    preconditions:
+    - Logged in
+    - Channel 'Sponsored Search' configured with maxHeroSkus=3
+    testData:
+    - channel=Sponsored Search
+    - maxHeroSkus=3
+    - selected Hero SKUs=3 (SKU-1001, SKU-1002, SKU-1003)
+    steps:
+    - 1. Start a new media plan
+    - 2. Select channel 'Sponsored Search'
+    - 3. Assign exactly 3 Hero SKUs (SKU-1001, SKU-1002, SKU-1003)
+    - 4. Observe summary panel and warnings
+    - 5. Attempt to proceed to booking/save
+    expected:
+    - Channel added to summary panel with all 3 Hero SKUs
+    - No 'Media limit' warning displayed (count == max is allowed, 'equal to or less than')
+    - Booking/save is NOT blocked; user can proceed
+    automationNotes: "Critical boundary: count==max must be allowed (AC wording 'equal to or less than'). Assert no warning and booking enabled."
+  - id: TC-MAX-004
+    title: Hero SKU count exceeds channel max by one (count = max+1) — channel added with all SKUs + exact warning + blocked
+    area: Maximum Hero SKUs per channel validation
+    priority: Critical
+    type: E2E
+    technique: [Boundary Value Analysis, Error Guessing]
+    traces:
+      tickets: [NUP-18944, NUP-20675]
+      sourceRefs: [NUP-18944 Scenario 1, NUP-20675]
+    preconditions:
+    - Logged in
+    - Channel 'Sponsored Search' configured with maxHeroSkus=3
+    testData:
+    - channel=Sponsored Search
+    - maxHeroSkus=3
+    - selected Hero SKUs=4 (SKU-1001..SKU-1004)
+    steps:
+    - 1. Start a new media plan
+    - 2. Select channel 'Sponsored Search'
+    - 3. Assign 4 Hero SKUs (SKU-1001, SKU-1002, SKU-1003, SKU-1004)
+    - 4. Observe summary panel content and warning text exactly
+    - 5. Attempt to proceed to booking/save without adjusting
+    expected:
+    - Channel 'Sponsored Search' IS added to the summary panel with ALL 4 selected Hero SKUs
+    - "Warning is displayed with EXACT text: \"Media limit: 3 Hero SKUs. Edit SKUs\""
+    - Booking/save is BLOCKED until the selection is reduced to <= 3
+    automationNotes: "Critical. Assert verbatim string \"Media limit: 3 Hero SKUs. Edit SKUs\" (numeral=3). Assert 4 SKU rows present (not truncated). Assert booking control disabled/blocked."
+  - id: TC-MAX-005
+    title: Hero SKU count far exceeds channel max (count >> max) — all SKUs retained, exact warning, blocked
+    area: Maximum Hero SKUs per channel validation
+    priority: High
+    type: E2E
+    technique: [Boundary Value Analysis, Error Guessing]
+    traces:
+      tickets: [NUP-18944, NUP-20675]
+      sourceRefs: [NUP-18944 Scenario 1, NUP-20675]
+    preconditions:
+    - Logged in
+    - Channel 'Sponsored Search' configured with maxHeroSkus=3
+    testData:
+    - channel=Sponsored Search
+    - maxHeroSkus=3
+    - selected Hero SKUs=8 (SKU-1001..SKU-1008)
+    steps:
+    - 1. Start a new media plan
+    - 2. Select channel 'Sponsored Search'
+    - 3. Assign 8 Hero SKUs (SKU-1001 through SKU-1008)
+    - 4. Inspect summary panel for all SKUs and warning text
+    - 5. Attempt to proceed to booking
+    expected:
+    - All 8 selected Hero SKUs appear in the summary panel for the channel
+    - "Warning displayed with EXACT text: \"Media limit: 3 Hero SKUs. Edit SKUs\""
+    - Booking/save is blocked
+    automationNotes: Confirms no silent truncation/capping regardless of overage size. Same verbatim warning as max+1.
+  - id: TC-MAX-006
+    title: Zero Hero SKUs assigned (count = 0) below max — no warning, not blocked
+    area: Maximum Hero SKUs per channel validation
+    priority: Medium
+    type: E2E
+    technique: [Boundary Value Analysis]
+    traces:
+      tickets: [NUP-18944]
+      sourceRefs: [NUP-18944 Scenario 2]
+    preconditions:
+    - Logged in
+    - Channel 'Sponsored Search' configured with maxHeroSkus=3, minHeroSkus=0
+    testData:
+    - channel=Sponsored Search
+    - maxHeroSkus=3
+    - minHeroSkus=0
+    - selected Hero SKUs=0
+    steps:
+    - 1. Start a new media plan
+    - 2. Select channel 'Sponsored Search'
+    - 3. Do not assign any Hero SKUs (count=0)
+    - 4. Observe summary panel and warnings
+    - 5. Attempt to proceed to booking
+    expected:
+    - Channel added to summary panel with no Hero SKUs
+    - No 'Media limit' maximum warning displayed
+    - User is not blocked by the maximum rule (assuming minHeroSkus=0)
+    automationNotes: Lower boundary for the MAX rule. Assumes min=0; if a min is configured see MAX-024. Assert no max-warning.
+  - id: TC-MAX-007
+    title: Singleton max (max=1) with exactly 1 Hero SKU — allowed, no warning
+    area: Maximum Hero SKUs per channel validation
+    priority: High
+    type: E2E
+    technique: [Boundary Value Analysis]
+    traces:
+      tickets: [NUP-18944]
+      sourceRefs: [NUP-18944 Scenario 2]
+    preconditions:
+    - Logged in
+    - "Channel 'Affiliate' configured with maxHeroSkus=1 (assumption: singleton channel)"
+    testData:
+    - channel=Affiliate
+    - maxHeroSkus=1
+    - selected Hero SKUs=1 (SKU-2001)
+    steps:
+    - 1. Start a new media plan
+    - 2. Select channel 'Affiliate' (maxHeroSkus=1)
+    - 3. Assign exactly 1 Hero SKU (SKU-2001)
+    - 4. Observe summary panel and warnings
+    - 5. Attempt to proceed to booking
+    expected:
+    - Channel added with 1 Hero SKU
+    - No 'Media limit' warning displayed
+    - Booking/save not blocked
+    automationNotes: Singleton boundary (count==max==1). Parameterized max=1 (assumption).
+  - id: TC-MAX-008
+    title: Singleton max (max=1) with 2 Hero SKUs — warning numeral '1', all SKUs kept, blocked
+    area: Maximum Hero SKUs per channel validation
+    priority: Critical
+    type: E2E
+    technique: [Boundary Value Analysis, Error Guessing]
+    traces:
+      tickets: [NUP-18944, NUP-20675]
+      sourceRefs: [NUP-18944 Scenario 1, NUP-20675]
+    preconditions:
+    - Logged in
+    - Channel 'Affiliate' configured with maxHeroSkus=1
+    testData:
+    - channel=Affiliate
+    - maxHeroSkus=1
+    - selected Hero SKUs=2 (SKU-2001, SKU-2002)
+    steps:
+    - 1. Start a new media plan
+    - 2. Select channel 'Affiliate' (maxHeroSkus=1)
+    - 3. Assign 2 Hero SKUs (SKU-2001, SKU-2002)
+    - 4. Read the warning text exactly
+    - 5. Attempt to proceed to booking
+    expected:
+    - Channel added to summary panel with both Hero SKUs
+    - "Warning displayed with EXACT text: \"Media limit: 1 Hero SKUs. Edit SKUs\""
+    - Booking/save blocked until reduced to 1
+    automationNotes: Verifies numeral interpolation tracks configured max=1 verbatim. Note literal plural 'Hero SKUs' even at limit 1 per spec template (assert exact).
+  - id: TC-MAX-009
+    title: Warning numeral tracks a different configured max (max=5) — verbatim '5'
+    area: Maximum Hero SKUs per channel validation
+    priority: High
+    type: UI
+    technique: [Equivalence Partitioning, Data-Driven]
+    traces:
+      tickets: [NUP-18944]
+      sourceRefs: [NUP-18944 Scenario 1]
+    preconditions:
+    - Logged in
+    - "Channel 'Display' configured with maxHeroSkus=5 (assumption: alternate-service max)"
+    testData:
+    - channel=Display
+    - maxHeroSkus=5
+    - selected Hero SKUs=6 (SKU-3001..SKU-3006)
+    steps:
+    - 1. Start a new media plan
+    - 2. Select channel 'Display' (maxHeroSkus=5)
+    - 3. Assign 6 Hero SKUs (SKU-3001 through SKU-3006)
+    - 4. Read the warning text exactly
+    expected:
+    - "Warning displayed with EXACT text: \"Media limit: 5 Hero SKUs. Edit SKUs\""
+    - Channel still added with all 6 SKUs; booking blocked
+    automationNotes: "Data-driven: parameterize {max, overCount} across {1,3,5} and assert numeral in warning equals configured max. Assumption: max=5 for Display."
+  - id: TC-MAX-010
+    title: No maximum configured (max=null) — any count allowed, never warned or blocked
+    area: Maximum Hero SKUs per channel validation
+    priority: High
+    type: E2E
+    technique: [Equivalence Partitioning]
+    traces:
+      tickets: [NUP-18944, NUP-20679]
+      sourceRefs: [NUP-18944 Scenario 3, NUP-20679]
+    preconditions:
+    - Logged in
+    - Channel 'Sampling' configured with maxHeroSkus=null (no max)
+    testData:
+    - channel=Sampling
+    - maxHeroSkus=null
+    - selected Hero SKUs=10 (SKU-4001..SKU-4010)
+    steps:
+    - 1. Start a new media plan
+    - 2. Select channel 'Sampling' (no max configured)
+    - 3. Assign 10 Hero SKUs (SKU-4001 through SKU-4010)
+    - 4. Observe summary panel and warnings
+    - 5. Attempt to proceed to booking
+    expected:
+    - Channel added to summary panel with all 10 Hero SKUs
+    - No 'Media limit' warning is ever displayed
+    - User is not blocked; booking/save proceeds
+    automationNotes: "Equivalence: null max == unrestricted. Assert absence of /Media limit/ for arbitrarily large counts; booking enabled."
+  - id: TC-MAX-011
+    title: No max configured — count equal to other channels' typical max still no warning
+    area: Maximum Hero SKUs per channel validation
+    priority: Low
+    type: Integration
+    technique: [Equivalence Partitioning]
+    traces:
+      tickets: [NUP-18944, NUP-20679]
+      sourceRefs: [NUP-18944 Scenario 3, NUP-20679]
+    preconditions:
+    - Logged in
+    - Channel 'Sampling' configured with maxHeroSkus=null
+    testData:
+    - channel=Sampling
+    - maxHeroSkus=null
+    - selected Hero SKUs=3
+    steps:
+    - 1. Start a new media plan
+    - 2. Select channel 'Sampling' (no max)
+    - 3. Assign 3 Hero SKUs
+    - 4. Observe warnings
+    - 5. Proceed to booking
+    expected:
+    - No warning shown (null max must not coincidentally apply a default like 3)
+    - Booking not blocked
+    automationNotes: Guards against a hardcoded default max of 3 being applied when max is null. Assert null-config path differs from MAX-003.
+  - id: TC-MAX-012
+    title: Deselect excess via modal then proceed — warning clears, booking unblocked
+    area: Maximum Hero SKUs per channel validation
+    priority: Critical
+    type: E2E
+    technique: [State Transition, Use Case Testing]
+    traces:
+      tickets: [NUP-18944, NUP-20675]
+      sourceRefs: [NUP-18944 Scenario 1]
+    preconditions:
+    - Logged in
+    - Channel 'Sponsored Search' configured with maxHeroSkus=3
+    - Channel currently over limit with 5 Hero SKUs and warning showing
+    testData:
+    - channel=Sponsored Search
+    - maxHeroSkus=3
+    - initial Hero SKUs=5 (SKU-1001..SKU-1005)
+    - deselect 2 → final 3
+    steps:
+    - 1. With 5 Hero SKUs assigned and warning visible, click 'Edit SKUs' in the warning
+    - 2. In the modal, deselect 2 SKUs (SKU-1004, SKU-1005)
+    - 3. Confirm/apply the modal (final count=3)
+    - 4. Observe the channel warning and booking state
+    - 5. Proceed to booking/save
+    expected:
+    - Modal opens listing the channel's selected Hero SKUs
+    - "After applying with 3 SKUs, the \"Media limit: 3 Hero SKUs. Edit SKUs\" warning is removed"
+    - Booking/save is now unblocked and the plan can be saved/booked
+    automationNotes: Core remediation path. Assert warning disappears at count<=max and booking control becomes enabled. State transition over->within limit.
+  - id: TC-MAX-013
+    title: Deselect via modal to over-limit-still (5→4) — warning persists, still blocked
+    area: Maximum Hero SKUs per channel validation
+    priority: High
+    type: E2E
+    technique: [State Transition, Boundary Value Analysis]
+    traces:
+      tickets: [NUP-18944]
+      sourceRefs: [NUP-18944 Scenario 1]
+    preconditions:
+    - Logged in
+    - Channel 'Sponsored Search' maxHeroSkus=3
+    - Channel over limit with 5 Hero SKUs
+    testData:
+    - channel=Sponsored Search
+    - maxHeroSkus=3
+    - initial=5
+    - deselect 1 → final 4
+    steps:
+    - 1. Open the 'Edit SKUs' modal from the warning
+    - 2. Deselect only 1 SKU (final count=4)
+    - 3. Apply the modal
+    - 4. Observe warning and booking state
+    expected:
+    - "Warning still shown with EXACT text: \"Media limit: 3 Hero SKUs. Edit SKUs\""
+    - Booking/save remains blocked (4 > 3)
+    automationNotes: "Negative remediation: partial deselect that does not reach <=max must keep blocking. Assert warning persists, booking disabled."
+  - id: TC-MAX-014
+    title: Modal deselect exactly to max (count=3) — boundary unblocks
+    area: Maximum Hero SKUs per channel validation
+    priority: High
+    type: E2E
+    technique: [Boundary Value Analysis, State Transition]
+    traces:
+      tickets: [NUP-18944]
+      sourceRefs: [NUP-18944 Scenario 1]
+    preconditions:
+    - Logged in
+    - Channel 'Sponsored Search' maxHeroSkus=3
+    - Channel over limit with 4 Hero SKUs
+    testData:
+    - channel=Sponsored Search
+    - maxHeroSkus=3
+    - initial=4
+    - deselect 1 → final 3
+    steps:
+    - 1. Open 'Edit SKUs' modal
+    - 2. Deselect 1 SKU so final count = 3 (exactly max)
+    - 3. Apply modal
+    - 4. Observe warning and booking state
+    - 5. Proceed to booking
+    expected:
+    - Warning is cleared at count==max (3)
+    - Booking/save unblocked
+    - Channel retains exactly 3 Hero SKUs
+    automationNotes: Boundary of remediation (count==max). Confirms equality is treated as compliant.
+  - id: TC-MAX-015
+    title: Global Hero list set first, then channel selected exceeding its max — channel added, warned, blocked (Scenario 4)
+    area: Maximum Hero SKUs per channel validation
+    priority: Critical
+    type: E2E
+    technique: [Use Case Testing, Boundary Value Analysis]
+    traces:
+      tickets: [NUP-18944, NUP-20681]
+      sourceRefs: [NUP-18944 Scenario 4, NUP-20681]
+    preconditions:
+    - Logged in
+    - Global Hero SKU list set to 5 SKUs (SKU-1001..SKU-1005)
+    - Channel 'Sponsored Search' configured maxHeroSkus=3
+    testData:
+    - global Hero SKUs=5
+    - channel=Sponsored Search
+    - maxHeroSkus=3
+    steps:
+    - 1. Assign 5 Hero SKUs globally first
+    - 2. Select channel 'Sponsored Search' (maxHeroSkus=3)
+    - 3. Proceed
+    - 4. Observe the channel in the summary panel and its warning
+    - 5. Attempt to book
+    expected:
+    - Channel is still added to the summary panel with all 5 global Hero SKUs
+    - "Warning displayed for the channel with EXACT text: \"Media limit: 3 Hero SKUs. Edit SKUs\""
+    - Booking is blocked until Hero SKUs for the channel are adjusted to <= 3
+    automationNotes: "Scenario 4 single-channel. Order: global-first then channel. Assert warning + block; SKUs flow from global selection."
+  - id: TC-MAX-016
+    title: Global Hero list exceeds two channels' max — warning on EACH affected channel, blocked until all fixed
+    area: Maximum Hero SKUs per channel validation
+    priority: Critical
+    type: E2E
+    technique: [Use Case Testing, Equivalence Partitioning]
+    traces:
+      tickets: [NUP-18944, NUP-20681]
+      sourceRefs: [NUP-18944 Scenario 4, NUP-20681]
+    preconditions:
+    - Logged in
+    - Global Hero list = 5 SKUs
+    - Channel 'Sponsored Search' maxHeroSkus=3; Channel 'Affiliate' maxHeroSkus=1
+    testData:
+    - global Hero SKUs=5
+    - channelA=Sponsored Search (max=3)
+    - channelB=Affiliate (max=1)
+    steps:
+    - 1. Set global Hero list to 5 SKUs
+    - 2. Select both 'Sponsored Search' and 'Affiliate'
+    - 3. Proceed
+    - 4. Inspect each channel's warning text in the summary panel
+    - 5. Attempt to book
+    expected:
+    - Both channels added to summary panel with all 5 SKUs each
+    - "'Sponsored Search' shows EXACT: \"Media limit: 3 Hero SKUs. Edit SKUs\""
+    - "'Affiliate' shows EXACT: \"Media limit: 1 Hero SKUs. Edit SKUs\""
+    - Booking blocked until BOTH channels adjusted to their own max
+    automationNotes: Per-channel warning numerals differ (3 vs 1). Assert both warnings present and booking blocked while either exceeds.
+  - id: TC-MAX-017
+    title: Global exceeds one channel but within another — only over-limit channel warned
+    area: Maximum Hero SKUs per channel validation
+    priority: High
+    type: E2E
+    technique: [Equivalence Partitioning, Use Case Testing]
+    traces:
+      tickets: [NUP-18944, NUP-20681]
+      sourceRefs: [NUP-18944 Scenario 4]
+    preconditions:
+    - Logged in
+    - Global Hero list = 3 SKUs
+    - Channel 'Sponsored Search' maxHeroSkus=3; Channel 'Affiliate' maxHeroSkus=1
+    testData:
+    - global Hero SKUs=3
+    - Sponsored Search max=3 (within)
+    - Affiliate max=1 (exceeded)
+    steps:
+    - 1. Set global Hero list to 3 SKUs
+    - 2. Select 'Sponsored Search' and 'Affiliate'
+    - 3. Proceed
+    - 4. Inspect warnings per channel
+    - 5. Attempt to book
+    expected:
+    - "'Sponsored Search' shows NO warning (3 == its max)"
+    - "'Affiliate' shows EXACT: \"Media limit: 1 Hero SKUs. Edit SKUs\""
+    - Booking blocked due to 'Affiliate' only; unblocks after Affiliate reduced to 1
+    automationNotes: Mixed compliance under one global list. Assert only over-limit channel warns; booking gated by the single offender.
+  - id: TC-MAX-018
+    title: Mixed-max multi-channel plan — one channel over blocks the WHOLE plan
+    area: Maximum Hero SKUs per channel validation
+    priority: Critical
+    type: E2E
+    technique: [Use Case Testing, Decision Table]
+    traces:
+      tickets: [NUP-18944]
+      sourceRefs: [NUP-18944 Scenario 1, NUP-18944 Scenario 4]
+    preconditions:
+    - Logged in
+    - Channel 'Display' max=5 with 4 Hero SKUs (compliant)
+    - Channel 'Sponsored Search' max=3 with 4 Hero SKUs (over)
+    testData:
+    - "Display: max=5, assigned=4 (ok)"
+    - "Sponsored Search: max=3, assigned=4 (over)"
+    steps:
+    - 1. Build a plan with 'Display' (4 SKUs, within max=5)
+    - 2. Add 'Sponsored Search' (4 SKUs, over max=3)
+    - 3. Observe each channel state
+    - 4. Attempt to book the whole plan
+    expected:
+    - "'Display' shows no warning; 'Sponsored Search' shows EXACT: \"Media limit: 3 Hero SKUs. Edit SKUs\""
+    - The entire plan's booking/save is blocked because one channel exceeds its max
+    - After fixing 'Sponsored Search' to 3, plan becomes bookable
+    automationNotes: "Plan-level gate: booking blocked if ANY channel non-compliant even when others are fine. Assert global book control disabled."
+  - id: TC-MAX-019
+    title: "Backend: single channel typed exceeds maxHeroSkus — block add, route to ask node"
+    area: Maximum Hero SKUs per channel validation
+    priority: Critical
+    type: Integration
+    technique: [Use Case Testing, Error Guessing]
+    traces:
+      tickets: [NUP-20507, NUP-18944]
+      sourceRefs: [NUP-20507]
+    preconditions:
+    - Backend resolver pipeline available
+    - Channel service resolves maxHeroSkus=3, minHeroSkus=1
+    - User prompt names exactly ONE channel
+    testData:
+    - typed channels=1 ('Sponsored Search')
+    - resolved maxHeroSkus=3
+    - selected Hero SKUs=4
+    steps:
+    - 1. Submit a prompt naming a single channel 'Sponsored Search' with 4 Hero SKUs
+    - 2. Backend activates the channel and checks min/maxHeroSkus
+    - 3. Observe whether channel is added and which node the flow routes to
+    - 4. Observe the user-facing informing message
+    expected:
+    - Channel is NOT added (blocked) because 4 > maxHeroSkus(3)
+    - User is informed of the limit
+    - Because only ONE channel was typed, the flow is blocked and routed to the ask node
+    automationNotes: BE Integration. Assert resolver does not add channel, emits limit info, and transitions to ask node. Parameterize max=3 (assumption).
+  - id: TC-MAX-020
+    title: "Backend: multiple channels typed, one exceeds max — block that one, continue other resolver nodes"
+    area: Maximum Hero SKUs per channel validation
+    priority: Critical
+    type: Integration
+    technique: [Use Case Testing, Decision Table]
+    traces:
+      tickets: [NUP-20507, NUP-18944]
+      sourceRefs: [NUP-20507]
+    preconditions:
+    - Backend resolver pipeline available
+    - "'Sponsored Search' max=3; 'Display' max=5"
+    - User prompt names TWO channels
+    testData:
+    - typed channels=2 ('Sponsored Search' over with 4, 'Display' ok with 3)
+    - Sponsored Search max=3
+    - Display max=5
+    steps:
+    - 1. Submit a prompt naming 'Sponsored Search' (4 Hero SKUs) and 'Display' (3 Hero SKUs)
+    - 2. Backend activates each channel and checks min/maxHeroSkus
+    - 3. Observe handling of the over-limit channel vs the compliant one
+    - 4. Observe routing
+    expected:
+    - "'Sponsored Search' is blocked from being added and the user is informed of its limit"
+    - "'Display' is processed normally (within max)"
+    - Because MORE than one channel was typed, the flow continues with the other resolver nodes (does NOT go straight to ask node)
+    automationNotes: "BE Integration decision: count(typed)>1 => continue resolver chain for non-offending channels. Assert flow does not short-circuit to ask node."
+  - id: TC-MAX-021
+    title: "Backend: single channel typed below minHeroSkus — block add, inform, ask node"
+    area: Maximum Hero SKUs per channel validation
+    priority: High
+    type: Integration
+    technique: [Boundary Value Analysis, Error Guessing]
+    traces:
+      tickets: [NUP-20507, NUP-18944]
+      sourceRefs: [NUP-20507]
+    preconditions:
+    - Backend resolver available
+    - Channel 'Sponsored Search' resolves minHeroSkus=2, maxHeroSkus=3
+    - User prompt names exactly ONE channel
+    testData:
+    - typed channels=1
+    - minHeroSkus=2
+    - selected Hero SKUs=1 (below min)
+    steps:
+    - 1. Submit a prompt naming a single channel with only 1 Hero SKU
+    - 2. Backend checks min/maxHeroSkus after activation
+    - 3. Observe add/block decision and routing
+    expected:
+    - Channel is blocked from being added because 1 < minHeroSkus(2)
+    - User is informed of the minimum requirement
+    - Single channel => flow routed to ask node
+    automationNotes: NUP-20507 covers BOTH min and max ('more than the given numbers' interpreted as outside [min,max]). Assumption min=2. Assert block + ask node.
+  - id: TC-MAX-022
+    title: "Backend: multiple channels typed, all within min/max — all added, full resolver continues"
+    area: Maximum Hero SKUs per channel validation
+    priority: Medium
+    type: Integration
+    technique: [Equivalence Partitioning]
+    traces:
+      tickets: [NUP-20507, NUP-18944]
+      sourceRefs: [NUP-20507]
+    preconditions:
+    - Backend resolver available
+    - "'Sponsored Search' max=3 min=1; 'Display' max=5 min=1"
+    - Prompt names TWO compliant channels
+    testData:
+    - "Sponsored Search: 3 Hero SKUs (==max)"
+    - "Display: 4 Hero SKUs (within)"
+    steps:
+    - 1. Submit a prompt naming both channels, each within their min/max
+    - 2. Backend activates and checks limits
+    - 3. Observe additions and routing
+    expected:
+    - Both channels are added (no block)
+    - No limit-violation message is shown
+    - Flow continues normally through resolver nodes
+    automationNotes: Positive BE path / equivalence baseline for MAX-019. Assert both channels added, no ask-node short-circuit, no limit info.
+  - id: TC-MAX-023
+    title: "Backend: no max configured (null) on resolved channel — never blocked regardless of count"
+    area: Maximum Hero SKUs per channel validation
+    priority: High
+    type: Integration
+    technique: [Equivalence Partitioning]
+    traces:
+      tickets: [NUP-20507, NUP-20679, NUP-18944]
+      sourceRefs: [NUP-20507, NUP-18944 Scenario 3]
+    preconditions:
+    - Backend resolver available
+    - Channel 'Sampling' resolves maxHeroSkus=null, minHeroSkus=null
+    testData:
+    - typed channels=1 ('Sampling')
+    - maxHeroSkus=null
+    - selected Hero SKUs=12
+    steps:
+    - 1. Submit a prompt naming 'Sampling' with 12 Hero SKUs
+    - 2. Backend activates and checks min/maxHeroSkus (both null)
+    - 3. Observe add/block decision
+    expected:
+    - Channel 'Sampling' is added
+    - No limit block or informing message is produced
+    - Flow continues normally (no ask-node diversion for limits)
+    automationNotes: BE null-config equivalence. Assert null min/max disables the check; channel added even at high count.
+  - id: TC-MAX-024
+    title: Re-exceeding after a valid state — adding SKUs back over max re-triggers warning and re-blocks
+    area: Maximum Hero SKUs per channel validation
+    priority: Medium
+    type: E2E
+    technique: [State Transition]
+    traces:
+      tickets: [NUP-18944]
+      sourceRefs: [NUP-18944 Scenario 1, NUP-18944 Scenario 2]
+    preconditions:
+    - Logged in
+    - Channel 'Sponsored Search' max=3
+    - Channel currently compliant with 3 Hero SKUs, no warning
+    testData:
+    - channel=Sponsored Search
+    - max=3
+    - start=3 → add 1 → 4
+    steps:
+    - 1. With a compliant channel (3 Hero SKUs, no warning), open 'Edit SKUs'
+    - 2. Add 1 more Hero SKU (SKU-1004), making count=4
+    - 3. Apply the modal
+    - 4. Observe warning and booking state
+    expected:
+    - "Warning reappears with EXACT text: \"Media limit: 3 Hero SKUs. Edit SKUs\""
+    - Booking/save is blocked again
+    automationNotes: Reverse state transition within->over. Confirms validation is live on every change, not only initial selection.
+  - id: TC-MAX-025
+    title: "Min configured boundary: count below minHeroSkus on UI — informs/blocks (min enforcement)"
+    area: Maximum Hero SKUs per channel validation
+    priority: Medium
+    type: E2E
+    technique: [Boundary Value Analysis]
+    traces:
+      tickets: [NUP-18944, NUP-20507]
+      sourceRefs: [NUP-20507, NUP-18944 Background]
+    preconditions:
+    - Logged in
+    - Channel 'Sponsored Search' configured minHeroSkus=2, maxHeroSkus=3
+    testData:
+    - channel=Sponsored Search
+    - minHeroSkus=2
+    - maxHeroSkus=3
+    - selected Hero SKUs=1 (below min)
+    steps:
+    - 1. Start a new media plan
+    - 2. Select channel 'Sponsored Search' (min=2, max=3)
+    - 3. Assign only 1 Hero SKU (below the minimum)
+    - 4. Observe summary panel messaging
+    - 5. Attempt to proceed to booking
+    expected:
+    - User is informed that the channel requires at least minHeroSkus(2)
+    - Booking/save is blocked until at least 2 Hero SKUs are assigned
+    - Assigning a 2nd Hero SKU (reaching min=2) clears the block
+    automationNotes: Min boundary (count==min-1 blocked, count==min ok). Exact min-warning string not specified in ticket; assert presence of a minimum-requirement message and the block. Parameterize min=2 (assumption).
+  - id: TC-MAX-026
+    title: Warning 'Edit SKUs' affordance opens the channel SKU modal scoped to that channel
+    area: Maximum Hero SKUs per channel validation
+    priority: Medium
+    type: UI
+    technique: [Use Case Testing]
+    traces:
+      tickets: [NUP-18944, NUP-20233]
+      sourceRefs: [NUP-18944 Scenario 1]
+    preconditions:
+    - Logged in
+    - Channel 'Sponsored Search' max=3 over limit with 4 Hero SKUs, warning showing
+    testData:
+    - channel=Sponsored Search
+    - max=3
+    - assigned=4
+    steps:
+    - 1. With the over-limit warning visible, click the 'Edit SKUs' link in the warning
+    - 2. Observe the modal that opens
+    - 3. Verify the SKUs listed belong to this channel only
+    expected:
+    - A SKU editing modal opens for 'Sponsored Search'
+    - The modal lists the channel's currently selected Hero SKUs (the 4 assigned)
+    - Edits are scoped to this channel and do not affect other channels' Hero SKUs
+    automationNotes: Asserts the 'Edit SKUs' CTA in the verbatim warning is the entry point to the deselect modal; scope isolation per NUP-20233.
+  - id: TC-MAX-027
+    title: Booking explicitly attempted while over limit surfaces block reason, no save persisted
+    area: Maximum Hero SKUs per channel validation
+    priority: High
+    type: E2E
+    technique: [Error Guessing, Negative Testing]
+    traces:
+      tickets: [NUP-18944, NUP-20675]
+      sourceRefs: [NUP-18944 Scenario 1]
+    preconditions:
+    - Logged in
+    - Channel 'Sponsored Search' max=3 with 4 Hero SKUs, warning present
+    testData:
+    - channel=Sponsored Search
+    - max=3
+    - assigned=4
+    steps:
+    - 1. With the channel over limit, click the Book/Save plan action
+    - 2. Observe system response
+    - 3. Verify backend persistence state of the plan
+    expected:
+    - Booking/Save is prevented; the plan is not booked/saved
+    - "The over-limit warning \"Media limit: 3 Hero SKUs. Edit SKUs\" remains and the user is directed to fix the selection"
+    - No booked/saved plan record is created in the backend for the over-limit state
+    automationNotes: "Negative E2E: assert no POST/persist succeeds (intercept booking API; expect blocked client-side or rejected). Confirms block is enforced, not advisory."
+  - id: TC-MAX-028
+    title: "Channel max boundary: assigning exactly max Hero SKUs (count == max) is accepted with no warning and booking allowed"
+    area: Maximum Hero SKUs per channel validation
+    priority: High
+    type: E2E
+    technique: [Boundary-BVA, Positive]
+    traces:
+      tickets: [NUP-18944, NUP-20675]
+      sourceRefs: [_test_scenarios.md#NUP-18944, _test_scenarios.md#NUP-20675]
+    preconditions:
+    - Channel offSite (Meta) configured with maxHeroSkus = 3 (parameterize MAX from channel config; 3 from spec example).
+    - Brand-linked catalogue includes SKUs 1,2,3.
+    testData:
+    - "Channel: offSite Meta, maxHeroSkus = 3"
+    - "Hero assigned: 1,2,3 (count == max == 3)"
+    steps:
+    - 1. Assign exactly 3 Hero SKUs (1,2,3) to offSite Meta.
+    - 2. Apply and wait for the assistant/backend turn to complete (30-60s).
+    - "3. Inspect the summary panel: channel presence, SKU list, warning area."
+    - 4. Inspect the booking/save control state.
+    expected:
+    - Channel is added to the summary panel with all 3 SKUs (1,2,3).
+    - NO 'Media limit' warning is shown (count == max is within limit).
+    - Booking/saving is NOT blocked by this channel (control enabled).
+    automationNotes: Lower in-limit edge of the block. Read MAX from channel config rather than hardcoding 3. Assert absence of the verbatim 'Media limit' warning and that book/save is enabled. This fills the empty MAX area distinct from the IND/CHAN duplicates by being the canonical MAX-prefixed boundary case.
+  - id: TC-MAX-029
+    title: "Channel max boundary: assigning max-1 Hero SKUs (count < max) is accepted with no warning"
+    area: Maximum Hero SKUs per channel validation
+    priority: Medium
+    type: E2E
+    technique: [Boundary-BVA, Positive]
+    traces:
+      tickets: [NUP-18944, NUP-20675]
+      sourceRefs: [_test_scenarios.md#NUP-18944, _test_scenarios.md#NUP-20675]
+    preconditions:
+    - Channel offSite (Meta) configured with maxHeroSkus = 3 (parameterized).
+    - Brand-linked catalogue includes SKUs 1,2.
+    testData:
+    - maxHeroSkus = 3
+    - "Hero assigned: 1,2 (count == max-1 == 2)"
+    steps:
+    - 1. Assign 2 Hero SKUs (1,2) to offSite Meta.
+    - 2. Apply and wait for processing.
+    - 3. Inspect summary panel and warning area.
+    - 4. Inspect booking control.
+    expected:
+    - Channel added with 2 SKUs.
+    - No 'Media limit' warning.
+    - Booking not blocked.
+    automationNotes: Below-limit boundary; assert clean state at count < max. Parameterize MAX.
+  - id: TC-MAX-030
+    title: "Channel max boundary: assigning max+1 Hero SKUs (count > max) adds channel with all SKUs but shows verbatim warning and blocks booking"
+    area: Maximum Hero SKUs per channel validation
+    priority: Critical
+    type: E2E
+    technique: [Boundary-BVA, Negative, Error-Message]
+    traces:
+      tickets: [NUP-18944, NUP-20675]
+      sourceRefs: [_test_scenarios.md#NUP-18944, _test_scenarios.md#NUP-20675]
+    preconditions:
+    - Channel offSite (Meta) configured with maxHeroSkus = 3 (parameterized).
+    - Brand-linked catalogue includes SKUs 1,2,3,4.
+    testData:
+    - maxHeroSkus = 3
+    - "Hero assigned: 1,2,3,4 (count == max+1 == 4)"
+    - "Verbatim warning expected: 'Media limit: 3 Hero SKUs. Edit SKUs'"
+    steps:
+    - 1. Assign 4 Hero SKUs (1,2,3,4) to offSite Meta (exceeds max of 3).
+    - 2. Apply and wait for processing.
+    - "3. Inspect summary panel: channel presence, full SKU list, warning text."
+    - 4. Inspect booking/save control state.
+    - 5. Attempt to book/save the plan.
+    expected:
+    - Channel IS still added to the summary panel WITH all 4 selected SKUs (the channel is not dropped).
+    - "A warning is shown with EXACT text: 'Media limit: 3 Hero SKUs. Edit SKUs'."
+    - User is BLOCKED from booking/saving until the selection meets the max (book/save disabled or rejected).
+    - An edit/deselect modal is reachable from the warning to remove the excess.
+    automationNotes: Upper boundary of the block. Assert the exact warning string (interpolate the numeral from configured maxHeroSkus so the displayed number == max). Assert channel present with all SKUs AND booking blocked.
+  - id: TC-MAX-031
+    title: "Channel with NO max configured: assigning a large Hero SKU count imposes no restriction and no warning"
+    area: Maximum Hero SKUs per channel validation
+    priority: High
+    type: E2E
+    technique: [Equivalence-Partition, Decision-Table, Positive]
+    traces:
+      tickets: [NUP-18944, NUP-20679]
+      sourceRefs: [_test_scenarios.md#NUP-18944, _test_scenarios.md#NUP-20679]
+    preconditions:
+    - Channel onSite has NO maxHeroSkus configured (max unset/null); fixture leaves maxHeroSkus null.
+    - Brand-linked catalogue includes SKUs 1..6.
+    testData:
+    - "Channel: onSite, maxHeroSkus = unset/null"
+    - "Hero assigned: 1,2,3,4,5,6 (count 6, arbitrarily large)"
+    steps:
+    - 1. Assign 6 Hero SKUs to onSite (no max configured).
+    - 2. Apply and wait.
+    - 3. Inspect summary panel, warning area, and booking control.
+    expected:
+    - Channel added with all 6 SKUs.
+    - NO 'Media limit' warning shown (no max means no restriction).
+    - Booking/saving NOT blocked regardless of count.
+    automationNotes: "Decision-table cell: max==null -> never warn/block. Ensure the fixture leaves maxHeroSkus null (not 0, which would be a different equivalence class)."
+  - id: TC-MAX-032
+    title: "Channel max = exactly 1 (singleton limit): one Hero accepted, two Hero blocked with warning interpolating '1 Hero SKU'"
+    area: Maximum Hero SKUs per channel validation
+    priority: Medium
+    type: E2E
+    technique: [Boundary-BVA, Error-Message, Decision-Table]
+    traces:
+      tickets: [NUP-18944, NUP-20507, NUP-20675]
+      sourceRefs: [_test_scenarios.md#NUP-18944]
+    preconditions:
+    - Channel offSite (Meta) configured with maxHeroSkus = 1.
+    - Brand-linked catalogue includes SKUs 1,2.
+    testData:
+    - maxHeroSkus = 1
+    - "Step A Hero assigned: 1 (count == max == 1)"
+    - "Step B Hero assigned: 1,2 (count == max+1 == 2)"
+    - "Verbatim warning expected at step B: 'Media limit: 1 Hero SKUs. Edit SKUs' (numeral interpolated from max; pluralization per actual UI)"
+    steps:
+    - 1. Assign 1 Hero SKU (1) to offSite Meta; apply; inspect warning and booking.
+    - 2. Add a second Hero SKU (2) so count = 2; apply; inspect warning and booking.
+    expected:
+    - "After step 1 (count == 1 == max): channel added, no warning, booking allowed."
+    - "After step 2 (count == 2 == max+1): channel still added with both SKUs, warning shown with the numeral 1 interpolated from maxHeroSkus, booking blocked until deselected to 1."
+    automationNotes: Edge that exercises the smallest non-zero max and verifies the warning numeral tracks max (not hardcoded 3). Note the warning's pluralization for '1' is unspecified in source; assert the numeral equals max and capture actual plural form as a documented expectation/gap rather than asserting 'SKU' vs 'SKUs'.
+  - id: TC-MAX-033
+    title: "Mixed-max plan: one channel over its max blocks booking even while another channel is within its max"
+    area: Maximum Hero SKUs per channel validation
+    priority: High
+    type: E2E
+    technique: [Decision-Table, Error-Message, State-Recompute]
+    traces:
+      tickets: [NUP-18944, NUP-20675, NUP-20681]
+      sourceRefs: [_test_scenarios.md#NUP-18944, _test_scenarios.md#NUP-20675]
+    preconditions:
+    - Channel offSite (Meta) configured maxHeroSkus = 3; Channel onSite configured maxHeroSkus = 5.
+    - Both channels selected in one plan.
+    testData:
+    - "offSite Meta: Hero 1,2,3,4 (count 4 > max 3) -> warned"
+    - "onSite: Hero 1,2,3 (count 3 < max 5) -> clean"
+    - "Verbatim warning on Meta: 'Media limit: 3 Hero SKUs. Edit SKUs'"
+    steps:
+    - 1. Assign 4 Hero SKUs to offSite Meta (exceeds its max 3) and 3 Hero SKUs to onSite (within its max 5).
+    - 2. Apply and wait.
+    - 3. Inspect both channels' warning state independently.
+    - 4. Attempt to book the plan.
+    expected:
+    - "offSite Meta shows the 'Media limit: 3 Hero SKUs. Edit SKUs' warning; onSite shows NO warning."
+    - Booking is BLOCKED at the plan level because at least one channel (Meta) exceeds its max.
+    - Fixing only onSite would not unblock; the plan unblocks only after Meta is reduced to <= 3.
+    automationNotes: "Decision-table over per-channel max state with differing max values. Key assertion: plan-level booking gate is the AND of all channels meeting their own max; the clean channel does not mask the violating one."
+  - id: TC-MAX-034
+    title: "Global Hero list exceeds the lower of two channels' DIFFERENT maxes: only the channel whose max is exceeded is warned"
+    area: Maximum Hero SKUs per channel validation
+    priority: High
+    type: E2E
+    technique: [Decision-Table, Error-Message, Boundary-BVA]
+    traces:
+      tickets: [NUP-18944, NUP-20681]
+      sourceRefs: [_test_scenarios.md#NUP-18944]
+    preconditions:
+    - Global Hero list = 1,2,3,4 (4 SKUs) assigned BEFORE selecting channels; global pre-populates every selected channel.
+    - Channel offSite (Meta) maxHeroSkus = 3; Channel onSite maxHeroSkus = 4.
+    testData:
+    - "Global Hero: 1,2,3,4 (count 4)"
+    - offSite Meta max = 3 -> exceeded (4 > 3)
+    - onSite max = 4 -> at limit (4 == 4), not exceeded
+    - "Verbatim warning on Meta: 'Media limit: 3 Hero SKUs. Edit SKUs'"
+    steps:
+    - 1. Assign global Hero SKUs 1,2,3,4.
+    - 2. Select offSite Meta (max 3) and onSite (max 4); each is pre-populated with the 4 global Hero SKUs.
+    - 3. Wait for processing.
+    - 4. Inspect warning state of each channel and the booking control.
+    - 5. Attempt to book.
+    expected:
+    - "offSite Meta (4 > 3) shows the warning 'Media limit: 3 Hero SKUs. Edit SKUs'."
+    - onSite (4 == 4) shows NO warning (count equals its max, within limit).
+    - Booking BLOCKED until offSite Meta is reduced; onSite needs no adjustment.
+    - Each channel's warning reflects its OWN configured max, not a shared global value.
+    automationNotes: Distinguishes the warning numeral per channel (3 on Meta) and confirms the at-limit channel (onSite, ==max) is treated as within-limit, not warned. Guards against a bug that compares global count to a single global max.
+  - id: TC-MAX-035
+    title: After deselecting excess down to max, the warning clears and booking unblocks (recompute on save)
+    area: Maximum Hero SKUs per channel validation
+    priority: Critical
+    type: E2E
+    technique: [State-Recompute, Positive, Error-Message]
+    traces:
+      tickets: [NUP-18944, NUP-20675]
+      sourceRefs: [_test_scenarios.md#NUP-18944, _test_scenarios.md#NUP-20675]
+    preconditions:
+    - "From MAX-092 end state: offSite Meta has 4 Hero SKUs (1,2,3,4), 'Media limit: 3 Hero SKUs. Edit SKUs' warning shown, booking blocked, maxHeroSkus = 3."
+    testData:
+    - maxHeroSkus = 3
+    - Deselect SKU 4 -> remaining Hero 1,2,3 (count == max == 3)
+    steps:
+    - 1. Open the deselect/edit modal from the warning.
+    - 2. Deselect SKU 4 so the channel has 3 Hero SKUs (1,2,3).
+    - 3. Apply/save and wait for recompute.
+    - 4. Inspect warning area and booking control.
+    expected:
+    - "The 'Media limit: 3 Hero SKUs. Edit SKUs' warning is removed."
+    - Channel now shows 3 Hero SKUs (1,2,3).
+    - Booking/saving is unblocked (control enabled).
+    automationNotes: Inverse transition of MAX-092; assert warning-clear and unblock occur exactly when count transitions to <= max on save.
+  - id: TC-MAX-036
+    title: Reducing an over-max channel to max-1 (not just to max) also clears the warning and unblocks
+    area: Maximum Hero SKUs per channel validation
+    priority: Medium
+    type: E2E
+    technique: [Boundary-BVA, State-Recompute, Positive]
+    traces:
+      tickets: [NUP-18944, NUP-20675]
+      sourceRefs: [_test_scenarios.md#NUP-18944]
+    preconditions:
+    - offSite Meta over-assigned with 4 Hero SKUs (1,2,3,4), warning shown, booking blocked, maxHeroSkus = 3.
+    testData:
+    - maxHeroSkus = 3
+    - Deselect SKUs 3 and 4 -> remaining Hero 1,2 (count == max-1 == 2)
+    steps:
+    - 1. From the warning, open the deselect modal.
+    - 2. Deselect SKUs 3 and 4 so only 1,2 remain (count 2 < max 3).
+    - 3. Apply/save and wait.
+    - 4. Inspect warning and booking control.
+    expected:
+    - Warning cleared.
+    - Channel shows 2 Hero SKUs.
+    - Booking unblocked (any count <= max clears the block, not only count == max).
+    automationNotes: Confirms the unblock condition is count <= max, not strictly count == max. Complements MAX-097.
+  - id: TC-MAX-037
+    title: "Backend NUP-20507: SINGLE channel typed exceeds maxHeroSkus on activation -> channel blocked from being added and flow routes to the ask node"
+    area: Maximum Hero SKUs per channel validation
+    priority: High
+    type: Integration
+    technique: [Decision-Table, Negative, Error-Message]
+    traces:
+      tickets: [NUP-20507, NUP-18944]
+      sourceRefs: [_test_scenarios.md#NUP-18944]
+    preconditions:
+    - User types exactly ONE channel in chat whose Hero selection exceeds its maxHeroSkus.
+    - offSite (Meta) maxHeroSkus = 3; the prompt specifies 4 Hero SKUs for it.
+    - Backend min/max check runs after channel activation.
+    testData:
+    - "Single channel typed: offSite Meta with Hero 1,2,3,4"
+    - maxHeroSkus = 3
+    steps:
+    - 1. Send a single-channel prompt assigning 4 Hero SKUs to offSite Meta.
+    - 2. Wait for the assistant/backend turn (30-60s).
+    - 3. Inspect whether the channel was added, the user message, and where the flow routed.
+    expected:
+    - Adding the channel is BLOCKED (maxHeroSkus exceeded after activation) - distinct from the front-end summary-panel behaviour where the channel IS added with a warning.
+    - The user is informed of the limit.
+    - Because only ONE channel was typed, the flow goes to the ask node (re-prompting the user to adjust).
+    automationNotes: "Backend branch assertion via state/resolver hook or the resulting assistant ask prompt. IMPORTANT contrast with MAX-092: the NUP-20507 backend path on a SINGLE typed channel BLOCKS the add and routes to ask node, whereas the UI-assignment path (MAX-092) ADDS the channel with a warning. Capture which path is under test so the two are not conflated."
+  - id: TC-MAX-038
+    title: "Backend NUP-20507: MULTIPLE channels typed, one exceeds maxHeroSkus -> only that channel blocked, flow continues with other resolver nodes"
+    area: Maximum Hero SKUs per channel validation
+    priority: High
+    type: Integration
+    technique: [Decision-Table, Negative]
+    traces:
+      tickets: [NUP-20507, NUP-18944]
+      sourceRefs: [_test_scenarios.md#NUP-18944]
+    preconditions:
+    - User types MORE than one channel in chat.
+    - offSite Meta maxHeroSkus = 3 with 4 Hero SKUs (exceeds); onSite maxHeroSkus = 3 with 2 Hero SKUs (within).
+    - Backend min/max check runs after channel activation.
+    testData:
+    - "Channels typed: offSite Meta (Hero 1,2,3,4 -> exceeds), onSite (Hero 1,2 -> within)"
+    - maxHeroSkus = 3 each
+    steps:
+    - "1. Send a multi-channel prompt: Meta with 4 Hero SKUs and onSite with 2 Hero SKUs."
+    - 2. Wait for backend processing (30-60s).
+    - 3. Inspect which channels were added and how the flow continued.
+    expected:
+    - offSite Meta (exceeds max) is BLOCKED from being added; the user is informed.
+    - Because MORE than one channel was typed, the flow does NOT go to the ask node; it CONTINUES with the other resolver nodes.
+    - onSite is added with its 2 Hero SKUs.
+    automationNotes: "Decision-table partner of MAX-099: multi-channel path continues other resolvers instead of routing to ask node. Assert onSite added while Meta blocked."
+  - id: TC-MAX-039
+    title: "Backend NUP-20507: channel BELOW minHeroSkus on activation is blocked and the user informed"
+    area: Maximum Hero SKUs per channel validation
+    priority: Medium
+    type: Integration
+    technique: [Boundary-BVA, Negative]
+    traces:
+      tickets: [NUP-20507, NUP-18944]
+      sourceRefs: [_test_scenarios.md#NUP-18944]
+    preconditions:
+    - Channel offSite (Meta) configured with minHeroSkus = 1 (parameterize MIN).
+    - The channel's Hero selection on activation = 0 (below min).
+    testData:
+    - minHeroSkus = 1 (parameterized)
+    - Hero count = 0 (below min)
+    steps:
+    - 1. Activate offSite (Meta) with 0 Hero SKUs (below configured min).
+    - 2. Backend checks minHeroSkus/maxHeroSkus after activation.
+    - 3. Observe whether the channel is blocked and the user message/routing.
+    expected:
+    - Backend detects Hero count below minHeroSkus.
+    - Channel is blocked from being added; user is informed.
+    - If only this single channel was typed, the flow routes to the ask node (consistent with the single-channel rule); if multiple were typed, other resolvers continue.
+    automationNotes: Exercises the MIN branch of the NUP-20507 check (the draft only covered the max branch in CHAN-018; this is the MAX-prefixed canonical min boundary). Parameterize MIN; assert block + appropriate routing depending on channel count.
+  - id: TC-IND-001
+    title: Global Hero SKU modal displays ALL brand-linked SKUs, not only Measurement SKUs
+    area: Hero-SKU indicators, all-brand-linked modal, auto-add & count recompute
+    priority: Critical
+    type: UI
+    technique: [Positive, Equivalence-Partition]
+    traces:
+      tickets: [NUP-21959, NUP-20956]
+      sourceRefs: [_test_scenarios.md#NUP-21959]
+    preconditions:
+    - A media plan draft exists with a defined set of Measurement SKUs (e.g. 1,2,3,4).
+    - The brand is linked to a strictly larger catalogue of SKUs (e.g. brand-linked = 1,2,3,4,5,6,7,8 where 5,6,7,8 are NOT Measurement SKUs).
+    - User is in the Nectar AI chat with a global Hero SKU assignment modal reachable.
+    testData:
+    - "Measurement SKUs: 1,2,3,4"
+    - "Brand-linked SKUs (full set): 1,2,3,4,5,6,7,8"
+    - "Non-Measurement brand-linked SKUs: 5,6,7,8"
+    steps:
+    - 1. Open the global Hero SKU assignment modal.
+    - 2. Inspect the full list of selectable SKUs offered for Hero assignment.
+    - 3. Compare the offered list against the Measurement SKU set and against the brand-linked catalogue.
+    expected:
+    - "The modal lists every brand-linked SKU: 1,2,3,4,5,6,7,8 (8 selectable entries)."
+    - Non-Measurement brand-linked SKUs 5,6,7,8 are present and selectable (the modal is NOT restricted to Measurement SKUs 1,2,3,4).
+    - No brand-linked SKU is omitted; no non-brand-linked SKU appears.
+    automationNotes: Assert the selectable-SKU collection in the global Hero modal equals the brand-linked catalogue, not the Measurement subset; seed catalogue via fixture/API so the superset relationship is deterministic.
+  - id: TC-IND-002
+    title: Assign a non-Measurement SKU as Hero globally auto-adds it to Measurement SKUs
+    area: Hero-SKU indicators, all-brand-linked modal, auto-add & count recompute
+    priority: Critical
+    type: E2E
+    technique: [Positive, State-Recompute, Cross-Field]
+    traces:
+      tickets: [NUP-21960, NUP-20956]
+      sourceRefs: [_test_scenarios.md#NUP-21960]
+    preconditions:
+    - Media plan draft with Measurement SKUs = 1,2,3,4 (count 4).
+    - Brand-linked catalogue includes non-Measurement SKU 7.
+    - Global Hero modal open.
+    testData:
+    - "Measurement SKUs before: 1,2,3,4 (count 4)"
+    - "SKU assigned as Hero: 7 (non-Measurement, brand-linked)"
+    - "Measurement SKUs after expected: 1,2,3,4,7 (count 5)"
+    steps:
+    - 1. In the global Hero modal, select SKU 7 (which is brand-linked but not a Measurement SKU) as a Hero SKU.
+    - 2. Confirm/apply the Hero assignment.
+    - 3. Wait for the assistant turn to complete (allow 30-60s).
+    - 4. Inspect the Measurement SKU table/list.
+    expected:
+    - SKU 7 is now a Hero SKU.
+    - "SKU 7 is auto-added to the Measurement SKU set: Measurement SKUs = 1,2,3,4,7, Measurement count = 5."
+    - SKU 7 row in the Measurement table carries the 'Hero SKU' indicator.
+    automationNotes: After applying, poll the Measurement table until SKU 7 appears (assistant turn 30-60s); assert Measurement count incremented from 4 to 5 and SKU 7 flagged Hero.
+  - id: TC-IND-003
+    title: Assign Hero SKU that is already a Measurement SKU produces no duplicate; single entry marked Hero
+    area: Hero-SKU indicators, all-brand-linked modal, auto-add & count recompute
+    priority: High
+    type: Integration
+    technique: [Positive, State-Recompute, Edge-Case]
+    traces:
+      tickets: [NUP-21961, NUP-20956]
+      sourceRefs: [_test_scenarios.md#NUP-21961]
+    preconditions:
+    - Media plan draft with Measurement SKUs = 1,2,3,4 (count 4).
+    - SKU 3 is already a Measurement SKU and not yet Hero.
+    - Global Hero modal open.
+    testData:
+    - "Measurement SKUs before: 1,2,3,4 (count 4)"
+    - "SKU assigned as Hero: 3 (already Measurement)"
+    - "Measurement SKUs after expected: 1,2,3,4 (count 4, unchanged)"
+    steps:
+    - 1. In the global Hero modal, select SKU 3 (already a Measurement SKU) as Hero.
+    - 2. Apply the assignment and wait for the assistant turn to complete.
+    - 3. Inspect the Measurement SKU table for SKU 3.
+    expected:
+    - "No duplicate row is created for SKU 3: exactly one Measurement entry for SKU 3."
+    - Measurement count stays 4 (1,2,3,4); no growth occurred.
+    - The single SKU 3 entry is marked with the 'Hero SKU' indicator.
+    automationNotes: Assert count of rows matching SKU id 3 == 1 and Measurement total unchanged at 4; assert SKU 3 row has Hero indicator.
+  - id: TC-IND-004
+    title: Channel-level Hero SKU modal displays all brand-linked SKUs
+    area: Hero-SKU indicators, all-brand-linked modal, auto-add & count recompute
+    priority: Critical
+    type: UI
+    technique: [Positive, Equivalence-Partition]
+    traces:
+      tickets: [NUP-21962, NUP-20956, NUP-18943]
+      sourceRefs: [_test_scenarios.md#NUP-21962]
+    preconditions:
+    - "Media plan with at least one selected channel (e.g. offSite: Meta)."
+    - Measurement SKUs = 1,2,3,4; brand-linked catalogue = 1..8.
+    - Channel edit modal for the channel is reachable.
+    testData:
+    - "Channel: offSite Meta"
+    - "Measurement SKUs: 1,2,3,4"
+    - "Brand-linked SKUs: 1,2,3,4,5,6,7,8"
+    steps:
+    - 1. Open the channel edit (Hero) modal for the offSite Meta channel.
+    - 2. Inspect the selectable SKU list offered for Hero assignment within that channel.
+    - 3. Compare to the brand-linked catalogue and the Measurement subset.
+    expected:
+    - The channel modal lists all brand-linked SKUs 1..8 (8 entries).
+    - Non-Measurement brand-linked SKUs 5,6,7,8 are present and selectable.
+    - The channel modal is NOT limited to Measurement SKUs only.
+    automationNotes: Same assertion as IND-001 but scoped to the per-channel modal; parameterize channel under test.
+  - id: TC-IND-005
+    title: Single-prompt edit flow shows all brand-linked SKUs when editing Hero SKUs
+    area: Hero-SKU indicators, all-brand-linked modal, auto-add & count recompute
+    priority: High
+    type: UI
+    technique: [Positive, Equivalence-Partition]
+    traces:
+      tickets: [NUP-21963, NUP-20956, NUP-19273]
+      sourceRefs: [_test_scenarios.md#NUP-21963]
+    preconditions:
+    - A plan was created via single-prompt flow (one chat message defining channels/SKUs).
+    - Measurement SKUs = 1,2,3,4; brand-linked = 1..8.
+    - The single-prompt summary exposes a Hero SKU edit modal.
+    testData:
+    - Single-prompt summary present
+    - "Measurement SKUs: 1,2,3,4"
+    - "Brand-linked SKUs: 1..8"
+    steps:
+    - 1. From the single-prompt summary, open the Hero SKU edit modal.
+    - 2. Inspect the selectable SKU list.
+    - 3. Compare against the brand-linked catalogue.
+    expected:
+    - The edit modal in the single-prompt flow lists all brand-linked SKUs 1..8.
+    - Non-Measurement SKUs 5,6,7,8 are selectable here too.
+    - Not restricted to Measurement SKUs.
+    automationNotes: Drive plan creation through a single chat prompt fixture, then open the Hero edit modal from the summary and assert full brand-linked list.
+  - id: TC-IND-006
+    title: Single-prompt free-text parsing splits Measurement vs Hero and auto-adds Hero-only SKUs to Measurement
+    area: Hero-SKU indicators, all-brand-linked modal, auto-add & count recompute
+    priority: Critical
+    type: E2E
+    technique: [Positive, Cross-Field, State-Recompute]
+    traces:
+      tickets: [NUP-19967, NUP-19328, NUP-19273]
+      sourceRefs: [_test_scenarios.md#NUP-19328]
+    preconditions:
+    - User is in the Nectar AI chat, no plan yet.
+    - Brand-linked catalogue includes SKUs 1..6.
+    testData:
+    - "Prompt free text: '1, 2, 3, 4 and hero skus 3, 5, 6'"
+    - "Expected Measurement SKUs: 1,2,3,4,5,6 (count 6)"
+    - "Expected Hero SKUs: 3,5,6 (count 3)"
+    steps:
+    - 1. Send the single prompt '1, 2, 3, 4 and hero skus 3, 5, 6' into the chat.
+    - 2. Wait for the assistant turn to complete (30-60s).
+    - 3. Inspect the parsed Measurement SKU set, Hero SKU set, and indicators.
+    expected:
+    - Measurement SKUs = {1,2,3,4,5,6}, count 6 (Hero-only SKUs 5,6 auto-added to Measurement).
+    - Hero SKUs = {3,5,6}, count 3.
+    - SKU 3 appears once (already Measurement, now Hero); SKUs 5,6 each appear once in Measurement marked Hero; no duplicates.
+    - Rows 3,5,6 show the 'Hero SKU' indicator; rows 1,2,4 do not.
+    automationNotes: Assert exact set membership and counts after parse; verify no duplicate Measurement rows for SKU 3 and Hero indicator only on 3,5,6.
+  - id: TC-IND-007
+    title: "Bulk mixed Measurement + non-Measurement Hero assignment: all assigned, non-Measurement auto-added"
+    area: Hero-SKU indicators, all-brand-linked modal, auto-add & count recompute
+    priority: Critical
+    type: E2E
+    technique: [Positive, State-Recompute, Equivalence-Partition]
+    traces:
+      tickets: [NUP-21965, NUP-20956]
+      sourceRefs: [_test_scenarios.md#NUP-21965]
+    preconditions:
+    - Media plan draft with Measurement SKUs = 1,2,3,4 (count 4).
+    - Brand-linked catalogue = 1..8.
+    - Hero modal (global) supports multi-select bulk assignment.
+    testData:
+    - "Bulk Hero selection: 2,3 (Measurement) + 6,7 (non-Measurement)"
+    - "Measurement before: 1,2,3,4 (count 4)"
+    - "Measurement after expected: 1,2,3,4,6,7 (count 6)"
+    - "Hero after expected: 2,3,6,7 (count 4)"
+    steps:
+    - 1. In the Hero modal, multi-select SKUs 2,3,6,7 in a single bulk action.
+    - 2. Apply and wait for the assistant turn to complete.
+    - 3. Inspect Measurement table, Hero set, and counts.
+    expected:
+    - All four SKUs 2,3,6,7 are assigned as Hero (Hero count 4).
+    - Non-Measurement SKUs 6,7 auto-added to Measurement; Measurement = 1,2,3,4,6,7, count 6.
+    - Already-Measurement SKUs 2,3 are not duplicated; each single entry now marked Hero.
+    - Rows 2,3,6,7 show 'Hero SKU' indicator.
+    automationNotes: Verify bulk path increments Measurement by exactly the count of newly added non-Measurement SKUs (2 here) and that all selected become Hero in one apply.
+  - id: TC-IND-008
+    title: Measurement SKUs modal/table shows 'Hero SKU' indicator for SKUs that are Hero
+    area: Hero-SKU indicators, all-brand-linked modal, auto-add & count recompute
+    priority: High
+    type: UI
+    technique: [Positive, Equivalence-Partition]
+    traces:
+      tickets: [NUP-21966, NUP-20956]
+      sourceRefs: [_test_scenarios.md#NUP-21966]
+    preconditions:
+    - Media plan with Measurement SKUs = 1,2,3,4.
+    - Hero SKUs = 2,4 already assigned.
+    - Measurement SKUs modal/table is open.
+    testData:
+    - "Measurement SKUs: 1,2,3,4"
+    - "Hero SKUs: 2,4"
+    - "Non-Hero Measurement: 1,3"
+    steps:
+    - 1. Open the Measurement SKUs modal/table.
+    - 2. Inspect the indicator state of each Measurement row.
+    expected:
+    - Rows for SKU 2 and SKU 4 display the 'Hero SKU' indicator.
+    - Rows for SKU 1 and SKU 3 do NOT display the 'Hero SKU' indicator.
+    - Indicator presence exactly matches the Hero set {2,4}.
+    automationNotes: Assert indicator visibility per row maps 1:1 to is_hero; use stable per-row selector keyed by SKU id.
+  - id: TC-IND-009
+    title: "'Hero SKU' indicator appears in real time when a SKU is assigned as Hero"
+    area: Hero-SKU indicators, all-brand-linked modal, auto-add & count recompute
+    priority: Critical
+    type: UI
+    technique: [State-Recompute, Edge-Case]
+    traces:
+      tickets: [NUP-21968, NUP-20956]
+      sourceRefs: [_test_scenarios.md#NUP-21968]
+    preconditions:
+    - Measurement modal/table open showing SKUs 1,2,3,4.
+    - SKU 1 is currently NOT a Hero SKU.
+    testData:
+    - "Target SKU: 1"
+    - "Hero before: {} (1 not hero)"
+    - "Hero after assign: {1}"
+    steps:
+    - 1. With the Measurement table visible, confirm SKU 1 shows no Hero indicator.
+    - 2. Assign SKU 1 as a Hero SKU via the Hero modal.
+    - 3. Without manual page reload, observe SKU 1's row in the Measurement table after the action settles.
+    expected:
+    - SKU 1's 'Hero SKU' indicator appears in real time after assignment (no manual refresh required).
+    - Other rows are unaffected.
+    automationNotes: Capture indicator state before and after assign on the same DOM node; wait for live update (assistant turn 30-60s) rather than reloading; assert no full navigation occurred.
+  - id: TC-IND-010
+    title: "'Hero SKU' indicator disappears in real time when a SKU is unassigned as Hero"
+    area: Hero-SKU indicators, all-brand-linked modal, auto-add & count recompute
+    priority: Critical
+    type: UI
+    technique: [State-Recompute, Edge-Case]
+    traces:
+      tickets: [NUP-21968, NUP-20956]
+      sourceRefs: [_test_scenarios.md#NUP-21968]
+    preconditions:
+    - Measurement modal/table open showing SKUs 1,2,3,4.
+    - SKU 2 is currently a Hero SKU (indicator visible).
+    testData:
+    - "Target SKU: 2"
+    - "Hero before: {2}"
+    - "Hero after unassign: {}"
+    steps:
+    - 1. Confirm SKU 2 shows the 'Hero SKU' indicator.
+    - 2. Unassign SKU 2 as Hero via the Hero modal.
+    - 3. Observe SKU 2's row in the Measurement table after the action settles (no manual reload).
+    expected:
+    - SKU 2's 'Hero SKU' indicator is removed in real time after unassignment.
+    - SKU 2 remains a Measurement SKU (still listed); only the Hero indicator is cleared.
+    - Other rows unaffected.
+    automationNotes: Assert indicator removed live and SKU 2 still present in Measurement set (unassigning Hero does not remove it from Measurement).
+  - id: TC-IND-011
+    title: Summary panel and tables counts update after Hero changes; Measurement count grows on auto-add
+    area: Hero-SKU indicators, all-brand-linked modal, auto-add & count recompute
+    priority: Critical
+    type: E2E
+    technique: [State-Recompute, Data-Persistence, Cross-Field]
+    traces:
+      tickets: [NUP-21969, NUP-20956]
+      sourceRefs: [_test_scenarios.md#NUP-21969]
+    preconditions:
+    - Media plan with Measurement SKUs = 1,2,3,4 (count 4), Hero SKUs = {} (count 0).
+    - Summary panel visible showing both counts.
+    - Brand-linked catalogue includes non-Measurement SKU 8.
+    testData:
+    - Step A assign Measurement SKU 2 as Hero -> Hero count 0->1, Measurement stays 4
+    - Step B assign non-Measurement SKU 8 as Hero -> Hero count 1->2, Measurement 4->5
+    - "Measurement after: 1,2,3,4,8"
+    steps:
+    - "1. Record summary counts: Measurement = 4, Hero = 0."
+    - 2. Assign SKU 2 (already Measurement) as Hero; wait for turn to complete; record counts.
+    - 3. Assign SKU 8 (non-Measurement) as Hero; wait for turn to complete; record counts.
+    - 4. Compare summary panel counts with the Measurement and Hero tables.
+    expected:
+    - "After step 2: Hero count = 1, Measurement count = 4 (no growth, SKU 2 already Measurement)."
+    - "After step 3: Hero count = 2, Measurement count = 5 (grew because SKU 8 auto-added)."
+    - Summary panel counts match the table counts exactly at every step.
+    - Measurement = 1,2,3,4,8 with SKUs 2 and 8 marked Hero.
+    automationNotes: "Read counts from summary panel and from table independently and assert equality at each step; key assertion: Measurement count grows only on non-Measurement Hero auto-add."
+  - id: TC-IND-012
+    title: is_hero set True in StateData.campaign_skus when a SKU is added as Hero to a channel
+    area: Hero-SKU indicators, all-brand-linked modal, auto-add & count recompute
+    priority: High
+    type: Integration
+    technique: [State-Recompute, Data-Persistence]
+    traces:
+      tickets: [NUP-19140]
+      sourceRefs: [NUP-19140.md#Acceptance Criteria]
+    preconditions:
+    - StateData.campaign_skus contains SKU 5 with is_hero = False.
+    - A selected channel (offSite Meta) exists whose channel edit modal can add Hero SKUs.
+    - Access to StateData (via API/backend assertion hook) is available.
+    testData:
+    - "SKU added as Hero to channel: 5"
+    - "is_hero before: False"
+    - "is_hero after expected: True"
+    steps:
+    - 1. Confirm StateData.campaign_skus[5].is_hero == False.
+    - 2. In the offSite Meta channel modal, add SKU 5 as a Hero SKU and apply.
+    - 3. Wait for the channel modification to process.
+    - 4. Re-read StateData.campaign_skus[5].is_hero.
+    expected:
+    - StateData.campaign_skus[5].is_hero == True after the channel modification.
+    - The update method runs on channel modification and flags SKU 5 as hero.
+    automationNotes: Assert backend StateData flag via API/state hook before and after; ties UI Hero-add to is_hero=True per NUP-19140.
+  - id: TC-IND-013
+    title: is_hero set False when a SKU is no longer used as Hero by any remaining channel after channel DELETION
+    area: Hero-SKU indicators, all-brand-linked modal, auto-add & count recompute
+    priority: Critical
+    type: Integration
+    technique: [State-Recompute, Data-Persistence, Edge-Case]
+    traces:
+      tickets: [NUP-19140]
+      sourceRefs: [NUP-19140.md#Description, NUP-19140.md#Acceptance Criteria]
+    preconditions:
+    - "Two channels exist: Channel A (offSite Meta) with Hero SKU 5; Channel B (offSite Display) with NO Hero use of SKU 5."
+    - StateData.campaign_skus[5].is_hero == True (because Channel A uses it as Hero).
+    - No other channel uses SKU 5 as Hero.
+    testData:
+    - "SKU under test: 5"
+    - "Channels: A=offSite Meta (hero 5), B=offSite Display (no hero 5)"
+    - "is_hero before delete: True"
+    - "is_hero after deleting A: False"
+    steps:
+    - 1. Confirm StateData.campaign_skus[5].is_hero == True.
+    - 2. Delete Channel A (the only channel using SKU 5 as Hero).
+    - 3. Wait for the deletion to process (update method runs).
+    - 4. Re-read StateData.campaign_skus[5].is_hero and inspect remaining Hero union.
+    expected:
+    - StateData.campaign_skus[5].is_hero == False after deleting Channel A (no remaining channel uses it as Hero).
+    - campaign_skus hero flags equal the union of Hero SKUs across remaining channels.
+    - Measurement table SKU 5 row no longer shows the 'Hero SKU' indicator (if 5 was not Hero elsewhere).
+    automationNotes: "Assert the union-recompute on delete: is_hero=False only because no remaining channel references SKU 5 as Hero; verify against remaining-channels Hero union."
+  - id: TC-IND-014
+    title: is_hero stays True after channel deletion when another remaining channel still uses the SKU as Hero
+    area: Hero-SKU indicators, all-brand-linked modal, auto-add & count recompute
+    priority: High
+    type: Integration
+    technique: [State-Recompute, Decision-Table, Data-Persistence]
+    traces:
+      tickets: [NUP-19140]
+      sourceRefs: [NUP-19140.md#Acceptance Criteria]
+    preconditions:
+    - Channel A (offSite Meta) uses SKU 5 as Hero; Channel B (offSite Display) ALSO uses SKU 5 as Hero.
+    - StateData.campaign_skus[5].is_hero == True.
+    testData:
+    - "SKU under test: 5"
+    - "Channels using 5 as Hero: A and B"
+    - "is_hero before delete: True"
+    - "is_hero after deleting A: True (B still uses it)"
+    steps:
+    - 1. Confirm both Channel A and Channel B use SKU 5 as Hero; is_hero == True.
+    - 2. Delete Channel A.
+    - 3. Wait for deletion to process.
+    - 4. Re-read StateData.campaign_skus[5].is_hero.
+    expected:
+    - StateData.campaign_skus[5].is_hero == True after deleting Channel A, because Channel B still uses SKU 5 as Hero.
+    - Hero flags equal the union across remaining channels (which still includes SKU 5).
+    automationNotes: "Decision-table pair with IND-013: same delete action, different remaining-union state -> opposite is_hero outcome; assert flag persists True."
+  - id: TC-IND-015
+    title: is_hero recomputed on channel MODIFICATION that removes the SKU from the channel's Hero set
+    area: Hero-SKU indicators, all-brand-linked modal, auto-add & count recompute
+    priority: High
+    type: Integration
+    technique: [State-Recompute, Data-Persistence]
+    traces:
+      tickets: [NUP-19140]
+      sourceRefs: [NUP-19140.md#Description, NUP-19140.md#Acceptance Criteria]
+    preconditions:
+    - Single channel (offSite Meta) uses SKU 5 as Hero.
+    - StateData.campaign_skus[5].is_hero == True.
+    - No other channel uses SKU 5 as Hero.
+    testData:
+    - "SKU under test: 5"
+    - "is_hero before modify: True"
+    - "is_hero after modify (deselect 5 in channel modal): False"
+    steps:
+    - 1. Confirm is_hero == True for SKU 5.
+    - 2. Open the offSite Meta channel modal and DESELECT SKU 5 from Hero (modification, not deletion).
+    - 3. Apply and wait for the modification to process.
+    - 4. Re-read StateData.campaign_skus[5].is_hero.
+    expected:
+    - StateData.campaign_skus[5].is_hero == False after modification (no channel uses it as Hero anymore).
+    - The update method runs on channel modification, not only deletion.
+    - SKU 5 remains a Measurement SKU; only is_hero is cleared.
+    automationNotes: Exercises the 'modification' trigger of the NUP-19140 update method distinct from deletion; assert is_hero False and SKU still in campaign_skus.
+  - id: TC-IND-016
+    title: "Max Hero SKUs per channel boundary: assigned count EQUAL to max is accepted with no warning"
+    area: Hero-SKU indicators, all-brand-linked modal, auto-add & count recompute
+    priority: High
+    type: E2E
+    technique: [Boundary-BVA, Positive]
+    traces:
+      tickets: [NUP-18944, NUP-20507]
+      sourceRefs: [_test_scenarios.md#NUP-18944]
+    preconditions:
+    - "Channel offSite Meta configured with maxHeroSkus = 3 (ASSUMPTION: max=3 per spec example; parameterize via channel config)."
+    - Brand-linked catalogue >= SKUs 1,2,3.
+    testData:
+    - "Channel: offSite Meta, maxHeroSkus = 3 (assumed/parameterized)"
+    - "Hero assigned: 1,2,3 (count = max = 3)"
+    steps:
+    - 1. Assign exactly 3 Hero SKUs (1,2,3) to offSite Meta.
+    - 2. Apply and wait for processing.
+    - 3. Inspect the summary panel for the channel and any warning.
+    expected:
+    - Channel added to the summary panel with all 3 selected SKUs.
+    - NO warning shown (count == max is within limit).
+    - Booking/saving is NOT blocked by this channel.
+    automationNotes: "Boundary lower-edge of the block: assert no 'Media limit' warning at count == maxHeroSkus and booking enabled. Max value assumed 3; read from channel config to keep test data-driven."
+  - id: TC-IND-017
+    title: "Max Hero SKUs per channel boundary: assigned count = max-1 accepted, no warning"
+    area: Hero-SKU indicators, all-brand-linked modal, auto-add & count recompute
+    priority: Medium
+    type: E2E
+    technique: [Boundary-BVA, Positive]
+    traces:
+      tickets: [NUP-18944]
+      sourceRefs: [_test_scenarios.md#NUP-18944]
+    preconditions:
+    - Channel offSite Meta configured with maxHeroSkus = 3 (assumed/parameterized).
+    testData:
+    - maxHeroSkus = 3
+    - "Hero assigned: 1,2 (count = max-1 = 2)"
+    steps:
+    - 1. Assign 2 Hero SKUs (1,2) to offSite Meta.
+    - 2. Apply and wait.
+    - 3. Inspect summary panel and warnings.
+    expected:
+    - Channel added with 2 SKUs.
+    - No 'Media limit' warning.
+    - Booking not blocked.
+    automationNotes: Below-limit boundary; assert clean state with count < max.
+  - id: TC-IND-018
+    title: "Max Hero SKUs per channel boundary: assigned count = max+1 adds channel but shows warning and blocks booking"
+    area: Hero-SKU indicators, all-brand-linked modal, auto-add & count recompute
+    priority: Critical
+    type: E2E
+    technique: [Boundary-BVA, Negative, Error-Message]
+    traces:
+      tickets: [NUP-18944, NUP-20675]
+      sourceRefs: [_test_scenarios.md#NUP-18944, _test_scenarios.md#NUP-20675]
+    preconditions:
+    - Channel offSite Meta configured with maxHeroSkus = 3 (assumed/parameterized).
+    - Brand-linked catalogue >= SKUs 1,2,3,4.
+    testData:
+    - maxHeroSkus = 3
+    - "Hero assigned: 1,2,3,4 (count = max+1 = 4)"
+    - "Verbatim warning expected: 'Media limit: 3 Hero SKUs. Edit SKUs'"
+    steps:
+    - 1. Assign 4 Hero SKUs (1,2,3,4) to offSite Meta (exceeds max of 3).
+    - 2. Apply and wait for processing.
+    - "3. Inspect the summary panel: channel presence, SKU list, warning text, and booking/save control state."
+    - 4. Attempt to book/save the plan.
+    expected:
+    - Channel IS still added to the summary panel WITH all 4 selected SKUs.
+    - "A warning is shown with EXACT text: 'Media limit: 3 Hero SKUs. Edit SKUs'."
+    - The user is BLOCKED from booking/saving the plan (book/save control disabled or rejected) until the selection meets the max.
+    - An edit/deselect modal is reachable from the warning to remove the excess.
+    automationNotes: "Assert exact warning string 'Media limit: 3 Hero SKUs. Edit SKUs' (substitute N from channel max), channel present with all SKUs, and book/save blocked. The numeral in the warning must equal the configured maxHeroSkus."
+  - id: TC-IND-019
+    title: After deselecting excess Hero SKUs down to max, warning clears and booking is unblocked
+    area: Hero-SKU indicators, all-brand-linked modal, auto-add & count recompute
+    priority: Critical
+    type: E2E
+    technique: [State-Recompute, Positive, Error-Message]
+    traces:
+      tickets: [NUP-18944, NUP-20675]
+      sourceRefs: [_test_scenarios.md#NUP-18944, _test_scenarios.md#NUP-20675]
+    preconditions:
+    - "From IND-018 end state: offSite Meta has 4 Hero SKUs (1,2,3,4), warning shown, booking blocked, maxHeroSkus = 3."
+    testData:
+    - maxHeroSkus = 3
+    - Deselect SKU 4 -> remaining Hero 1,2,3 (count = 3 = max)
+    steps:
+    - 1. Open the deselect/edit modal from the warning.
+    - 2. Deselect SKU 4 so the channel has 3 Hero SKUs (1,2,3).
+    - 3. Apply and wait for recompute.
+    - 4. Inspect warning and booking control.
+    expected:
+    - "The 'Media limit: 3 Hero SKUs. Edit SKUs' warning is removed."
+    - Channel now shows 3 Hero SKUs.
+    - Booking/saving is unblocked (control enabled).
+    automationNotes: Verify the warning-clear and unblock transition is the inverse of IND-018; assert booking enabled once count == max.
+  - id: TC-IND-020
+    title: "No max configured: assigning many Hero SKUs imposes no restriction and no warning"
+    area: Hero-SKU indicators, all-brand-linked modal, auto-add & count recompute
+    priority: High
+    type: E2E
+    technique: [Equivalence-Partition, Positive, Decision-Table]
+    traces:
+      tickets: [NUP-18944, NUP-20679]
+      sourceRefs: [_test_scenarios.md#NUP-18944, _test_scenarios.md#NUP-20679]
+    preconditions:
+    - Channel offSite Display has NO maxHeroSkus configured (max unset/null).
+    testData:
+    - "Channel: offSite Display, maxHeroSkus = unset"
+    - "Hero assigned: 1,2,3,4,5,6 (count 6)"
+    steps:
+    - 1. Assign 6 Hero SKUs to offSite Display (which has no max configured).
+    - 2. Apply and wait.
+    - 3. Inspect summary panel, warning, and booking control.
+    expected:
+    - Channel added with all 6 SKUs.
+    - NO 'Media limit' warning shown (no max means no restriction).
+    - Booking/saving NOT blocked by this channel.
+    automationNotes: "Decision-table cell: max-not-configured -> never warn/block regardless of count; ensure fixture leaves maxHeroSkus null."
+  - id: TC-IND-021
+    title: "Global Hero list exceeding a channel's max: each affected channel added but warned and blocked until adjusted per channel"
+    area: Hero-SKU indicators, all-brand-linked modal, auto-add & count recompute
+    priority: Critical
+    type: E2E
+    technique: [Decision-Table, Error-Message, State-Recompute, Negative]
+    traces:
+      tickets: [NUP-18944, NUP-20681]
+      sourceRefs: [_test_scenarios.md#NUP-18944, _test_scenarios.md#NUP-20681]
+    preconditions:
+    - Global Hero list = 1,2,3,4 (4 Hero SKUs) assigned BEFORE selecting channels.
+    - Channel offSite Meta configured maxHeroSkus = 3; Channel offSite Display configured maxHeroSkus = 3.
+    - Global Hero pre-populates every selected channel.
+    testData:
+    - "Global Hero SKUs: 1,2,3,4 (count 4)"
+    - "Per-channel max: 3 for both channels"
+    - "Verbatim warning expected per channel: 'Media limit: 3 Hero SKUs. Edit SKUs'"
+    steps:
+    - 1. Assign global Hero SKUs 1,2,3,4.
+    - 2. Select channels offSite Meta and offSite Display (each gets the 4 global Hero SKUs).
+    - 3. Wait for processing.
+    - 4. Inspect each channel in the summary panel for warning and the booking control.
+    - 5. Attempt to book.
+    expected:
+    - Each affected channel (Meta and Display) is still added with the 4 Hero SKUs.
+    - "Each shows the warning 'Media limit: 3 Hero SKUs. Edit SKUs' indicating the max and that the selection exceeds it."
+    - Booking is BLOCKED until adjusted per channel.
+    - Adjustment must be done per channel (deselecting excess within each channel modal).
+    automationNotes: Assert warning present on BOTH channels independently and that fixing one channel does not unblock booking while the other still exceeds; numeral equals configured max.
+  - id: TC-IND-022
+    title: "Backend NUP-20507: single channel typed exceeds max -> block channel and route to ask node"
+    area: Hero-SKU indicators, all-brand-linked modal, auto-add & count recompute
+    priority: High
+    type: Integration
+    technique: [Decision-Table, Negative, Error-Message]
+    traces:
+      tickets: [NUP-20507, NUP-18944]
+      sourceRefs: [_test_scenarios.md#NUP-18944]
+    preconditions:
+    - User types ONE channel in chat whose Hero selection exceeds its maxHeroSkus.
+    - Channel offSite Meta maxHeroSkus = 3; user specifies 4 Hero SKUs for it.
+    - Backend min/max check runs after channel activation.
+    testData:
+    - "Single channel typed: offSite Meta with Hero 1,2,3,4"
+    - maxHeroSkus = 3
+    steps:
+    - 1. Send a single-channel prompt assigning 4 Hero SKUs to offSite Meta.
+    - 2. Wait for the assistant/backend turn (30-60s).
+    - 3. Inspect whether the channel was added and where the flow routed.
+    expected:
+    - Adding the channel is BLOCKED (max exceeded after activation).
+    - The user is informed of the limit.
+    - Because only ONE channel was typed, the flow goes to the ask node (prompts the user to adjust).
+    automationNotes: "Backend decision branch: single-channel + max-exceeded -> block + ask node; assert routing/state via backend hook or resulting assistant prompt."
+  - id: TC-IND-023
+    title: "Backend NUP-20507: multiple channels typed, one exceeds max -> block that channel, continue with other resolver nodes"
+    area: Hero-SKU indicators, all-brand-linked modal, auto-add & count recompute
+    priority: High
+    type: Integration
+    technique: [Decision-Table, Negative]
+    traces:
+      tickets: [NUP-20507, NUP-18944]
+      sourceRefs: [_test_scenarios.md#NUP-18944]
+    preconditions:
+    - User types MORE than one channel in chat.
+    - offSite Meta maxHeroSkus = 3 with 4 Hero SKUs (exceeds); offSite Display maxHeroSkus = 3 with 2 Hero SKUs (within).
+    - Backend min/max check runs after channel activation.
+    testData:
+    - "Channels typed: offSite Meta (Hero 1,2,3,4 -> exceeds), offSite Display (Hero 1,2 -> within)"
+    - maxHeroSkus = 3 each
+    steps:
+    - "1. Send a multi-channel prompt: Meta with 4 Hero SKUs and Display with 2 Hero SKUs."
+    - 2. Wait for backend processing.
+    - 3. Inspect which channels were added and the flow continuation.
+    expected:
+    - offSite Meta (exceeds max) is BLOCKED from being added; user informed.
+    - Because MORE than one channel was typed, the flow CONTINUES with the other resolver nodes (offSite Display proceeds).
+    - offSite Display is added with its 2 Hero SKUs.
+    automationNotes: "Decision-table partner of IND-022: multi-channel path continues other resolvers instead of ask node; assert Display added while Meta blocked."
+  - id: TC-IND-024
+    title: "Per-channel SKU definition: channel without defined SKUs inherits all global Hero SKUs"
+    area: Hero-SKU indicators, all-brand-linked modal, auto-add & count recompute
+    priority: High
+    type: E2E
+    technique: [Positive, Cross-Field, State-Recompute]
+    traces:
+      tickets: [NUP-19529]
+      sourceRefs: [_test_scenarios.md]
+    preconditions:
+    - Global Hero SKUs = 5,6 assigned.
+    - User defines two channels in chat; one specifies its own SKUs, the other does not.
+    testData:
+    - "Global Hero SKUs: 5,6"
+    - "Channel offSite Meta prompt: 'offSite: Meta, 40k, 20-25/03/2026, skus 12345, 234235' (defines its own SKUs)"
+    - "Channel offSite Display prompt: no SKUs defined"
+    steps:
+    - 1. Send a prompt defining offSite Meta with explicit SKUs 12345,234235 and offSite Display with no SKUs.
+    - 2. Wait for processing.
+    - 3. Inspect SKU assignment for each channel.
+    expected:
+    - offSite Meta uses its explicitly defined SKUs (12345, 234235).
+    - offSite Display, which had NO SKUs defined, is assigned ALL global Hero SKUs (5,6).
+    automationNotes: "Assert inheritance rule per NUP-19529: undefined-SKU channel falls back to the global Hero set; defined-SKU channel keeps its own list."
+  - id: TC-IND-025
+    title: Per-channel single-prompt Hero edit isolates changes to that channel only
+    area: Hero-SKU indicators, all-brand-linked modal, auto-add & count recompute
+    priority: Medium
+    type: Integration
+    technique: [State-Recompute, Cross-Field]
+    traces:
+      tickets: [NUP-20233, NUP-18943]
+      sourceRefs: [_test_scenarios.md#NUP-20233]
+    preconditions:
+    - "Two channels exist: offSite Meta (Hero 1,2) and offSite Display (Hero 1,2)."
+    - Channel edit modal available per channel.
+    testData:
+    - "Edit offSite Meta: add Hero SKU 7"
+    - "offSite Display Hero unchanged: 1,2"
+    steps:
+    - 1. Open offSite Meta channel modal and add Hero SKU 7.
+    - 2. Apply and wait.
+    - 3. Inspect Hero sets of both channels and the global/union state.
+    expected:
+    - offSite Meta Hero set = 1,2,7.
+    - offSite Display Hero set remains 1,2 (unaffected; change isolated to Meta).
+    - StateData.campaign_skus[7].is_hero == True (now used by Meta).
+    automationNotes: "Assert per-channel isolation: modifying one channel's Hero does not mutate the other; verify is_hero union includes 7."
+  - id: TC-IND-026
+    title: Auto-add updates Measurement table count and indicator together (combined recompute)
+    area: Hero-SKU indicators, all-brand-linked modal, auto-add & count recompute
+    priority: High
+    type: E2E
+    technique: [State-Recompute, Cross-Field, Data-Persistence]
+    traces:
+      tickets: [NUP-21969, NUP-21960, NUP-21966]
+      sourceRefs: [_test_scenarios.md#NUP-21969, _test_scenarios.md#NUP-21960]
+    preconditions:
+    - Measurement SKUs = 1,2,3,4 (count 4); Hero = {}.
+    - Measurement table and summary panel both visible.
+    - Brand-linked SKU 8 is non-Measurement.
+    testData:
+    - Assign non-Measurement SKU 8 as Hero
+    - "Measurement after: 1,2,3,4,8 (count 5)"
+    - "Hero after: {8} (count 1)"
+    steps:
+    - 1. Record Measurement count = 4, Hero count = 0; note SKU 8 absent from Measurement table.
+    - 2. Assign SKU 8 as Hero (global).
+    - 3. Wait for processing.
+    - 4. Inspect Measurement table (new row + indicator), Measurement count, Hero count, summary panel.
+    expected:
+    - A new Measurement row for SKU 8 appears, carrying the 'Hero SKU' indicator.
+    - Measurement count = 5; Hero count = 1.
+    - Summary panel and table counts agree (both reflect Measurement 5, Hero 1).
+    - All three effects (row added, indicator shown, counts recomputed) occur from the single auto-add action.
+    automationNotes: "Single action, three coupled assertions: row creation, indicator, and count recompute must all hold; ties NUP-21960/21966/21969 together."
+  - id: TC-IND-027
+    title: "Zero Hero SKUs edge: no rows show indicator and Hero count is zero"
+    area: Hero-SKU indicators, all-brand-linked modal, auto-add & count recompute
+    priority: Medium
+    type: UI
+    technique: [Boundary-BVA, Edge-Case, Equivalence-Partition]
+    traces:
+      tickets: [NUP-21966, NUP-21969]
+      sourceRefs: [_test_scenarios.md#NUP-21966, _test_scenarios.md#NUP-21969]
+    preconditions:
+    - Media plan with Measurement SKUs = 1,2,3,4 and NO Hero SKUs assigned anywhere.
+    testData:
+    - "Measurement SKUs: 1,2,3,4"
+    - "Hero SKUs: none (count 0)"
+    steps:
+    - 1. Open the Measurement table and summary panel.
+    - 2. Inspect every row's indicator and the Hero count.
+    expected:
+    - No Measurement row shows the 'Hero SKU' indicator.
+    - Hero count = 0 in the summary panel.
+    - Measurement count = 4 unchanged.
+    automationNotes: "Lower-bound state assertion: zero Hero -> zero indicators, Hero count 0; guards against default-on indicator bug."
+  - id: TC-IND-028
+    title: Unassigning a non-Measurement-origin Hero leaves it in Measurement but clears indicator and Hero count (count does not shrink)
+    area: Hero-SKU indicators, all-brand-linked modal, auto-add & count recompute
+    priority: Medium
+    type: E2E
+    technique: [State-Recompute, Edge-Case, Data-Persistence]
+    traces:
+      tickets: [NUP-21968, NUP-21969, NUP-21960]
+      sourceRefs: [_test_scenarios.md#NUP-21968, _test_scenarios.md#NUP-21969]
+    preconditions:
+    - SKU 8 was non-Measurement, assigned Hero, and thus auto-added to Measurement (Measurement = 1,2,3,4,8, count 5; Hero = {8}).
+    testData:
+    - Unassign SKU 8 from Hero
+    - "Measurement after: 1,2,3,4,8 (count stays 5)"
+    - "Hero after: {} (count 0)"
+    steps:
+    - 1. Confirm SKU 8 is in Measurement with Hero indicator; Measurement count 5, Hero count 1.
+    - 2. Unassign SKU 8 as Hero.
+    - 3. Wait for recompute.
+    - 4. Inspect SKU 8 row, Measurement count, Hero count.
+    expected:
+    - SKU 8 'Hero SKU' indicator is removed in real time.
+    - SKU 8 REMAINS a Measurement SKU; Measurement count stays 5 (auto-added SKUs are not auto-removed on unassign).
+    - Hero count = 0.
+    - Summary panel counts match the tables.
+    automationNotes: "Edge case clarifying directionality: auto-add grows Measurement but un-Hero does NOT shrink it; assert count stays 5. State assumption per model (no removal rule stated)."
+  - id: TC-IND-029
+    title: "FIX: zero-Hero state Hero count assertion must read 0 and indicator-count must read 0 even after a Hero was assigned then fully unassigned"
+    area: Hero-SKU indicators, all-brand-linked modal, auto-add & count recompute
+    priority: Medium
+    type: E2E
+    technique: [State-Recompute, Boundary-BVA, Edge-Case]
+    traces:
+      tickets: [NUP-21969, NUP-21968, NUP-20956]
+      sourceRefs: [_test_scenarios.md#NUP-21969, _test_scenarios.md#NUP-21966]
+    preconditions:
+    - Media plan with Measurement SKUs = 1,2,3,4.
+    - SKU 2 was assigned Hero then unassigned (returning to zero Hero).
+    testData:
+    - "Sequence: assign SKU 2 Hero (Hero count 1) -> unassign SKU 2 (Hero count 0)"
+    - "Expected end Hero count: 0; expected indicator-bearing rows: 0"
+    steps:
+    - 1. Assign SKU 2 as Hero; confirm Hero count == 1 and SKU 2 indicator on.
+    - 2. Unassign SKU 2 as Hero.
+    - 3. Inspect the Hero count in the summary panel AND the number of rows showing the 'Hero SKU' indicator.
+    expected:
+    - Hero count returns to 0 (not stuck at 1).
+    - Zero Measurement rows show the 'Hero SKU' indicator.
+    - Measurement count unchanged at 4 (SKU 2 still a Measurement SKU).
+    automationNotes: Guard/FIX clarifying draft IND-027, which only asserts the zero state from a never-assigned baseline. A common bug is a count or indicator that does not decrement back to zero after assign-then-unassign. Assert the count and indicator-row-count both reach 0 after the round-trip.
+  - id: TC-IND-030
+    title: "Real-time Hero indicator does NOT leak across SKUs: assigning one SKU as Hero flips only that row's indicator"
+    area: Hero-SKU indicators, all-brand-linked modal, auto-add & count recompute
+    priority: Medium
+    type: UI
+    technique: [State-Recompute, Edge-Case, Equivalence-Partition]
+    traces:
+      tickets: [NUP-21968, NUP-20956]
+      sourceRefs: [_test_scenarios.md#NUP-21968]
+    preconditions:
+    - Measurement modal/table open showing SKUs 1,2,3,4; none currently Hero.
+    - No page reload between actions.
+    testData:
+    - Assign SKU 2 as Hero
+    - "Hero before: {}"
+    - "Hero after: {2}; rows 1,3,4 must remain non-Hero"
+    steps:
+    - 1. Confirm no row shows the 'Hero SKU' indicator.
+    - 2. Assign SKU 2 as Hero via the Hero modal.
+    - 3. Without reload, observe ALL four rows' indicator state after the action settles.
+    expected:
+    - SKU 2 row gains the 'Hero SKU' indicator in real time.
+    - SKUs 1, 3, 4 rows remain WITHOUT the indicator (no spurious leakage).
+    - Hero count == 1.
+    automationNotes: Complements draft IND-009 (which only asserts the target row and 'other rows unaffected' loosely). This asserts each non-target row explicitly stays clean, guarding a re-render bug that flags all rows.
+  - id: TC-IND-031
+    title: "Auto-add dedup under concurrent-style bulk assign: assigning the SAME non-Measurement SKU twice in one bulk action yields a single Measurement row"
+    area: Hero-SKU indicators, all-brand-linked modal, auto-add & count recompute
+    priority: Medium
+    type: Integration
+    technique: [Edge-Case, Negative, State-Recompute]
+    traces:
+      tickets: [NUP-21960, NUP-20956]
+      sourceRefs: [_test_scenarios.md#NUP-21960, _test_scenarios.md#NUP-21965]
+    preconditions:
+    - Media plan with Measurement SKUs = 1,2,3,4 (count 4).
+    - Brand-linked non-Measurement SKU 7 available.
+    - Hero modal supports multi-select.
+    testData:
+    - Bulk Hero selection includes SKU 7 listed/selected twice (e.g. via repeated toggle then apply)
+    - "Measurement before: 1,2,3,4 (count 4)"
+    - "Measurement after expected: 1,2,3,4,7 (count 5, SKU 7 exactly once)"
+    steps:
+    - 1. In the Hero modal, select non-Measurement SKU 7 (ensure the underlying selection set references 7 once even if toggled multiple times).
+    - 2. Apply the bulk assignment.
+    - 3. Inspect the Measurement table for SKU 7 row count and the Measurement total.
+    expected:
+    - SKU 7 is auto-added to Measurement exactly once (single row), not duplicated.
+    - Measurement count == 5 (grew by exactly 1).
+    - SKU 7 row carries the 'Hero SKU' indicator.
+    automationNotes: Auto-add dedup gap not covered by draft (IND-002/IND-007 assume distinct SKUs). Assert rows matching SKU 7 == 1 and count grew by exactly 1 despite a repeated selection.
+  - id: TC-IND-032
+    title: "Auto-add dedup across SEPARATE actions: assigning an already-Hero non-Measurement SKU as Hero a second time does not re-add or duplicate it"
+    area: Hero-SKU indicators, all-brand-linked modal, auto-add & count recompute
+    priority: Medium
+    type: Integration
+    technique: [Edge-Case, Negative, Data-Persistence]
+    traces:
+      tickets: [NUP-21960, NUP-20956]
+      sourceRefs: [_test_scenarios.md#NUP-21960]
+    preconditions:
+    - SKU 8 was non-Measurement, already assigned Hero and auto-added (Measurement = 1,2,3,4,8 count 5; Hero = {8}).
+    - Hero modal open again.
+    testData:
+    - Re-assign SKU 8 as Hero (it is already Hero and already Measurement)
+    - "Measurement after expected: 1,2,3,4,8 (count stays 5)"
+    - "Hero after expected: {8} (unchanged)"
+    steps:
+    - 1. Confirm SKU 8 is already Measurement (Hero-flagged), count 5.
+    - 2. In the Hero modal, select SKU 8 as Hero again and apply.
+    - 3. Inspect Measurement rows for SKU 8 and the counts.
+    expected:
+    - No duplicate Measurement row for SKU 8 (exactly one row).
+    - Measurement count stays 5; Hero count stays 1.
+    - SKU 8 remains Hero-flagged; no state churn.
+    automationNotes: Idempotency of auto-add across repeated assigns. Assert count of SKU-8 rows == 1 and totals unchanged after the redundant assign.
+  - id: TC-IND-033
+    title: Indicator persists correctly when a Measurement SKU is BOTH global-Hero and channel-Hero, then removed from only one scope
+    area: Hero-SKU indicators, all-brand-linked modal, auto-add & count recompute
+    priority: Medium
+    type: E2E
+    technique: [State-Recompute, Cross-Field, Edge-Case]
+    traces:
+      tickets: [NUP-21968, NUP-19140, NUP-20956]
+      sourceRefs: [_test_scenarios.md#NUP-21968, NUP-19140.md#Acceptance Criteria]
+    preconditions:
+    - SKU 2 is a Measurement SKU.
+    - SKU 2 is Hero globally AND is Hero on channel offSite Meta (union includes it from two sources).
+    - Measurement table indicator on SKU 2 visible.
+    testData:
+    - Remove SKU 2 from the GLOBAL Hero list but it remains Hero on offSite Meta channel
+    steps:
+    - 1. Confirm SKU 2 shows the 'Hero SKU' indicator.
+    - 2. Remove SKU 2 from the global Hero assignment only (leave the channel-level Hero on offSite Meta intact).
+    - 3. Observe the Measurement table indicator for SKU 2 and is_hero (if backend exposed).
+    expected:
+    - SKU 2 'Hero SKU' indicator REMAINS visible because it is still Hero on at least one channel (union still includes it).
+    - is_hero for SKU 2 stays True.
+    - Indicator only clears once SKU 2 is no longer Hero in ANY scope.
+    automationNotes: Indicator is driven by the union of Hero across scopes (per NUP-19140), not by any single scope. Guards a bug where removing from global clears the indicator despite channel-level Hero. Pairs with IND-013/IND-014 union logic but at the indicator/UI layer.
+  - id: TC-IND-034
+    title: Summary Measurement count and Hero count stay consistent when an auto-added Hero is later unassigned (count does not shrink) then a different non-Measurement Hero is added
+    area: Hero-SKU indicators, all-brand-linked modal, auto-add & count recompute
+    priority: Medium
+    type: E2E
+    technique: [State-Recompute, Data-Persistence, Cross-Field]
+    traces:
+      tickets: [NUP-21969, NUP-21960, NUP-20956]
+      sourceRefs: [_test_scenarios.md#NUP-21969, _test_scenarios.md#NUP-21960]
+    preconditions:
+    - Measurement SKUs = 1,2,3,4 (count 4); Hero = {}.
+    - Brand-linked non-Measurement SKUs 7 and 8 available.
+    - Summary panel visible.
+    testData:
+    - "Step A: assign non-Measurement 7 as Hero -> Measurement 1,2,3,4,7 (count 5), Hero {7} (1)"
+    - "Step B: unassign 7 -> Measurement stays 1,2,3,4,7 (count 5), Hero {} (0)"
+    - "Step C: assign non-Measurement 8 as Hero -> Measurement 1,2,3,4,7,8 (count 6), Hero {8} (1)"
+    steps:
+    - 1. Assign SKU 7 (non-Measurement) as Hero; record counts.
+    - 2. Unassign SKU 7; record counts.
+    - 3. Assign SKU 8 (non-Measurement) as Hero; record counts.
+    - 4. Compare summary panel counts against table counts at each step.
+    expected:
+    - "After A: Measurement 5, Hero 1."
+    - "After B: Measurement STAYS 5 (auto-added 7 not auto-removed), Hero 0."
+    - "After C: Measurement 6 (8 newly auto-added on top of retained 7), Hero 1."
+    - Summary and table counts agree at every step.
+    automationNotes: "Extends draft IND-028 by chaining a subsequent add to confirm Measurement keeps growing monotonically across un-Hero and re-add cycles. Key assertion: Measurement never shrinks from auto-adds; each new non-Measurement Hero increments it."
+  - id: TC-IND-035
+    title: "is_hero union recompute on deletion when a SKU is Hero on the deleted channel AND a different remaining channel: flag stays True, indicator stays"
+    area: Hero-SKU indicators, all-brand-linked modal, auto-add & count recompute
+    priority: High
+    type: Integration
+    technique: [State-Recompute, Decision-Table, Data-Persistence]
+    traces:
+      tickets: [NUP-19140]
+      sourceRefs: [NUP-19140.md#Acceptance Criteria]
+    preconditions:
+    - "Three channels: A (offSite Meta) Hero {5,6}; B (offSite Display) Hero {6}; C (onSite) Hero {5}."
+    - "StateData.campaign_skus: 5 is_hero True, 6 is_hero True."
+    - Delete channel A.
+    testData:
+    - "A Hero: 5,6; B Hero: 6; C Hero: 5"
+    - Delete A
+    - "is_hero after: 5 -> True (C uses it), 6 -> True (B uses it)"
+    steps:
+    - 1. Confirm is_hero True for both 5 and 6.
+    - 2. Delete channel A.
+    - 3. Wait for the update method.
+    - 4. Re-read is_hero for 5 and 6 and inspect indicators.
+    expected:
+    - is_hero for SKU 5 stays True (channel C still uses it as Hero).
+    - is_hero for SKU 6 stays True (channel B still uses it as Hero).
+    - Neither indicator clears; Hero union across remaining channels {B,C} = {5,6}.
+    automationNotes: Multi-channel union case beyond the draft's two-channel IND-013/IND-014. Asserts that deleting a channel whose Hero SKUs are each independently covered by DIFFERENT remaining channels keeps all flags True.
+  - id: TC-IND-036
+    title: "is_hero recompute on deletion: deleted channel held the ONLY copies of two distinct Hero SKUs -> both flip to False in one operation"
+    area: Hero-SKU indicators, all-brand-linked modal, auto-add & count recompute
+    priority: High
+    type: Integration
+    technique: [State-Recompute, Edge-Case, Data-Persistence]
+    traces:
+      tickets: [NUP-19140]
+      sourceRefs: [NUP-19140.md#Description, NUP-19140.md#Acceptance Criteria]
+    preconditions:
+    - "Two channels: A (offSite Meta) Hero {5,6}; B (offSite Display) Hero {} (no Hero of 5 or 6)."
+    - "StateData.campaign_skus: 5 is_hero True, 6 is_hero True."
+    - Delete channel A.
+    testData:
+    - "A Hero: 5,6; B Hero: none of 5,6"
+    - Delete A
+    - "is_hero after: 5 -> False, 6 -> False (no remaining channel uses either)"
+    steps:
+    - 1. Confirm is_hero True for 5 and 6.
+    - 2. Delete channel A.
+    - 3. Wait for the update method.
+    - 4. Re-read is_hero for 5 and 6 and unique Hero count.
+    expected:
+    - is_hero for BOTH 5 and 6 == False after deletion (neither used by any remaining channel).
+    - Unique Hero count across remaining channels == 0.
+    - Both Measurement rows lose the 'Hero SKU' indicator; SKUs 5,6 remain Measurement SKUs.
+    automationNotes: Multi-SKU orphaning in a single delete. Asserts the union recompute zeroes out multiple flags atomically, not just one (draft IND-013 covers a single SKU).
+  - id: TC-EDIT-001
+    title: "\"Edit SKU list\" button visible under the Measurement SKU table"
+    area: "\"Edit SKU list\" button visibility & modal"
+    priority: Critical
+    type: UI
+    technique: [Positive]
+    traces:
+      tickets: [NUP-21975]
+      sourceRefs: [_test_scenarios.md#NUP-19216 / NUP-21975]
+    preconditions:
+    - User authenticated in Nectar AI Media Planner chat
+    - A media plan in progress with at least one Measurement SKU resolved and the Measurement SKU table rendered
+    testData:
+    - Measurement SKUs = {12345, 234235}
+    steps:
+    - 1. Send a chat prompt that resolves a media plan containing Measurement SKUs (e.g. 'skus 12345, 234235').
+    - 2. Wait for the assistant turn to complete (30-60s) and the Measurement SKU table to render.
+    - 3. Locate the area directly below the Measurement SKU table.
+    expected:
+    - The Measurement SKU table is displayed listing SKUs 12345 and 234235.
+    - An 'Edit SKU list' button is visible directly under the Measurement SKU table.
+    - The button is enabled and clickable.
+    automationNotes: "Scope the button locator to the Measurement-table container (e.g. getByTestId('measurement-sku-table').getByRole('button', { name: 'Edit SKU list' })) to disambiguate from the Hero-table button; allow up to 60s for the assistant turn before asserting visibility."
+  - id: TC-EDIT-002
+    title: Measurement-table "Edit SKU list" button opens the Measurement edit modal
+    area: "\"Edit SKU list\" button visibility & modal"
+    priority: Critical
+    type: E2E
+    technique: [Positive]
+    traces:
+      tickets: [NUP-21975]
+      sourceRefs: [_test_scenarios.md#NUP-21975]
+    preconditions:
+    - Media plan in progress with Measurement SKU table rendered (per EDIT-001)
+    testData:
+    - Measurement SKUs = {12345, 234235}
+    steps:
+    - 1. With the Measurement SKU table rendered, click the 'Edit SKU list' button beneath it.
+    - 2. Observe the modal that opens.
+    expected:
+    - A modal opens scoped to editing the Measurement SKU list (the Measurement edit modal), NOT the Hero modal.
+    - The modal lists the current Measurement SKUs {12345, 234235} as editable/selectable entries.
+    - The modal exposes confirm and cancel controls.
+    automationNotes: Assert the opened dialog identity via an unambiguous heading/test-id (e.g. dialog name matching the Measurement edit modal); assert it is distinct from the Hero edit modal opened in EDIT-005.
+  - id: TC-EDIT-003
+    title: Confirming Measurement modal edits reflects changes immediately in the table and counts
+    area: "\"Edit SKU list\" button visibility & modal"
+    priority: Critical
+    type: E2E
+    technique: [Positive, State-Recompute, Data-Persistence]
+    traces:
+      tickets: [NUP-21975]
+      sourceRefs: [_test_scenarios.md#NUP-21975]
+    preconditions:
+    - Measurement edit modal open (per EDIT-002) with Measurement SKUs {12345, 234235}
+    testData:
+    - Start Measurement = {12345, 234235}; add SKU 99999 -> end {12345, 234235, 99999}
+    steps:
+    - 1. In the open Measurement edit modal, add SKU 99999 to the selection.
+    - 2. Click the confirm/save control in the modal.
+    - 3. Observe the Measurement SKU table and the summary panel Measurement count.
+    expected:
+    - The modal closes on confirm.
+    - The Measurement SKU table now lists {12345, 234235, 99999} (change reflected immediately, no extra assistant turn required).
+    - The Measurement SKU count in the summary panel updates to 3.
+    automationNotes: After confirm, poll the Measurement table rows until 99999 appears (immediate UI update, not chat-driven); assert summary Measurement count == 3.
+  - id: TC-EDIT-004
+    title: Cancelling the Measurement edit modal leaves the table unchanged
+    area: "\"Edit SKU list\" button visibility & modal"
+    priority: High
+    type: E2E
+    technique: [Negative, State-Recompute]
+    traces:
+      tickets: [NUP-21975]
+      sourceRefs: [_test_scenarios.md#NUP-21975]
+    preconditions:
+    - Measurement edit modal open (per EDIT-002) with Measurement SKUs {12345, 234235}
+    testData:
+    - Measurement = {12345, 234235}; attempt to add 99999 then cancel
+    steps:
+    - 1. In the open Measurement edit modal, add SKU 99999 to the selection (do not confirm).
+    - 2. Click the cancel control (or dismiss the modal).
+    - 3. Observe the Measurement SKU table and summary count.
+    expected:
+    - The modal closes without applying changes.
+    - The Measurement SKU table still lists exactly {12345, 234235}; 99999 is NOT added.
+    - The summary Measurement count is unchanged (= 2).
+    automationNotes: Assert table rows == original set and count == 2 after cancel; verify no network save/persist call was issued for the discarded change.
+  - id: TC-EDIT-005
+    title: "\"Edit SKU list\" button visible under the Hero SKU table and opens the Hero edit modal"
+    area: "\"Edit SKU list\" button visibility & modal"
+    priority: Critical
+    type: E2E
+    technique: [Positive]
+    traces:
+      tickets: [NUP-21976]
+      sourceRefs: [_test_scenarios.md#NUP-21976]
+    preconditions:
+    - Media plan in progress with at least one Hero SKU assigned and the Hero SKU table rendered
+    testData:
+    - Measurement SKUs = {1,2,3,4}; Hero SKUs = {3,5,6}
+    steps:
+    - 1. Send a prompt establishing Measurement and Hero SKUs (e.g. '1, 2, 3, 4 and hero skus 3, 5, 6').
+    - 2. Wait for the assistant turn to complete and the Hero SKU table to render.
+    - 3. Verify an 'Edit SKU list' button is visible directly under the Hero SKU table.
+    - 4. Click the Hero-table 'Edit SKU list' button.
+    - 5. Observe the modal that opens.
+    expected:
+    - The 'Edit SKU list' button is visible and enabled directly under the Hero SKU table.
+    - Clicking it opens the Hero edit modal (scoped to Hero SKUs), NOT the Measurement modal.
+    - The Hero edit modal lists current Hero SKUs {3,5,6} and offers confirm/cancel controls.
+    automationNotes: Scope locator to the Hero-table container to avoid matching the Measurement-table button; assert the opened dialog is the Hero edit modal (distinct identity from EDIT-002).
+  - id: TC-EDIT-006
+    title: Confirming Hero modal edits reflects changes immediately; auto-add grows Measurement count
+    area: "\"Edit SKU list\" button visibility & modal"
+    priority: High
+    type: E2E
+    technique: [Positive, State-Recompute, Cross-Field]
+    traces:
+      tickets: [NUP-21976, NUP-21960]
+      sourceRefs: [_test_scenarios.md#NUP-21976, _test_scenarios.md#NUP-21960]
+    preconditions:
+    - Hero edit modal open (per EDIT-005); Measurement = {1,2,3,4}, Hero = {3,5,6}
+    testData:
+    - Add Hero SKU 7 (a non-Measurement, brand-linked SKU) -> Hero = {3,5,6,7}; Measurement auto-grows to {1,2,3,4,5,6,7}
+    steps:
+    - 1. In the open Hero edit modal, assign SKU 7 (a brand-linked SKU not currently in Measurement) as Hero.
+    - 2. Click confirm/save.
+    - 3. Observe the Hero SKU table, the Measurement SKU table, and the summary counts.
+    expected:
+    - Modal closes on confirm.
+    - The Hero SKU table now lists {3,5,6,7} immediately.
+    - Per the AUTO-ADD rule, non-Measurement Hero SKU 7 is auto-added to Measurement; the Measurement table/count grows to include 7 (Measurement count = 7).
+    - Summary panel reflects updated Hero count (4) and Measurement count (7).
+    automationNotes: Assert both the Hero table (contains 7) and Measurement table (now contains 7) update immediately after confirm; verify summary counts Hero=4, Measurement=7.
+  - id: TC-EDIT-007
+    title: Cancelling the Hero edit modal leaves Hero and Measurement tables unchanged
+    area: "\"Edit SKU list\" button visibility & modal"
+    priority: High
+    type: E2E
+    technique: [Negative, State-Recompute]
+    traces:
+      tickets: [NUP-21976]
+      sourceRefs: [_test_scenarios.md#NUP-21976]
+    preconditions:
+    - Hero edit modal open (per EDIT-005); Measurement = {1,2,3,4}, Hero = {3,5,6}
+    testData:
+    - Attempt to add Hero SKU 7 then cancel
+    steps:
+    - 1. In the open Hero edit modal, assign SKU 7 as Hero (do not confirm).
+    - 2. Click cancel / dismiss the modal.
+    - 3. Observe the Hero and Measurement tables and summary counts.
+    expected:
+    - Modal closes without applying changes.
+    - Hero SKU table still lists exactly {3,5,6}; SKU 7 is NOT added.
+    - Measurement table is unchanged at {1,2,3,4} (no auto-add of 7 since the Hero change was discarded).
+    - "Summary counts unchanged: Hero=3, Measurement=4."
+    automationNotes: "Critically assert the AUTO-ADD did NOT fire on cancel: Measurement must remain {1,2,3,4}; confirm no persist call for the discarded Hero assignment."
+  - id: TC-EDIT-008
+    title: "\"Edit SKU list\" button visible under the single-prompt summary table and opens its modal"
+    area: "\"Edit SKU list\" button visibility & modal"
+    priority: Critical
+    type: E2E
+    technique: [Positive]
+    traces:
+      tickets: [NUP-21978, NUP-19328]
+      sourceRefs: [_test_scenarios.md#NUP-21978, _test_scenarios.md#NUP-19328]
+    preconditions:
+    - "Single-prompt flow used: Measurement + Hero SKUs supplied in one chat prompt and a summary table is rendered"
+    testData:
+    - Prompt '1, 2, 3, 4 and hero skus 3, 5, 6' -> Measurement = {1,2,3,4,5,6}, Hero = {3,5,6}
+    steps:
+    - 1. Send a single prompt combining Measurement and Hero SKUs (e.g. '1, 2, 3, 4 and hero skus 3, 5, 6').
+    - 2. Wait for the assistant turn to complete and the single-prompt summary table to render.
+    - 3. Verify an 'Edit SKU list' button is visible directly under the summary table.
+    - 4. Click the summary-table 'Edit SKU list' button and observe the modal.
+    expected:
+    - The single-prompt summary table renders showing Measurement SKUs {1,2,3,4,5,6} and Hero SKUs {3,5,6}.
+    - An 'Edit SKU list' button is visible and enabled under the summary table.
+    - Clicking it opens the edit modal for the summary-flow SKUs (confirm/cancel controls present).
+    automationNotes: Drive via single-prompt input to render the summary table; scope locator to the summary-table container; assert modal opens with the combined SKU set.
+  - id: TC-EDIT-009
+    title: Confirming edits in the single-prompt summary modal reflects changes immediately in the summary table
+    area: "\"Edit SKU list\" button visibility & modal"
+    priority: High
+    type: E2E
+    technique: [Positive, State-Recompute, Data-Persistence]
+    traces:
+      tickets: [NUP-21978]
+      sourceRefs: [_test_scenarios.md#NUP-21978]
+    preconditions:
+    - Single-prompt summary edit modal open (per EDIT-008); Measurement = {1,2,3,4,5,6}, Hero = {3,5,6}
+    testData:
+    - Add Hero SKU 7 (non-Measurement) -> Hero = {3,5,6,7}; Measurement auto-grows to include 7
+    steps:
+    - 1. In the open summary edit modal, assign SKU 7 as Hero.
+    - 2. Click confirm/save.
+    - 3. Observe the single-prompt summary table and counts.
+    expected:
+    - Modal closes on confirm.
+    - "The summary table updates immediately: Hero SKUs now {3,5,6,7}."
+    - Non-Measurement Hero 7 is auto-added to Measurement; Measurement set/count grows to include 7 (count = 7).
+    - Counts in the summary reflect Hero=4, Measurement=7.
+    automationNotes: Poll the summary table after confirm for SKU 7 in both Hero and Measurement rows; assert counts Hero=4, Measurement=7 without an additional chat turn.
+  - id: TC-EDIT-010
+    title: Cancelling the single-prompt summary modal leaves the summary table unchanged
+    area: "\"Edit SKU list\" button visibility & modal"
+    priority: Medium
+    type: E2E
+    technique: [Negative, State-Recompute]
+    traces:
+      tickets: [NUP-21978]
+      sourceRefs: [_test_scenarios.md#NUP-21978]
+    preconditions:
+    - Single-prompt summary edit modal open (per EDIT-008); Measurement = {1,2,3,4,5,6}, Hero = {3,5,6}
+    testData:
+    - Attempt to add Hero SKU 7 then cancel
+    steps:
+    - 1. In the open summary edit modal, assign SKU 7 as Hero (do not confirm).
+    - 2. Click cancel / dismiss.
+    - 3. Observe the summary table and counts.
+    expected:
+    - Modal closes without applying changes.
+    - "Summary table unchanged: Measurement = {1,2,3,4,5,6}, Hero = {3,5,6}."
+    - No auto-add of 7; counts unchanged (Hero=3, Measurement=6).
+    automationNotes: Assert the summary table set and counts equal the pre-edit values after cancel; confirm no persist call fired.
+  - id: TC-EDIT-011
+    title: "\"Edit SKU list\" buttons are not present before any SKUs are selected"
+    area: "\"Edit SKU list\" button visibility & modal"
+    priority: High
+    type: UI
+    technique: [Edge-Case, Negative]
+    traces:
+      tickets: [NUP-21975, NUP-21976, NUP-21978]
+      sourceRefs: [_test_scenarios.md#NUP-19216]
+    preconditions:
+    - Fresh Nectar AI chat session with no media plan started and no SKUs resolved (no Measurement/Hero/summary tables rendered)
+    testData:
+    - No SKUs selected
+    steps:
+    - 1. Open a new Nectar AI chat without sending any SKU-defining prompt.
+    - 2. Inspect the chat surface for any Measurement, Hero, or summary SKU table and any 'Edit SKU list' button.
+    expected:
+    - No Measurement SKU table, Hero SKU table, or summary table is rendered.
+    - No 'Edit SKU list' button is visible anywhere (the button is bound to the presence of its table).
+    automationNotes: "Assert zero matches for getByRole('button', { name: 'Edit SKU list' }) before any SKU-resolving prompt; treats button visibility as table-dependent. Assumption: button renders only when its associated table renders (button is 'under the table')."
+  - id: TC-EDIT-012
+    title: Summary-table "Edit SKU list" button appears only in single-prompt flow, not in multi-turn flow
+    area: "\"Edit SKU list\" button visibility & modal"
+    priority: High
+    type: E2E
+    technique: [Decision-Table, Negative, Edge-Case]
+    traces:
+      tickets: [NUP-21978, NUP-21975, NUP-21976]
+      sourceRefs: [_test_scenarios.md#NUP-21978, _test_scenarios.md#NUP-19328]
+    preconditions:
+    - "Two comparable plans: (A) built via single-prompt combined input; (B) built via multi-turn where Measurement and Hero are defined in separate turns"
+    testData:
+    - "Flow A single prompt: '1, 2, 3, 4 and hero skus 3, 5, 6'"
+    - "Flow B multi-turn: first 'skus 1,2,3,4', then later 'hero skus 3,5,6'"
+    steps:
+    - 1. Build plan A via the single combined prompt; confirm a summary table renders.
+    - 2. Verify the summary table has an 'Edit SKU list' button under it.
+    - 3. In a separate session, build plan B across multiple turns (Measurement first, Hero later) producing separate Measurement and Hero tables (no single-prompt summary table).
+    - 4. Inspect plan B for a summary table and its 'Edit SKU list' button.
+    expected:
+    - "Flow A: a single-prompt summary table is rendered WITH an 'Edit SKU list' button under it."
+    - "Flow B: no single-prompt summary table is rendered, so the summary-table 'Edit SKU list' button is absent; the Measurement-table and Hero-table 'Edit SKU list' buttons remain available per their tables."
+    - The summary-table button is exclusive to the single-prompt flow.
+    automationNotes: Distinguish the summary-table button from the Measurement/Hero buttons by container scoping; assert presence in flow A and absence of the summary-scoped button in flow B while the per-table buttons still exist.
+  - id: TC-EDIT-013
+    title: Each table's "Edit SKU list" button opens only its own modal (modal-to-table correctness)
+    area: "\"Edit SKU list\" button visibility & modal"
+    priority: High
+    type: Integration
+    technique: [Decision-Table, Cross-Field]
+    traces:
+      tickets: [NUP-21975, NUP-21976, NUP-21978]
+      sourceRefs: [_test_scenarios.md#NUP-21975, _test_scenarios.md#NUP-21976, _test_scenarios.md#NUP-21978]
+    preconditions:
+    - A multi-turn plan rendering BOTH a Measurement SKU table and a Hero SKU table simultaneously
+    testData:
+    - Measurement = {1,2,3,4}; Hero = {3,5,6}
+    steps:
+    - 1. Build a plan that renders both Measurement and Hero tables.
+    - 2. Click the Measurement-table 'Edit SKU list' button; record which modal opens; close it.
+    - 3. Click the Hero-table 'Edit SKU list' button; record which modal opens; close it.
+    expected:
+    - Measurement-table button opens the Measurement edit modal (lists Measurement SKUs {1,2,3,4}).
+    - Hero-table button opens the Hero edit modal (lists Hero SKUs {3,5,6}).
+    - Neither button cross-opens the other table's modal.
+    automationNotes: "Decision-table mapping: {Measurement button -> Measurement modal, Hero button -> Hero modal}; assert dialog identity and listed SKU set per branch; ensure container-scoped locators since both buttons share the label 'Edit SKU list'."
+  - id: TC-EDIT-014
+    title: Editing Hero via the Hero modal updates the "Hero SKU" indicator in the Measurement table in real time
+    area: "\"Edit SKU list\" button visibility & modal"
+    priority: Medium
+    type: E2E
+    technique: [State-Recompute, Cross-Field]
+    traces:
+      tickets: [NUP-21976, NUP-21968, NUP-21966]
+      sourceRefs: [_test_scenarios.md#NUP-21976, _test_scenarios.md#NUP-21968, _test_scenarios.md#NUP-21966]
+    preconditions:
+    - Plan rendering both Measurement and Hero tables; Measurement = {1,2,3,4}, Hero = {3}
+    testData:
+    - "Via Hero modal: assign SKU 4 as Hero (4 already in Measurement) -> Hero = {3,4}"
+    steps:
+    - 1. Open the Hero edit modal via its table's 'Edit SKU list' button.
+    - 2. Assign SKU 4 (already a Measurement SKU) as Hero and confirm.
+    - 3. Observe the 'Hero SKU' indicator next to SKU 4 in the Measurement SKU table.
+    expected:
+    - Modal closes on confirm.
+    - SKU 4 in the Measurement table now shows the 'Hero SKU' indicator, updated in real time without a chat turn.
+    - SKU 4 remains a single Measurement entry (no duplicate) now marked Hero; Hero count = 2.
+    automationNotes: Assert the 'Hero SKU' indicator toggles on for SKU 4 immediately after modal confirm; verify single Measurement row for 4 (no duplicate). Cross-ref NUP-21961 no-duplicate behavior.
+  - id: TC-EDIT-015
+    title: Unassigning a Hero SKU via the Hero modal removes its "Hero SKU" indicator and is_hero in real time
+    area: "\"Edit SKU list\" button visibility & modal"
+    priority: Medium
+    type: E2E
+    technique: [State-Recompute, Cross-Field, Data-Persistence]
+    traces:
+      tickets: [NUP-21976, NUP-21968, NUP-19140]
+      sourceRefs: [_test_scenarios.md#NUP-21976, _test_scenarios.md#NUP-21968]
+    preconditions:
+    - Plan with Measurement = {1,2,3,4}, Hero = {3,5,6}; both tables and indicators rendered
+    testData:
+    - "Via Hero modal: unassign SKU 3 from Hero -> Hero = {5,6}"
+    steps:
+    - 1. Open the Hero edit modal via its 'Edit SKU list' button.
+    - 2. Unassign SKU 3 from Hero and confirm.
+    - 3. Observe the Measurement table indicator for SKU 3 and the Hero count.
+    expected:
+    - Modal closes on confirm.
+    - The 'Hero SKU' indicator on SKU 3 in the Measurement table is removed in real time.
+    - Hero count decreases to 2; SKU 3 remains a Measurement SKU (still listed) but no longer marked Hero.
+    - is_hero flag for SKU 3 is set False once it is no longer used as Hero by any channel (per NUP-19140 sync).
+    automationNotes: Assert indicator removal for SKU 3 immediately after confirm and Hero count == 2; if backend access available, verify StateData.campaign_skus is_hero==False for SKU 3 (NUP-19140).
+  - id: TC-CHAN-001
+    title: Edit Hero SKUs for a specific channel via channel modal — changes isolated to that channel only
+    area: Channel-level Hero edit, per-channel SKU definition & deletion sync
+    priority: Critical
+    type: E2E
+    technique: [Positive, State-Recompute, Cross-Field]
+    traces:
+      tickets: [NUP-20233, NUP-18943]
+      sourceRefs: [_test_scenarios.md#NUP-20233]
+    preconditions:
+    - Logged into Nectar AI Media Planner with a brand selected
+    - A media plan exists in chat with global Hero SKUs assigned (e.g. {1001,1002,1003}) which pre-populate every selected channel
+    - "At least two channels selected: offSite (Meta) and onSite"
+    testData:
+    - "Global Hero SKUs: 1001,1002,1003"
+    - "Channels: offSite (Meta), onSite"
+    - "Edit on offSite only: remove 1003, add 1004"
+    steps:
+    - 1. Open the offSite (Meta) channel edit modal from the summary panel
+    - 2. Confirm the Hero SKU selection is pre-populated with the global Hero list {1001,1002,1003}
+    - 3. Deselect 1003 and select 1004 within the offSite modal
+    - 4. Save/confirm the offSite modal
+    - 5. Open the onSite channel edit modal and inspect its Hero selection
+    expected:
+    - offSite modal opens pre-populated with global Hero SKUs {1001,1002,1003}
+    - After save, offSite channel Hero SKUs = {1001,1002,1004}
+    - onSite channel Hero SKUs remain the original global set {1001,1002,1003} — the offSite edit did NOT affect onSite
+    - Summary panel reflects per-channel Hero counts independently
+    automationNotes: Assert pre-population equals global Hero set before edit; after editing channel A, assert channel B Hero set is byte-for-byte unchanged. Allow 30-60s for assistant turns; poll modal/table state rather than fixed sleeps.
+  - id: TC-CHAN-002
+    title: Channel modal Hero selection is pre-populated with the current global Hero list on open
+    area: Channel-level Hero edit, per-channel SKU definition & deletion sync
+    priority: High
+    type: UI
+    technique: [Positive, Data-Persistence]
+    traces:
+      tickets: [NUP-20233, NUP-18943]
+      sourceRefs: [_test_scenarios.md#NUP-20233]
+    preconditions:
+    - Media plan with global Hero SKUs {2001,2002} assigned
+    - Channel offSite (Meta) selected, no per-channel edit yet
+    testData:
+    - "Global Hero SKUs: 2001,2002"
+    - "Channel: offSite (Meta)"
+    steps:
+    - 1. Open the offSite (Meta) channel edit modal
+    - 2. Inspect the pre-selected Hero SKUs in the modal
+    expected:
+    - Modal shows Hero SKUs {2001,2002} pre-selected (mirrors the global Hero list)
+    - No additional or missing SKUs versus the global Hero list
+    automationNotes: Read the checked/selected state of the channel modal Hero rows and compare set equality to the global Hero list captured before opening.
+  - id: TC-CHAN-003
+    title: Per-channel SKU definition in chat single prompt assigns the defined SKUs to that channel
+    area: Channel-level Hero edit, per-channel SKU definition & deletion sync
+    priority: Critical
+    type: E2E
+    technique: [Positive, Cross-Field]
+    traces:
+      tickets: [NUP-19529]
+      sourceRefs: [NUP-19529.md#Acceptance Criteria]
+    preconditions:
+    - Logged into Nectar AI Media Planner with brand and Measurement SKUs context established
+    - Chat ready to accept channel definitions
+    testData:
+    - "Prompt: \"offSite: Meta, 40k, 20-25/03/2026, skus 12345, 234235\""
+    - "Channel: offSite (Meta), budget 40k, dates 20-25/03/2026"
+    - "Defined SKUs: 12345, 234235"
+    steps:
+    - "1. Send the chat prompt: offSite: Meta, 40k, 20-25/03/2026, skus 12345, 234235"
+    - 2. Wait for the assistant resolver + SKU-processing node to complete (30-60s)
+    - 3. Open the offSite (Meta) channel and inspect assigned SKUs
+    expected:
+    - offSite (Meta) channel is created with budget 40k and dates 20-25/03/2026
+    - The channel's assigned SKUs = exactly the user-defined set {12345, 234235}
+    - Global Hero SKUs are NOT force-assigned to this channel because the user explicitly defined SKUs for it
+    automationNotes: Parse channel SKU list from summary/channel modal and assert set equality to {12345,234235}. Verify the post-resolver SKU-processing node ran (no global Hero override). Poll for assistant completion.
+  - id: TC-CHAN-004
+    title: No SKUs defined for a channel — all global Hero SKUs are assigned to that channel
+    area: Channel-level Hero edit, per-channel SKU definition & deletion sync
+    priority: High
+    type: Integration
+    technique: [Positive, Equivalence-Partition]
+    traces:
+      tickets: [NUP-19529]
+      sourceRefs: [NUP-19529.md#Acceptance Criteria]
+    preconditions:
+    - Media plan with global Hero SKUs {3001,3002,3003} assigned
+    testData:
+    - "Global Hero SKUs: 3001,3002,3003"
+    - "Prompt: \"offSite: Meta, 40k, 20-25/03/2026\" (no skus clause)"
+    steps:
+    - "1. Send a channel prompt with NO skus clause: offSite: Meta, 40k, 20-25/03/2026"
+    - 2. Wait for resolver + SKU-processing node
+    - 3. Inspect the offSite (Meta) channel's assigned SKUs
+    expected:
+    - The SKU-processing node detects no user-defined SKUs for the channel
+    - All global Hero SKUs {3001,3002,3003} are assigned to the offSite channel
+    automationNotes: Assert channel SKU set equals global Hero set when user omits the skus clause. Use a prompt deliberately lacking 'skus' tokens.
+  - id: TC-CHAN-005
+    title: Define SKUs for one channel but not another in the same flow — mixed per-channel assignment
+    area: Channel-level Hero edit, per-channel SKU definition & deletion sync
+    priority: High
+    type: E2E
+    technique: [Decision-Table, Cross-Field, Edge-Case]
+    traces:
+      tickets: [NUP-19529]
+      sourceRefs: [NUP-19529.md#Acceptance Criteria]
+    preconditions:
+    - Media plan with global Hero SKUs {4001,4002} assigned
+    testData:
+    - "Global Hero SKUs: 4001,4002"
+    - "Channel A prompt: offSite: Meta, 40k, 20-25/03/2026, skus 9001, 9002"
+    - "Channel B prompt: onSite, 30k, 20-25/03/2026 (no skus clause)"
+    steps:
+    - "1. Define channel A with explicit SKUs: offSite: Meta, 40k, 20-25/03/2026, skus 9001, 9002"
+    - "2. Define channel B with no skus clause: onSite, 30k, 20-25/03/2026"
+    - 3. Wait for processing
+    - 4. Inspect SKUs assigned to channel A and channel B
+    expected:
+    - Channel A (offSite/Meta) assigned SKUs = {9001,9002} (user-defined only)
+    - Channel B (onSite) assigned SKUs = global Hero set {4001,4002} (defaulted because none defined)
+    - The two channels are assigned independently per the SKU-processing node logic
+    automationNotes: "Decision-table: defined→use defined; not-defined→use global Hero. Assert both channels' SKU sets in one run."
+  - id: TC-CHAN-006
+    title: Adding a SKU as Hero to a channel sets is_hero=True in StateData.campaign_skus
+    area: Channel-level Hero edit, per-channel SKU definition & deletion sync
+    priority: Critical
+    type: Integration
+    technique: [State-Recompute, Data-Persistence]
+    traces:
+      tickets: [NUP-19140]
+      sourceRefs: [NUP-19140.md#Description, NUP-19140.md#Acceptance Criteria]
+    preconditions:
+    - Media plan with campaign_skus including SKU 5005 currently with is_hero=False
+    - Channel offSite (Meta) exists
+    testData:
+    - SKU 5005, initial is_hero=False
+    - "Channel: offSite (Meta)"
+    steps:
+    - 1. Open offSite (Meta) channel edit modal
+    - 2. Assign SKU 5005 as a Hero SKU for that channel
+    - 3. Save the modal so the StateData update method runs
+    - 4. Inspect StateData.campaign_skus entry for 5005
+    expected:
+    - The update method runs on channel modification
+    - StateData.campaign_skus[5005].is_hero == True
+    - The union of Hero SKUs across channels now includes 5005
+    automationNotes: Assert backend StateData via API/state inspection if exposed; otherwise assert UI Hero indicator/count as proxy. Confirm the update method runs on each modification.
+  - id: TC-CHAN-007
+    title: Deleting a channel whose Hero SKU is not used by any other channel sets is_hero=False and drops unique Hero count
+    area: Channel-level Hero edit, per-channel SKU definition & deletion sync
+    priority: Critical
+    type: Integration
+    technique: [State-Recompute, Edge-Case, Data-Persistence]
+    traces:
+      tickets: [NUP-19140]
+      sourceRefs: [NUP-19140.md#Description, NUP-19140.md#Acceptance Criteria]
+    preconditions:
+    - "Two channels: offSite (Meta) with Hero {6001,6002}; onSite with Hero {6001}"
+    - SKU 6002 is Hero ONLY on offSite (unique); SKU 6001 is Hero on both (shared)
+    - "StateData.campaign_skus: 6001 is_hero=True, 6002 is_hero=True"
+    testData:
+    - "offSite Hero: 6001,6002"
+    - "onSite Hero: 6001"
+    - "Unique Hero SKU on offSite only: 6002"
+    - "Delete channel: offSite (Meta)"
+    steps:
+    - 1. Capture the current unique Hero count across channels = |{6001,6002}| = 2
+    - 2. Delete the offSite (Meta) channel
+    - 3. Allow the StateData update method to run on deletion
+    - 4. Inspect StateData.campaign_skus is_hero flags for 6001 and 6002 and the unique Hero count
+    expected:
+    - 6002 no longer used as Hero by any remaining channel → StateData.campaign_skus[6002].is_hero == False
+    - 6001 still Hero on onSite → StateData.campaign_skus[6001].is_hero remains True
+    - Unique Hero SKU count drops from 2 to 1 ({6001})
+    automationNotes: Capture is_hero union and count before and after deletion; assert the delta. The update method must gather Hero SKUs from remaining channels and reconcile against campaign_skus.
+  - id: TC-CHAN-008
+    title: Deleting a channel whose Hero SKUs are all shared with other channels — is_hero flags unchanged
+    area: Channel-level Hero edit, per-channel SKU definition & deletion sync
+    priority: High
+    type: Integration
+    technique: [State-Recompute, Edge-Case]
+    traces:
+      tickets: [NUP-19140]
+      sourceRefs: [NUP-19140.md#Description, NUP-19140.md#Acceptance Criteria]
+    preconditions:
+    - "Two channels: offSite (Meta) Hero {7001,7002}; onSite Hero {7001,7002}"
+    - All Hero SKUs shared between both channels
+    testData:
+    - "offSite Hero: 7001,7002"
+    - "onSite Hero: 7001,7002"
+    - "Delete channel: offSite (Meta)"
+    steps:
+    - 1. Capture unique Hero count = |{7001,7002}| = 2
+    - 2. Delete offSite (Meta)
+    - 3. Allow update method to run
+    - 4. Inspect is_hero flags for 7001 and 7002 and the unique Hero count
+    expected:
+    - 7001 and 7002 still used as Hero by onSite → both retain is_hero == True
+    - Unique Hero SKU count stays at 2
+    - No SKU flipped to is_hero=False because none became orphaned
+    automationNotes: "Negative-of-orphaning: assert NO flag changes when deleted channel's Hero is fully shared."
+  - id: TC-CHAN-009
+    title: Modifying a channel to remove a Hero SKU re-syncs is_hero across remaining channels
+    area: Channel-level Hero edit, per-channel SKU definition & deletion sync
+    priority: High
+    type: Integration
+    technique: [State-Recompute, Data-Persistence]
+    traces:
+      tickets: [NUP-19140]
+      sourceRefs: [NUP-19140.md#Description, NUP-19140.md#Acceptance Criteria]
+    preconditions:
+    - Single channel offSite (Meta) with Hero {8001,8002}
+    - SKU 8002 is Hero only on offSite
+    - "StateData.campaign_skus: 8001 is_hero=True, 8002 is_hero=True"
+    testData:
+    - "offSite Hero before: 8001,8002"
+    - "Modify offSite: deselect 8002"
+    steps:
+    - 1. Open offSite (Meta) edit modal
+    - 2. Deselect Hero SKU 8002 (keep 8001)
+    - 3. Save the modal so the update method runs on modification
+    - 4. Inspect is_hero for 8001 and 8002
+    expected:
+    - 8002 is no longer Hero on any channel → StateData.campaign_skus[8002].is_hero == False
+    - 8001 still Hero on offSite → is_hero remains True
+    - Hero count for the plan reflects the reduced Hero set
+    automationNotes: Verify the update method runs on modification (not only deletion). Compare campaign_skus flags pre/post save.
+  - id: TC-CHAN-010
+    title: Assign exactly max Hero SKUs to a channel (count == max) — channel added, no warning, booking allowed
+    area: Channel-level Hero edit, per-channel SKU definition & deletion sync
+    priority: High
+    type: E2E
+    technique: [Boundary-BVA, Positive]
+    traces:
+      tickets: [NUP-18944, NUP-20675]
+      sourceRefs: [_test_scenarios.md#NUP-20675]
+    preconditions:
+    - "Channel offSite (Meta) configured with maxHeroSkus = 3 (parameterized; assumption: max=3 per example in spec)"
+    testData:
+    - Configured max = 3 (assumption; parameterize)
+    - "Hero SKUs assigned to offSite: 1001,1002,1003 (count = 3)"
+    steps:
+    - 1. Assign exactly 3 Hero SKUs (1001,1002,1003) to offSite (Meta)
+    - 2. Wait for channel activation/backend check
+    - 3. Inspect summary panel and booking control
+    expected:
+    - Channel added to the summary panel with all 3 selected SKUs
+    - NO warning shown (count <= max)
+    - Booking/Save is NOT blocked
+    automationNotes: "Boundary at count==max. Assumption: max=3 from spec example; parameterize MAX. Assert absence of the 'Media limit' warning text."
+  - id: TC-CHAN-011
+    title: Assign max-1 Hero SKUs to a channel (count < max) — channel added, no warning
+    area: Channel-level Hero edit, per-channel SKU definition & deletion sync
+    priority: Medium
+    type: E2E
+    technique: [Boundary-BVA, Positive]
+    traces:
+      tickets: [NUP-18944, NUP-20675]
+      sourceRefs: [_test_scenarios.md#NUP-20675]
+    preconditions:
+    - Channel offSite (Meta) configured with maxHeroSkus = 3 (parameterized)
+    testData:
+    - Configured max = 3 (assumption)
+    - "Hero SKUs assigned: 1001,1002 (count = 2 = max-1)"
+    steps:
+    - 1. Assign 2 Hero SKUs (1001,1002) to offSite (Meta)
+    - 2. Wait for activation/backend check
+    - 3. Inspect summary panel and booking control
+    expected:
+    - Channel added with both SKUs
+    - NO warning shown
+    - Booking/Save allowed
+    automationNotes: Boundary just below max. Parameterize MAX; assert no warning and enabled booking.
+  - id: TC-CHAN-012
+    title: Assign max+1 Hero SKUs to a channel (count > max) — channel added with all SKUs, warning shown, booking blocked
+    area: Channel-level Hero edit, per-channel SKU definition & deletion sync
+    priority: Critical
+    type: E2E
+    technique: [Boundary-BVA, Negative, Error-Message]
+    traces:
+      tickets: [NUP-18944, NUP-20675]
+      sourceRefs: [_test_scenarios.md#NUP-20675]
+    preconditions:
+    - Channel offSite (Meta) configured with maxHeroSkus = 3 (parameterized)
+    testData:
+    - Configured max = 3 (assumption)
+    - "Hero SKUs assigned: 1001,1002,1003,1004 (count = 4 = max+1)"
+    steps:
+    - 1. Assign 4 Hero SKUs (1001,1002,1003,1004) to offSite (Meta)
+    - 2. Wait for activation/backend check
+    - 3. Inspect summary panel, warning area, and booking control
+    - 4. Attempt to book/save the plan
+    expected:
+    - Channel is still ADDED to the summary panel with all 4 selected SKUs
+    - "Warning shown with EXACT text: \"Media limit: 3 Hero SKUs. Edit SKUs\""
+    - User is BLOCKED from booking/saving the plan until selection meets the max
+    - Booking control disabled or save rejected
+    automationNotes: "Assert verbatim warning string 'Media limit: 3 Hero SKUs. Edit SKUs' (interpolate N=MAX). Assert booking blocked. Boundary at max+1."
+  - id: TC-CHAN-013
+    title: Resolve over-max by deselecting excess via modal — warning clears and booking unblocks
+    area: Channel-level Hero edit, per-channel SKU definition & deletion sync
+    priority: Critical
+    type: E2E
+    technique: [State-Recompute, Error-Message, Positive]
+    traces:
+      tickets: [NUP-18944, NUP-20675]
+      sourceRefs: [_test_scenarios.md#NUP-20675]
+    preconditions:
+    - Channel offSite (Meta) with maxHeroSkus = 3 currently over-assigned with 4 Hero SKUs and showing the warning, booking blocked
+    testData:
+    - Configured max = 3
+    - "Current Hero: 1001,1002,1003,1004 (4)"
+    - Deselect 1004 to reach 3
+    steps:
+    - "1. Confirm warning 'Media limit: 3 Hero SKUs. Edit SKUs' is shown and booking is blocked"
+    - 2. Open the channel modal and deselect the excess SKU 1004 (now 3 selected)
+    - 3. Save the modal
+    - 4. Re-inspect warning area and booking control
+    expected:
+    - After reaching 3 (== max), the 'Media limit' warning is removed
+    - Booking/Save is now ENABLED
+    - offSite Hero SKUs = {1001,1002,1003}
+    automationNotes: Verify warning disappears exactly when count transitions to <=max, and booking control re-enables. State-recompute on save.
+  - id: TC-CHAN-014
+    title: No max configured for a channel — assigning many Hero SKUs imposes no restriction
+    area: Channel-level Hero edit, per-channel SKU definition & deletion sync
+    priority: High
+    type: E2E
+    technique: [Equivalence-Partition, Negative, Boundary-BVA]
+    traces:
+      tickets: [NUP-18944, NUP-20679]
+      sourceRefs: [_test_scenarios.md#NUP-20679]
+    preconditions:
+    - Channel onSite configured with NO maxHeroSkus (unset/null)
+    testData:
+    - maxHeroSkus = unset
+    - "Hero SKUs assigned: 1001,1002,1003,1004,1005,1006 (6, arbitrarily large)"
+    steps:
+    - 1. Assign 6 Hero SKUs to onSite (a channel with no max configured)
+    - 2. Wait for activation/backend check
+    - 3. Inspect summary panel, warning area, and booking control
+    expected:
+    - Channel added with all 6 SKUs
+    - NO 'Media limit' warning shown
+    - No restriction — booking/Save allowed regardless of count
+    automationNotes: "Equivalence class: max==null → unbounded. Assert no warning and booking enabled even with a large Hero count."
+  - id: TC-CHAN-015
+    title: Global Hero list exceeds a channel's max (global-then-select-channels) — affected channel added with warning, booking blocked
+    area: Channel-level Hero edit, per-channel SKU definition & deletion sync
+    priority: Critical
+    type: E2E
+    technique: [Decision-Table, Error-Message, Negative]
+    traces:
+      tickets: [NUP-18944, NUP-20681]
+      sourceRefs: [_test_scenarios.md#NUP-20681]
+    preconditions:
+    - Global Hero list = {1001,1002,1003,1004} (4 SKUs)
+    - Channel offSite (Meta) configured with maxHeroSkus = 3 (parameterized)
+    testData:
+    - "Global Hero: 1001,1002,1003,1004 (4)"
+    - offSite max = 3
+    steps:
+    - 1. Assign global Hero list of 4 SKUs
+    - 2. Then select the offSite (Meta) channel (max 3), which pre-populates with the 4 global Hero SKUs
+    - 3. Wait for activation/backend check
+    - 4. Inspect summary panel, warning, booking control
+    - 5. Attempt to book
+    expected:
+    - offSite channel is still ADDED with all global Hero SKUs
+    - "Warning shown indicating the max and that the selection exceeds it: \"Media limit: 3 Hero SKUs. Edit SKUs\""
+    - User must deselect excess per channel via modal
+    - Booking BLOCKED until each affected channel is adjusted to meet its max
+    automationNotes: Global-then-channel path. Assert verbatim warning and blocked booking. Parameterize MAX and global Hero count.
+  - id: TC-CHAN-016
+    title: "Backend: single typed channel exceeds maxHeroSkus on activation — block channel, go to ask node"
+    area: Channel-level Hero edit, per-channel SKU definition & deletion sync
+    priority: High
+    type: Integration
+    technique: [Decision-Table, Negative, Error-Message]
+    traces:
+      tickets: [NUP-18944, NUP-20507]
+      sourceRefs: [_test_scenarios.md#NUP-18944]
+    preconditions:
+    - "Only ONE channel typed in the prompt: offSite (Meta), maxHeroSkus=3"
+    - Hero selection for that channel = 4 SKUs (exceeds max)
+    testData:
+    - "Single channel: offSite (Meta), max=3"
+    - Hero count = 4
+    steps:
+    - 1. Type a single channel offSite (Meta) with 4 Hero SKUs
+    - 2. Trigger channel activation; backend checks minHeroSkus/maxHeroSkus
+    - 3. Observe resolver routing and user message
+    expected:
+    - Backend detects maxHeroSkus exceeded after activation
+    - The single channel is BLOCKED from being added
+    - User is informed of the limit
+    - Flow routes to the ask node (since only one channel was typed)
+    automationNotes: "Backend-level assertion on resolver routing: single-channel→ask node. Verify minHeroSkus/maxHeroSkus check runs post-activation."
+  - id: TC-CHAN-017
+    title: "Backend: one of multiple typed channels exceeds maxHeroSkus — block that channel, continue with other resolver nodes"
+    area: Channel-level Hero edit, per-channel SKU definition & deletion sync
+    priority: High
+    type: Integration
+    technique: [Decision-Table, Negative, Edge-Case]
+    traces:
+      tickets: [NUP-18944, NUP-20507]
+      sourceRefs: [_test_scenarios.md#NUP-18944]
+    preconditions:
+    - "MORE than one channel typed: offSite (Meta, max=3) with 4 Hero SKUs; onSite (valid, within max)"
+    testData:
+    - "offSite (Meta): max=3, Hero=4 (exceeds)"
+    - "onSite: within max"
+    steps:
+    - 1. Type two channels in one prompt where offSite exceeds its max and onSite is valid
+    - 2. Trigger activation; backend checks min/max Hero per channel
+    - 3. Observe routing and which channels are added
+    expected:
+    - offSite (the exceeding channel) is BLOCKED from being added; user informed
+    - Flow CONTINUES with the other resolver nodes (onSite) since more than one channel was typed
+    - onSite is processed normally
+    automationNotes: "Multi-channel branch of the decision table: block exceeding channel only, continue resolver for the rest. Assert onSite still added."
+  - id: TC-CHAN-018
+    title: "Backend: channel below minHeroSkus on activation is blocked and user informed"
+    area: Channel-level Hero edit, per-channel SKU definition & deletion sync
+    priority: Medium
+    type: Integration
+    technique: [Boundary-BVA, Negative]
+    traces:
+      tickets: [NUP-18944, NUP-20507]
+      sourceRefs: [_test_scenarios.md#NUP-18944]
+    preconditions:
+    - Channel offSite (Meta) configured with minHeroSkus = 1 (parameterized; assumption)
+    - Hero selection for the channel = 0 (below min)
+    testData:
+    - minHeroSkus = 1 (assumption; parameterize)
+    - Hero count = 0
+    steps:
+    - 1. Activate offSite (Meta) with 0 Hero SKUs (below configured min)
+    - 2. Backend checks minHeroSkus/maxHeroSkus
+    - 3. Observe block and message
+    expected:
+    - Backend detects Hero count below minHeroSkus
+    - Channel is blocked from being added
+    - User is informed; if single channel typed, routes to ask node
+    automationNotes: "Assumption: minHeroSkus=1; parameterize MIN. Validates the min branch of the NUP-20507 check, complementary to the max branch."
+  - id: TC-CHAN-019
+    title: Hero SKU indicator appears next to Hero SKUs in the Measurement SKUs modal/table
+    area: Channel-level Hero edit, per-channel SKU definition & deletion sync
+    priority: High
+    type: UI
+    technique: [Positive, Cross-Field]
+    traces:
+      tickets: [NUP-20956, NUP-21966]
+      sourceRefs: [_test_scenarios.md#NUP-21966]
+    preconditions:
+    - Measurement SKUs = {1001,1002,1003}
+    - Hero SKUs = {1002} (subset of Measurement)
+    testData:
+    - "Measurement: 1001,1002,1003"
+    - "Hero: 1002"
+    steps:
+    - 1. Open the Measurement SKUs modal/table
+    - 2. Inspect each SKU row for the 'Hero SKU' indicator
+    expected:
+    - Row for 1002 shows the 'Hero SKU' indicator
+    - Rows for 1001 and 1003 do NOT show the indicator
+    automationNotes: Assert indicator presence is exactly on Hero rows. Map indicator element to SKU id.
+  - id: TC-CHAN-020
+    title: Hero SKU indicator updates in real time on assign/unassign
+    area: Channel-level Hero edit, per-channel SKU definition & deletion sync
+    priority: High
+    type: UI
+    technique: [State-Recompute, Positive]
+    traces:
+      tickets: [NUP-20956, NUP-21968]
+      sourceRefs: [_test_scenarios.md#NUP-21968]
+    preconditions:
+    - Measurement SKUs modal/table open
+    - SKU 1003 currently NOT Hero (no indicator)
+    testData:
+    - SKU 1003 toggled Hero then un-Hero
+    steps:
+    - 1. Assign 1003 as Hero
+    - 2. Observe the Measurement table row for 1003 without manual refresh
+    - 3. Unassign 1003 as Hero
+    - 4. Observe the row again
+    expected:
+    - "After assign: 'Hero SKU' indicator appears on 1003 in real time (no refresh)"
+    - "After unassign: the indicator is removed from 1003 in real time"
+    automationNotes: No page reload between steps; poll the DOM for indicator add/remove. Validates real-time reactivity.
+  - id: TC-CHAN-021
+    title: Auto-add non-Measurement Hero increments Measurement count; summary and tables reflect updated counts
+    area: Channel-level Hero edit, per-channel SKU definition & deletion sync
+    priority: High
+    type: E2E
+    technique: [State-Recompute, Cross-Field, Data-Persistence]
+    traces:
+      tickets: [NUP-20956, NUP-21969]
+      sourceRefs: [_test_scenarios.md#NUP-21969]
+    preconditions:
+    - Measurement SKUs = {1001,1002} (count 2)
+    - Hero SKUs = {} (count 0)
+    - SKU 1009 is brand-linked but NOT a Measurement SKU
+    testData:
+    - "Measurement before: 1001,1002 (2)"
+    - Assign non-Measurement SKU 1009 as Hero
+    steps:
+    - 1. Capture Measurement count (2) and Hero count (0) from summary
+    - 2. Assign non-Measurement SKU 1009 as Hero
+    - 3. Re-inspect summary panel and Measurement/Hero tables
+    expected:
+    - 1009 auto-added to Measurement SKUs → Measurement count grows from 2 to 3
+    - Hero count tracks selection → 1 (just 1009)
+    - Summary panel and tables reflect updated counts
+    - 1009 shows the 'Hero SKU' indicator in the Measurement table
+    automationNotes: Assert the auto-add rule (NUP-20956) feeds the count recompute. Capture counts before/after; assert deltas.
+  - id: TC-CHAN-022
+    title: "Single-prompt parsing: Hero SKUs not already Measurement are auto-added to Measurement"
+    area: Channel-level Hero edit, per-channel SKU definition & deletion sync
+    priority: Critical
+    type: E2E
+    technique: [Positive, Cross-Field, Decision-Table]
+    traces:
+      tickets: [NUP-19967, NUP-19328, NUP-20956]
+      sourceRefs: [_test_scenarios.md#NUP-19328]
+    preconditions:
+    - Chat ready to accept a single combined prompt
+    testData:
+    - "Prompt: \"1, 2, 3, 4 and hero skus 3, 5, 6\""
+    - Expected Measurement = {1,2,3,4,5,6}
+    - Expected Hero = {3,5,6}
+    steps:
+    - "1. Send single prompt: 1, 2, 3, 4 and hero skus 3, 5, 6"
+    - 2. Wait for parsing/summary
+    - 3. Inspect Measurement SKU set and Hero SKU set in the summary
+    expected:
+    - Measurement SKUs = {1,2,3,4,5,6} (5 and 6 auto-added since they were Hero but not in original Measurement)
+    - Hero SKUs = {3,5,6}
+    - SKU 3 is both Measurement and Hero (no duplicate Measurement entry; marked Hero)
+    automationNotes: Assert set equality for both Measurement and Hero. Verify no duplicate Measurement entry for 3.
+  - id: TC-CHAN-023
+    title: Channel-level Hero modal displays all brand-linked SKUs (not only Measurement SKUs)
+    area: Channel-level Hero edit, per-channel SKU definition & deletion sync
+    priority: Medium
+    type: UI
+    technique: [Positive, Equivalence-Partition]
+    traces:
+      tickets: [NUP-20956, NUP-21962]
+      sourceRefs: [_test_scenarios.md#NUP-21962]
+    preconditions:
+    - Brand has Measurement SKUs {1001,1002} and additional brand-linked non-Measurement SKUs {1009,1010}
+    - Channel offSite (Meta) selected
+    testData:
+    - "Brand-linked SKUs: 1001,1002,1009,1010"
+    - "Measurement subset: 1001,1002"
+    steps:
+    - 1. Open the offSite (Meta) channel-level Hero SKU modal
+    - 2. Inspect the list of selectable SKUs
+    expected:
+    - Modal lists ALL brand-linked SKUs {1001,1002,1009,1010}
+    - Non-Measurement SKUs 1009,1010 are selectable as Hero candidates
+    automationNotes: Assert the channel Hero modal option set equals the full brand-linked SKU set, not just Measurement SKUs.
+  - id: TC-CHAN-024
+    title: Assigning a non-Measurement SKU as channel Hero auto-adds it to Measurement and sets is_hero=True
+    area: Channel-level Hero edit, per-channel SKU definition & deletion sync
+    priority: High
+    type: E2E
+    technique: [State-Recompute, Cross-Field, Data-Persistence]
+    traces:
+      tickets: [NUP-20956, NUP-19140, NUP-21965]
+      sourceRefs: [_test_scenarios.md#NUP-21965, NUP-19140.md#Description]
+    preconditions:
+    - Channel offSite (Meta) selected
+    - Measurement SKUs = {1001} (count 1)
+    - SKU 1009 brand-linked, non-Measurement, is_hero=False
+    testData:
+    - Assign non-Measurement SKU 1009 as Hero on offSite
+    steps:
+    - 1. Open offSite (Meta) Hero modal
+    - 2. Assign non-Measurement SKU 1009 as Hero for the channel
+    - 3. Save (triggers StateData update method)
+    - 4. Inspect Measurement set, is_hero flag for 1009, and counts
+    expected:
+    - 1009 auto-added to Measurement SKUs → Measurement count grows to 2
+    - StateData.campaign_skus[1009].is_hero == True
+    - offSite channel Hero set includes 1009
+    - Summary/tables reflect updated counts and the Hero indicator on 1009
+    automationNotes: Combines auto-add (NUP-20956) with is_hero sync (NUP-19140) at channel level. Assert both Measurement membership and is_hero flag.
+  - id: TC-CHAN-025
+    title: Edit Hero on one channel does not change is_hero for a SKU still Hero on another channel
+    area: Channel-level Hero edit, per-channel SKU definition & deletion sync
+    priority: High
+    type: Integration
+    technique: [State-Recompute, Cross-Field, Edge-Case]
+    traces:
+      tickets: [NUP-19140, NUP-20233]
+      sourceRefs: [NUP-19140.md#Description, _test_scenarios.md#NUP-20233]
+    preconditions:
+    - offSite (Meta) Hero {1001,1002}; onSite Hero {1002}
+    - SKU 1002 is Hero on both channels
+    testData:
+    - Remove 1002 from offSite only
+    - 1002 remains Hero on onSite
+    steps:
+    - 1. Open offSite (Meta) modal and deselect Hero SKU 1002
+    - 2. Save (update method runs)
+    - 3. Inspect is_hero for 1002 and onSite Hero set
+    expected:
+    - 1002 is still Hero on onSite → StateData.campaign_skus[1002].is_hero remains True
+    - offSite Hero set no longer contains 1002 (isolated to offSite)
+    - Unique Hero count unchanged because 1002 is still used somewhere
+    automationNotes: "Edge: shared Hero, partial removal. Assert is_hero stays True due to union logic; assert offSite isolation."
+  - id: TC-CHAN-026
+    title: Per-channel defined SKUs that are non-Measurement are auto-added to Measurement (single-prompt channel definition)
+    area: Channel-level Hero edit, per-channel SKU definition & deletion sync
+    priority: Medium
+    type: E2E
+    technique: [Cross-Field, Edge-Case]
+    traces:
+      tickets: [NUP-19529, NUP-20956]
+      sourceRefs: [NUP-19529.md#Acceptance Criteria, _test_scenarios.md#NUP-21965]
+    preconditions:
+    - Measurement SKUs = {1001} before the prompt
+    - SKU 234235 is brand-linked but not currently a Measurement SKU
+    testData:
+    - "Prompt: offSite: Meta, 40k, 20-25/03/2026, skus 12345, 234235"
+    - "Measurement before: 1001"
+    steps:
+    - 1. Send the per-channel definition prompt with skus 12345, 234235
+    - 2. Wait for the SKU-processing node
+    - 3. Inspect offSite channel SKUs and the Measurement SKU set
+    expected:
+    - offSite channel assigned SKUs = {12345, 234235}
+    - Any defined SKU not already in Measurement is auto-added to Measurement per the auto-add rule
+    - Measurement set reflects the additions and counts update in the summary
+    automationNotes: "Assumption: per-channel defined SKUs follow the same auto-add-to-Measurement rule; if backend treats channel SKUs separately, adjust. Parameterize and verify against the SKU-processing node behavior."
+  - id: TC-CHAN-027
+    title: Delete the only channel using a Hero SKU — is_hero=False and unique Hero count reaches zero
+    area: Channel-level Hero edit, per-channel SKU definition & deletion sync
+    priority: Medium
+    type: Integration
+    technique: [Boundary-BVA, State-Recompute, Edge-Case]
+    traces:
+      tickets: [NUP-19140]
+      sourceRefs: [NUP-19140.md#Description, NUP-19140.md#Acceptance Criteria]
+    preconditions:
+    - Single channel offSite (Meta) with Hero {1001}
+    - SKU 1001 is_hero=True, used only by offSite
+    testData:
+    - "offSite Hero: 1001"
+    - Delete offSite (Meta)
+    steps:
+    - 1. Capture unique Hero count = 1
+    - 2. Delete the offSite (Meta) channel
+    - 3. Allow update method to run
+    - 4. Inspect is_hero for 1001 and unique Hero count
+    expected:
+    - No channel uses 1001 as Hero → StateData.campaign_skus[1001].is_hero == False
+    - Unique Hero count drops from 1 to 0
+    - Hero count in summary reflects 0
+    automationNotes: Lower boundary of the Hero union (empty after delete). Assert flag flips and count hits zero.
+  - id: TC-CHAN-028
+    title: "Per-channel SKU definition: channel that explicitly defines SKUs does NOT inherit global Hero, and a sibling undefined channel DOES (single mixed prompt)"
+    area: Channel-level Hero edit, per-channel SKU definition & deletion sync
+    priority: High
+    type: E2E
+    technique: [Decision-Table, Cross-Field, State-Recompute]
+    traces:
+      tickets: [NUP-19529]
+      sourceRefs: [NUP-19529.md#Acceptance Criteria]
+    preconditions:
+    - Global Hero SKUs = 5,6 assigned.
+    - "A single chat message defines two channels: one with a skus clause, one without."
+    testData:
+    - "Global Hero: 5,6"
+    - "Prompt: 'offSite: Meta, 40k, 20-25/03/2026, skus 12345, 234235; onSite, 30k, 20-25/03/2026'"
+    - Meta defines skus 12345,234235; onSite defines no skus
+    steps:
+    - 1. Send the single mixed prompt defining Meta (with skus) and onSite (without).
+    - 2. Wait for the resolver + SKU-processing nodes (30-60s).
+    - 3. Inspect assigned SKUs for each channel.
+    expected:
+    - offSite Meta assigned SKUs = exactly {12345, 234235} (its defined set); global Hero 5,6 are NOT force-added to Meta.
+    - onSite assigned SKUs = global Hero set {5,6} (inherited because no skus clause).
+    - Assignment is independent per channel within the same prompt.
+    automationNotes: Single-prompt variant of the draft's per-channel inheritance (CHAN-005 uses two separate prompts; IND-024 uses two prompts). Asserts both branches resolve correctly from ONE message and that the defined channel does not also receive global Hero.
+  - id: TC-CHAN-029
+    title: "Channel modal Hero edit: deselecting ALL Hero SKUs for a channel that has minHeroSkus configured surfaces the min violation on save"
+    area: Channel-level Hero edit, per-channel SKU definition & deletion sync
+    priority: Medium
+    type: E2E
+    technique: [Boundary-BVA, Negative, Error-Message]
+    traces:
+      tickets: [NUP-18944, NUP-20507]
+      sourceRefs: [_test_scenarios.md#NUP-18944]
+    preconditions:
+    - Channel offSite (Meta) configured with minHeroSkus = 1.
+    - offSite Meta currently has Hero {1001} (at min).
+    testData:
+    - minHeroSkus = 1
+    - Deselect 1001 -> Hero count 0 (below min)
+    steps:
+    - 1. Open the offSite Meta channel modal.
+    - 2. Deselect SKU 1001 so the channel has 0 Hero SKUs (below min 1).
+    - 3. Attempt to save the modal.
+    - 4. Inspect the resulting state/message and booking control.
+    expected:
+    - The channel falls below minHeroSkus on save; the user is informed of the min requirement.
+    - The plan cannot proceed/book with the channel below its min (consistent with the NUP-20507 min check).
+    - Re-selecting at least 1 Hero SKU clears the violation.
+    automationNotes: UI-level counterpart to the backend min boundary (MAX-101/CHAN-018). The exact UI message/blocking for the min case is not given verbatim in source; assert a violation is surfaced and booking gated, and capture the actual message as a documented expectation.
+  - id: TC-CHAN-030
+    title: "Single-channel block vs multi-channel continue: side-by-side decision-table confirming routing differs only by typed-channel COUNT, not by which channel violates"
+    area: Channel-level Hero edit, per-channel SKU definition & deletion sync
+    priority: Medium
+    type: Integration
+    technique: [Decision-Table, Negative]
+    traces:
+      tickets: [NUP-20507, NUP-18944]
+      sourceRefs: [_test_scenarios.md#NUP-18944]
+    preconditions:
+    - Backend min/max check runs after channel activation.
+    - offSite Meta maxHeroSkus = 3.
+    testData:
+    - "Run 1 (single): type only offSite Meta with Hero 1,2,3,4 (exceeds) -> expect block + ask node"
+    - "Run 2 (multi): type offSite Meta with Hero 1,2,3,4 (exceeds) AND onSite with Hero 1,2 (valid) -> expect Meta blocked, onSite continues"
+    steps:
+    - "1. Run 1: send a single-channel prompt where Meta exceeds max; record routing (ask node?) and whether Meta added."
+    - "2. Run 2: send a multi-channel prompt where Meta exceeds max and onSite is valid; record routing and which channels added."
+    - 3. Compare the two runs.
+    expected:
+    - "Run 1: Meta blocked, no other channel, flow routes to the ask node."
+    - "Run 2: Meta blocked, onSite added, flow continues with other resolver nodes (NOT the ask node)."
+    - The ONLY difference driving the routing is the count of typed channels (one vs more-than-one), with the same violating channel.
+    automationNotes: Consolidates the single-vs-multi decision into one parameterized comparison using an identical violating channel, isolating typed-channel count as the routing variable. Complements MAX-099/MAX-100 by holding the violation constant.
+  - id: TC-PRM-001
+    title: "Single prompt with Hero subset extending Measurement is parsed: Measurement={1,2,3,4,5,6}, Hero={3,5,6}"
+    area: Single-prompt Hero + Measurement recognition & parsing
+    priority: Critical
+    type: E2E
+    technique: [Positive, Cross-Field, State-Recompute]
+    traces:
+      tickets: [NUP-19967, NUP-19328, NUP-19273]
+      sourceRefs: [NUP-19967.md#Acceptance Criteria, _test_scenarios.md#NUP-19328]
+    preconditions:
+    - User is authenticated into Nectar AI Media Planner chat
+    - A brand with SKUs 1,2,3,4,5,6 linked is selected
+    - Channel/service selected has no Hero max configured (no maxHeroSkus) so parsing is verified in isolation
+    testData:
+    - "Prompt free text: \"1, 2, 3, 4 and hero skus 3, 5, 6\""
+    - "Expected Measurement set: {1,2,3,4,5,6}"
+    - "Expected Hero set: {3,5,6}"
+    - SKUs 5 and 6 are NOT in the typed Measurement list (1,2,3,4) and must be auto-added
+    steps:
+    - 1. Open Nectar AI chat and start a new media plan
+    - "2. Send the single prompt: \"1, 2, 3, 4 and hero skus 3, 5, 6\""
+    - 3. Wait for the assistant turn to complete (allow 30-60s)
+    - 4. Inspect the resulting summary/mapped table for Measurement SKUs and Hero SKUs
+    expected:
+    - Prompt is recognized as a single-prompt Hero+Measurement definition (no separate SKU-selection table step is shown)
+    - Measurement SKUs = exactly {1,2,3,4,5,6} (6 entries); SKUs 5 and 6 auto-added because they were declared Hero but not typed in Measurement
+    - Hero SKUs = exactly {3,5,6} (3 entries)
+    - SKU 3 appears once in Measurement and is flagged Hero (no duplicate)
+    - Summary panel shows Measurement count = 6 and Hero count = 3
+    automationNotes: Send prompt via chat input; poll assistant turn completion with a 60s timeout; assert Measurement table contains SKU ids {1,2,3,4,5,6} and Hero-flagged subset = {3,5,6}; compare as sets to avoid ordering flakiness.
+  - id: TC-PRM-002
+    title: Recognized single prompt skips the Measurement and Hero selection tables and shows summary directly
+    area: Single-prompt Hero + Measurement recognition & parsing
+    priority: High
+    type: E2E
+    technique: [Positive, Edge-Case]
+    traces:
+      tickets: [NUP-19967, NUP-19328]
+      sourceRefs: [NUP-19967.md#Description, _test_scenarios.md#NUP-19328]
+    preconditions:
+    - Authenticated chat session
+    - Brand with SKUs 1,2,3,4,5,6 linked
+    testData:
+    - "Prompt: \"1, 2, 3, 4 and hero skus 3, 5, 6\""
+    steps:
+    - 1. Start a new media plan in chat
+    - 2. Send the single prompt containing both Measurement and Hero SKUs
+    - 3. Observe the assistant flow after the turn completes
+    expected:
+    - The legacy step that forces the user to first select SKUs then show the Hero SKU table is bypassed
+    - A summary/mapped table is presented in a single step (no intermediate Measurement-selection table and no separate Hero-selection table prompt)
+    - Summary reflects Measurement={1,2,3,4,5,6}, Hero={3,5,6}
+    automationNotes: Assert absence of the SKU-selection table component / Hero-selection table prompt in the assistant turn and presence of the summary table; key off stable test-ids for the two table flows vs the summary.
+  - id: TC-PRM-003
+    title: Hero SKU declared in prompt that is already in Measurement stays a single Measurement entry marked Hero
+    area: Single-prompt Hero + Measurement recognition & parsing
+    priority: High
+    type: Integration
+    technique: [Positive, Decision-Table, Cross-Field]
+    traces:
+      tickets: [NUP-19967, NUP-19328, NUP-21961]
+      sourceRefs: [NUP-19967.md#Acceptance Criteria, _test_scenarios.md#NUP-21961]
+    preconditions:
+    - Authenticated chat session
+    - Brand with SKUs 1,2,3,4 linked
+    testData:
+    - "Prompt: \"1, 2, 3, 4 and hero skus 3\" (Hero is a strict subset of typed Measurement)"
+    - Expected Measurement={1,2,3,4}, Hero={3}
+    steps:
+    - 1. Start a new media plan
+    - 2. Send "1, 2, 3, 4 and hero skus 3"
+    - 3. Wait for the turn to complete and inspect the summary
+    expected:
+    - Measurement SKUs = {1,2,3,4} (4 entries, no auto-add because Hero 3 already present)
+    - SKU 3 appears exactly once in Measurement, flagged Hero
+    - Hero SKUs = {3} (1 entry)
+    - Measurement count = 4, Hero count = 1, no duplicate row for SKU 3
+    automationNotes: "Decision-table branch: hero subset of measurement. Assert Measurement length == 4 (no growth) and SKU 3 row count == 1 with Hero indicator true."
+  - id: TC-PRM-004
+    title: Hero SKUs entirely outside Measurement are all auto-added (hero extends measurement)
+    area: Single-prompt Hero + Measurement recognition & parsing
+    priority: High
+    type: Integration
+    technique: [Positive, Decision-Table, Boundary-BVA, State-Recompute]
+    traces:
+      tickets: [NUP-19967, NUP-19328, NUP-21960, NUP-21965]
+      sourceRefs: [NUP-19967.md#Acceptance Criteria, _test_scenarios.md#NUP-21960]
+    preconditions:
+    - Authenticated chat session
+    - Brand with SKUs 1,2,7,8 linked
+    testData:
+    - "Prompt: \"1, 2 and hero skus 7, 8\" (no Hero overlaps typed Measurement)"
+    - Expected Measurement={1,2,7,8}, Hero={7,8}
+    steps:
+    - 1. Start a new media plan
+    - 2. Send "1, 2 and hero skus 7, 8"
+    - 3. Wait for completion and inspect summary counts
+    expected:
+    - Measurement SKUs = {1,2,7,8} (grew from typed 2 to 4 via auto-add of 7 and 8)
+    - Hero SKUs = {7,8} (2 entries)
+    - Measurement count = 4, Hero count = 2
+    automationNotes: "Decision-table branch: hero disjoint from measurement → full auto-add. Assert Measurement grew by exactly the count of non-overlapping Hero SKUs (2)."
+  - id: TC-PRM-005
+    title: Only Measurement SKUs typed (no hero keyword) falls back to the table/Hero-selection flow
+    area: Single-prompt Hero + Measurement recognition & parsing
+    priority: High
+    type: E2E
+    technique: [Negative, Decision-Table, Edge-Case]
+    traces:
+      tickets: [NUP-19967, NUP-19273]
+      sourceRefs: [NUP-19967.md#Description]
+    preconditions:
+    - Authenticated chat session
+    - Brand with SKUs 1,2,3,4 linked
+    testData:
+    - "Prompt: \"1, 2, 3, 4\" (no \"hero skus\" segment)"
+    - Expected Measurement={1,2,3,4}, Hero={} until table flow
+    steps:
+    - 1. Start a new media plan
+    - 2. Send "1, 2, 3, 4" with no Hero definition
+    - 3. Observe assistant flow after completion
+    expected:
+    - No Hero definition recognized; Hero set initially empty
+    - "System falls back to the standard flow: Measurement SKUs accepted as {1,2,3,4} then the Hero SKU table/selection step is offered (single-prompt summary skip does NOT apply)"
+    - Summary is not shown in place of the Hero-selection table
+    automationNotes: "Assert the Hero-selection table prompt IS shown (the opposite of PRM-002). Decision-table branch: measurement only → table flow."
+  - id: TC-PRM-006
+    title: "Equivalence: alternate phrasings/casing of the hero keyword are all recognized"
+    area: Single-prompt Hero + Measurement recognition & parsing
+    priority: Medium
+    type: Integration
+    technique: [Equivalence-Partition, Positive]
+    traces:
+      tickets: [NUP-19967, NUP-19328]
+      sourceRefs: [NUP-19967.md#Acceptance Criteria]
+    preconditions:
+    - Authenticated chat session
+    - Brand with SKUs 1,2,3,5,6 linked
+    - "ASSUMPTION: keyword matching is case-insensitive and tolerant of phrasing variants of \"hero skus\"; exact accepted synonyms are not enumerated in the source, so this case parameterizes phrasings and asserts equivalent parsing"
+    testData:
+    - "Variant A: \"1, 2, 3, 4 and HERO SKUS 3, 5, 6\" (uppercase)"
+    - "Variant B: \"1, 2, 3, 4 and Hero SKUs: 3, 5, 6\" (mixed case + colon)"
+    - "Variant C: \"1 2 3 4 and hero skus 3 5 6\" (space separators)"
+    - All expected to yield Measurement={1,2,3,4,5,6}, Hero={3,5,6}
+    steps:
+    - "1. For each phrasing variant A, B, C: start a fresh media plan"
+    - 2. Send the variant prompt
+    - 3. Wait for completion and capture parsed Measurement and Hero sets
+    - 4. Repeat for all variants
+    expected:
+    - Every variant is recognized as a single-prompt Hero+Measurement definition
+    - Each yields Measurement={1,2,3,4,5,6} and Hero={3,5,6} (identical to PRM-001)
+    - Casing and separator style do not change the parsed result
+    automationNotes: Parameterize the test over the variant list; if a variant is NOT recognized, record it as a documented gap rather than a hard pass — the source does not enumerate accepted synonyms (stated assumption).
+  - id: TC-PRM-007
+    title: Duplicate SKU ids in the prompt are deduped to unique entries
+    area: Single-prompt Hero + Measurement recognition & parsing
+    priority: Medium
+    type: Integration
+    technique: [Edge-Case, Equivalence-Partition, Negative]
+    traces:
+      tickets: [NUP-19967, NUP-19328]
+      sourceRefs: [NUP-19967.md#Acceptance Criteria]
+    preconditions:
+    - Authenticated chat session
+    - Brand with SKUs 1,2,3,5,6 linked
+    testData:
+    - "Prompt: \"1, 2, 2, 3, 3 and hero skus 3, 3, 5, 5, 6\" (duplicates in both lists)"
+    - Expected Measurement={1,2,3,5,6} (unique), Hero={3,5,6} (unique)
+    steps:
+    - 1. Start a new media plan
+    - 2. Send the prompt containing repeated SKU ids
+    - 3. Wait for completion and inspect counts
+    expected:
+    - Measurement SKUs deduped to {1,2,3,5,6} (5 unique entries, no duplicate rows)
+    - Hero SKUs deduped to {3,5,6} (3 unique entries)
+    - Measurement count = 5, Hero count = 3
+    - SKU 3 appears once, flagged Hero
+    automationNotes: Assert each SKU id appears at most once in Measurement and Hero tables; compare row counts to unique-set sizes.
+  - id: TC-PRM-008
+    title: Hero SKU referencing a non-existent / non-brand-linked SKU is rejected with an error and does not silently auto-add
+    area: Single-prompt Hero + Measurement recognition & parsing
+    priority: High
+    type: Integration
+    technique: [Negative, Error-Message, Edge-Case]
+    traces:
+      tickets: [NUP-19967, NUP-19328]
+      sourceRefs: [NUP-19967.md#Acceptance Criteria]
+    preconditions:
+    - Authenticated chat session
+    - Brand with SKUs 1,2,3,5 linked
+    - SKU 99999 is NOT a brand-linked / existing SKU
+    - "ASSUMPTION: invalid SKU handling is not specified in the source; exact message text is parameterized and the case asserts the invalid SKU is not added as a valid Measurement/Hero entry"
+    testData:
+    - "Prompt: \"1, 2, 3 and hero skus 3, 99999\" where 99999 is invalid/non-existent"
+    steps:
+    - 1. Start a new media plan
+    - 2. Send "1, 2, 3 and hero skus 3, 99999"
+    - 3. Wait for completion and inspect the response and tables
+    expected:
+    - "Valid SKUs parsed: Measurement contains {1,2,3}; Hero contains the valid Hero 3"
+    - Invalid SKU 99999 is NOT silently added as a valid Measurement or Hero entry
+    - The user is informed the referenced Hero SKU is invalid/unrecognized (exact text not specified in source — assert an error/clarification is surfaced rather than silent success)
+    automationNotes: Assert 99999 does not appear as a valid SKU row; capture the assistant clarification/error text and store as a parameterized expectation; flag as gap if no error is shown (source silent).
+  - id: TC-PRM-009
+    title: is_hero flags in StateData.campaign_skus match the parsed Hero set after single-prompt parse
+    area: Single-prompt Hero + Measurement recognition & parsing
+    priority: High
+    type: Integration
+    technique: [State-Recompute, Data-Persistence, Cross-Field]
+    traces:
+      tickets: [NUP-19967, NUP-19328, NUP-19140]
+      sourceRefs: [NUP-19967.md#Acceptance Criteria, _test_scenarios.md#NUP-19328]
+    preconditions:
+    - Authenticated chat session with backend StateData inspectable (API/DB or debug)
+    - Brand with SKUs 1,2,3,4,5,6 linked
+    testData:
+    - "Prompt: \"1, 2, 3, 4 and hero skus 3, 5, 6\""
+    - Expected StateData.campaign_skus entries for {1,2,3,4,5,6}; is_hero True for {3,5,6}, False for {1,2,4}
+    steps:
+    - 1. Start a new media plan
+    - 2. Send the single prompt
+    - 3. Wait for completion
+    - 4. Read back StateData.campaign_skus
+    expected:
+    - "campaign_skus contains exactly 6 entries: 1,2,3,4,5,6"
+    - is_hero == True for SKUs 3,5,6
+    - is_hero == False for SKUs 1,2,4
+    - Auto-added Hero SKUs 5,6 are present in campaign_skus with is_hero True
+    automationNotes: Read StateData via backend hook/API; assert the union of is_hero==True equals {3,5,6} and the full campaign_skus id set equals {1,2,3,4,5,6}.
+  - id: TC-PRM-010
+    title: Adding more SKUs via chat after the summary updates the mapped table
+    area: Single-prompt Hero + Measurement recognition & parsing
+    priority: Medium
+    type: E2E
+    technique: [State-Recompute, Data-Persistence, Positive]
+    traces:
+      tickets: [NUP-19967, NUP-19328]
+      sourceRefs: [NUP-19967.md#Description, _test_scenarios.md#NUP-19328]
+    preconditions:
+    - Authenticated chat session
+    - Brand with SKUs 1,2,3,4,5,6,7,8 linked
+    - Initial single prompt already parsed (Measurement={1,2,3,4,5,6}, Hero={3,5,6}) and summary shown
+    testData:
+    - "Follow-up prompt: \"add 7, 8 and hero skus 8\""
+    - "Expected after follow-up: Measurement={1,2,3,4,5,6,7,8}, Hero={3,5,6,8}"
+    steps:
+    - 1. Complete PRM-001 so the summary is displayed with Measurement count 6 / Hero count 3
+    - "2. Send a follow-up chat: \"add 7, 8 and hero skus 8\""
+    - 3. Wait for the assistant turn to complete
+    - 4. Re-inspect the mapped/summary table
+    expected:
+    - Mapped table updates without restarting the flow
+    - Measurement SKUs = {1,2,3,4,5,6,7,8} (count 8)
+    - Hero SKUs = {3,5,6,8} (count 4); SKU 8 added as Hero and auto-present in Measurement
+    - Counts in summary panel reflect the new totals
+    automationNotes: Assert incremental update of the same summary table (no new table flow); compare pre/post Measurement and Hero sets and counts.
+  - id: TC-PRM-011
+    title: "Boundary: single Measurement SKU also declared Hero (smallest valid single-prompt set)"
+    area: Single-prompt Hero + Measurement recognition & parsing
+    priority: Low
+    type: Unit
+    technique: [Boundary-BVA, Edge-Case, Positive]
+    traces:
+      tickets: [NUP-19967, NUP-19328]
+      sourceRefs: [NUP-19967.md#Acceptance Criteria]
+    preconditions:
+    - Authenticated chat session
+    - Brand with SKU 1 linked
+    testData:
+    - "Prompt: \"1 and hero skus 1\""
+    - Expected Measurement={1}, Hero={1}
+    steps:
+    - 1. Start a new media plan
+    - 2. Send "1 and hero skus 1"
+    - 3. Wait for completion and inspect
+    expected:
+    - Measurement = {1} (1 entry)
+    - Hero = {1} (1 entry); the same SKU is both Measurement and Hero with no duplicate
+    - Measurement count = 1, Hero count = 1
+    automationNotes: Boundary smallest set; assert single row flagged Hero and counts both equal 1.
+  - id: TC-PRM-012
+    title: "Edge: hero keyword present but with empty Hero list is treated as no Hero (or surfaced), Measurement still parsed"
+    area: Single-prompt Hero + Measurement recognition & parsing
+    priority: Low
+    type: Integration
+    technique: [Edge-Case, Negative, Error-Message]
+    traces:
+      tickets: [NUP-19967, NUP-19328]
+      sourceRefs: [NUP-19967.md#Acceptance Criteria]
+    preconditions:
+    - Authenticated chat session
+    - Brand with SKUs 1,2,3 linked
+    - "ASSUMPTION: behavior for a dangling \"hero skus\" with no ids is not specified; case parameterizes the outcome and asserts Measurement is unaffected"
+    testData:
+    - "Prompt: \"1, 2, 3 and hero skus\" (no ids after keyword)"
+    steps:
+    - 1. Start a new media plan
+    - 2. Send "1, 2, 3 and hero skus"
+    - 3. Wait for completion and inspect
+    expected:
+    - Measurement SKUs = {1,2,3} parsed correctly
+    - Hero set is empty OR the user is asked to specify Hero SKUs (exact behavior not specified in source — assert Measurement unaffected and no invalid Hero entry created)
+    automationNotes: Assert Measurement == {1,2,3} and Hero count == 0 (or a clarification prompt is shown); document actual behavior as the source is silent.
+  - id: TC-PRM-013
+    title: "Decision-table: parse outcome across (hero ⊆ measurement | hero extends measurement | hero only | measurement only)"
+    area: Single-prompt Hero + Measurement recognition & parsing
+    priority: High
+    type: Integration
+    technique: [Decision-Table, Equivalence-Partition, State-Recompute]
+    traces:
+      tickets: [NUP-19967, NUP-19328, NUP-19273]
+      sourceRefs: [NUP-19967.md#Acceptance Criteria, _test_scenarios.md#NUP-19328]
+    preconditions:
+    - Authenticated chat session
+    - Brand with SKUs 1,2,3,4,5,6,7 linked
+    testData:
+    - "Row A (subset): \"1,2,3 and hero skus 2\" → Measurement={1,2,3}, Hero={2}"
+    - "Row B (extends): \"1,2,3 and hero skus 3,4,5\" → Measurement={1,2,3,4,5}, Hero={3,4,5}"
+    - "Row C (hero only/no overlap with typed): \"1,2 and hero skus 6,7\" → Measurement={1,2,6,7}, Hero={6,7}"
+    - "Row D (measurement only): \"1,2,3\" → Measurement={1,2,3}, Hero={} → table flow"
+    steps:
+    - 1. For each row A-D, start a fresh media plan
+    - 2. Send the row's prompt
+    - 3. Wait for completion and capture parsed Measurement and Hero sets and whether single-prompt summary or table flow was used
+    - 4. Validate against the row's expected
+    expected:
+    - "Row A: Measurement={1,2,3}, Hero={2}, summary shown (no auto-add)"
+    - "Row B: Measurement={1,2,3,4,5} (4,5 auto-added), Hero={3,4,5}, summary shown"
+    - "Row C: Measurement={1,2,6,7} (6,7 auto-added), Hero={6,7}, summary shown"
+    - "Row D: Measurement={1,2,3}, Hero empty, falls back to Hero-selection table flow (no single-prompt summary skip)"
+    automationNotes: Single parameterized decision-table test over rows A-D; for each assert the Measurement/Hero sets and the flow branch (summary vs table) match the expected column.
+  - id: TC-PRM-014
+    title: Single-prompt edit of Hero SKUs offers all brand-linked SKUs (not only Measurement)
+    area: Single-prompt Hero + Measurement recognition & parsing
+    priority: Medium
+    type: UI
+    technique: [Positive, Cross-Field]
+    traces:
+      tickets: [NUP-21963, NUP-20956]
+      sourceRefs: [_test_scenarios.md#NUP-21963]
+    preconditions:
+    - Authenticated chat session
+    - Brand with SKUs 1,2,3,4,5,6 plus additional brand-linked SKUs 7,8,9 not in current Measurement
+    - Single prompt "1,2,3,4 and hero skus 3,5,6" already parsed; summary shown
+    testData:
+    - "Brand-linked SKUs available for Hero: {1,2,3,4,5,6,7,8,9}"
+    - Current Measurement = {1,2,3,4,5,6}, current Hero = {3,5,6}
+    steps:
+    - 1. From the single-prompt summary, open the Hero SKU edit modal
+    - 2. Inspect the list of SKUs available to assign as Hero
+    expected:
+    - The Hero edit modal lists ALL brand-linked SKUs {1,2,3,4,5,6,7,8,9}, not only the current Measurement set
+    - Currently-assigned Hero SKUs {3,5,6} are shown selected/checked
+    - Selecting a non-Measurement SKU (e.g. 7) and confirming auto-adds it to Measurement (Measurement count grows)
+    automationNotes: Assert the modal option set equals the full brand-linked SKU set; after selecting SKU 7 and confirming, assert Measurement gained SKU 7 (count 7) and Hero gained SKU 7.
+  - id: TC-PRM-015
+    title: Measurement SKUs table shows real-time Hero indicator reflecting the single-prompt parse and subsequent edits
+    area: Single-prompt Hero + Measurement recognition & parsing
+    priority: Medium
+    type: UI
+    technique: [State-Recompute, Positive, Data-Persistence]
+    traces:
+      tickets: [NUP-21966, NUP-21968, NUP-21969, NUP-20956]
+      sourceRefs: [_test_scenarios.md#NUP-21966, _test_scenarios.md#NUP-21968, _test_scenarios.md#NUP-21969]
+    preconditions:
+    - Authenticated chat session
+    - Brand with SKUs 1,2,3,4,5,6 linked
+    - Single prompt "1,2,3,4 and hero skus 3,5,6" parsed; Measurement table visible
+    testData:
+    - "Initial Hero-flagged rows: {3,5,6}; non-Hero rows: {1,2,4}"
+    steps:
+    - 1. After parsing, open/view the Measurement SKUs table
+    - 2. Verify the Hero SKU indicator on each row
+    - 3. Open the Hero edit modal, unassign SKU 5, confirm
+    - 4. Re-inspect the Measurement table and summary counts
+    - 5. Re-assign SKU 5 as Hero, confirm, re-inspect
+    expected:
+    - Measurement table shows a "Hero SKU" indicator on rows 3,5,6 and none on rows 1,2,4
+    - "After unassigning 5: indicator on row 5 disappears in real time; Hero count = 2; SKU 5 remains a Measurement row (Measurement count still 6)"
+    - "After re-assigning 5: indicator on row 5 reappears in real time; Hero count back to 3"
+    - Summary panel counts update after each change (Hero count tracks selection)
+    automationNotes: Assert per-row Hero indicator presence equals the current Hero set after each mutation without page reload; assert Measurement count stays 6 while Hero count toggles 3→2→3.
+  - id: TC-PRM-016
+    title: "Single-prompt parse equivalence: Measurement and Hero lists given in REVERSED order ('hero skus ... and ...') parse identically"
+    area: Single-prompt Hero + Measurement recognition & parsing
+    priority: Medium
+    type: Integration
+    technique: [Equivalence-Partition, Positive, Decision-Table]
+    traces:
+      tickets: [NUP-19967, NUP-19328]
+      sourceRefs: [NUP-19967.md#Acceptance Criteria, _test_scenarios.md#NUP-19328]
+    preconditions:
+    - Authenticated chat session.
+    - Brand with SKUs 1,2,3,4,5,6 linked.
+    - "ASSUMPTION: ordering of the Hero clause relative to the Measurement clause is not specified as significant; this case parameterizes order and asserts equivalence, flagging a gap if reversed order is not recognized."
+    testData:
+    - "Variant forward: '1, 2, 3, 4 and hero skus 3, 5, 6'"
+    - "Variant reversed: 'hero skus 3, 5, 6 and 1, 2, 3, 4'"
+    - "Both expected: Measurement = {1,2,3,4,5,6}, Hero = {3,5,6}"
+    steps:
+    - 1. Send the forward variant in a fresh plan; capture parsed Measurement and Hero sets.
+    - 2. Send the reversed variant in a fresh plan; capture parsed sets.
+    - 3. Compare the two results.
+    expected:
+    - Both variants parse to Measurement = {1,2,3,4,5,6} and Hero = {3,5,6}.
+    - Clause order does not change the parse result.
+    - If the reversed order is NOT recognized, record it as a documented gap rather than a silent pass.
+    automationNotes: Equivalence partition on clause order, complementing draft PRM-006 (casing/separators only). Parameterize both orderings; assert set equality across variants.
+  - id: TC-PRM-017
+    title: "Single-prompt parse negative: free text with no numeric SKU ids and a stray 'hero skus' keyword does not fabricate SKUs"
+    area: Single-prompt Hero + Measurement recognition & parsing
+    priority: Medium
+    type: Integration
+    technique: [Negative, Edge-Case, Error-Message]
+    traces:
+      tickets: [NUP-19967, NUP-19328]
+      sourceRefs: [NUP-19967.md#Acceptance Criteria]
+    preconditions:
+    - Authenticated chat session.
+    - Brand with SKUs 1,2,3 linked.
+    - "ASSUMPTION: behavior for a prompt mentioning 'hero skus' with no parseable ids anywhere is not specified; assert no invalid SKUs are created and the user is asked to clarify."
+    testData:
+    - "Prompt: 'please add some hero skus for me' (no numeric ids at all)"
+    steps:
+    - 1. Start a new media plan.
+    - 2. Send the prompt containing the hero keyword but no SKU ids.
+    - 3. Wait for completion and inspect Measurement/Hero sets and the assistant response.
+    expected:
+    - No Measurement or Hero SKUs are fabricated/added (both sets empty or unchanged).
+    - The user is asked to specify SKU ids / the input is treated as needing clarification rather than silently producing a Hero set.
+    - No invalid SKU row appears.
+    automationNotes: Negative parse robustness beyond draft PRM-008 (which uses an invalid numeric id) and PRM-012 (dangling keyword after valid Measurement). Here NO ids exist at all. Assert zero fabricated SKUs and capture the clarification behavior as a documented expectation.
+  - id: TC-PRM-018
+    title: "Single-prompt parse equivalence: Measurement and Hero lists that fully overlap ('1,2,3 and hero skus 1,2,3') yield Measurement={1,2,3}, all Hero, no growth"
+    area: Single-prompt Hero + Measurement recognition & parsing
+    priority: Medium
+    type: Integration
+    technique: [Equivalence-Partition, Boundary-BVA, Decision-Table]
+    traces:
+      tickets: [NUP-19967, NUP-19328, NUP-21961]
+      sourceRefs: [NUP-19967.md#Acceptance Criteria, _test_scenarios.md#NUP-21961]
+    preconditions:
+    - Authenticated chat session.
+    - Brand with SKUs 1,2,3 linked.
+    testData:
+    - "Prompt: '1, 2, 3 and hero skus 1, 2, 3' (Hero == Measurement exactly)"
+    - Expected Measurement = {1,2,3}, Hero = {1,2,3}
+    steps:
+    - 1. Start a new media plan.
+    - 2. Send '1, 2, 3 and hero skus 1, 2, 3'.
+    - 3. Wait for completion and inspect the summary.
+    expected:
+    - Measurement SKUs = {1,2,3} (count 3, no auto-add growth since Hero is fully contained).
+    - Hero SKUs = {1,2,3} (count 3).
+    - Each SKU appears exactly once and is Hero-flagged; no duplicate rows.
+    - Measurement count == Hero count == 3.
+    automationNotes: "Decision-table cell not in draft PRM-013 (which covers subset, extends, disjoint, measurement-only): the FULL-overlap (Hero == Measurement) cell. Assert no growth and every row Hero-flagged with no duplicates."
