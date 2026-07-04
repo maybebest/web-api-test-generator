@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { HarFile, ParsedHarEntry } from '../types/har.js';
 import { findHarFiles } from '../utils/fileSystem.js';
+import { compareStrings } from '../utils/compare.js';
 
 export async function parseHarInputs(inputs: string[]): Promise<ParsedHarEntry[]> {
   const files = await findHarFiles(inputs);
@@ -12,7 +13,7 @@ export async function parseHarInputs(inputs: string[]): Promise<ParsedHarEntry[]
   }
 
   return parsed.sort((left, right) => {
-    const sourceCompare = left.sourceFile.localeCompare(right.sourceFile);
+    const sourceCompare = compareStrings(left.sourceFile, right.sourceFile);
     return sourceCompare === 0 ? left.entryIndex - right.entryIndex : sourceCompare;
   });
 }

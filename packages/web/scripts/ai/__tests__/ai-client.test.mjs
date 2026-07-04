@@ -17,7 +17,7 @@ import {
   runBrain,
   selectBrain
 } from '../lib/ai-client.mjs';
-import { recordGenerationInManifest } from '../ai-generate.mjs';
+import { recordGenerationInManifest, resolveOutputPath } from '../ai-generate.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const doctorPath = path.join(repoRoot, 'scripts', 'ai', 'ai-doctor.mjs');
@@ -739,6 +739,32 @@ test('recordGenerationInManifest is a no-op when no manifest exists', () => {
 
     assert.equal(updated, false);
   });
+});
+
+test('resolveOutputPath keeps generated tests under packages/web/tests', () => {
+  const webRoot = repoRoot;
+
+  assert.equal(
+    resolveOutputPath('tests/regression/generated.spec.ts', webRoot),
+    path.join(webRoot, 'tests', 'regression', 'generated.spec.ts')
+  );
+  assert.equal(
+    resolveOutputPath('packages/web/tests/regression/generated.spec.ts', webRoot),
+    path.join(webRoot, 'tests', 'regression', 'generated.spec.ts')
+  );
+
+  assert.throws(
+    () => resolveOutputPath('../api/tests/generated.spec.ts', webRoot),
+    /outside packages\/web/
+  );
+  assert.throws(
+    () => resolveOutputPath('specs/generated.md', webRoot),
+    /packages\/web\/tests/
+  );
+  assert.throws(
+    () => resolveOutputPath('tests/regression/generated.ts', webRoot),
+    /\.spec\.ts/
+  );
 });
 
 // --- ai-doctor end-to-end (subprocess; no network, no @playwright/test) ----

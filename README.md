@@ -59,6 +59,9 @@ npm run web:test:smoke           # chromium smoke
 npm run web:test:list            # list all web tests
 npm run web:ai:self              # AI-script self-tests
 
+# Local UI wrapper
+npm run ui:dev                   # browser shell for API HAR, web spec, and recorder generators
+
 # API (packages/api)
 npm run api:lint                 # tsc --noEmit -p tsconfig.test.json (NodeNext)
 npm run api:build                # tsc -p tsconfig.json -> dist/

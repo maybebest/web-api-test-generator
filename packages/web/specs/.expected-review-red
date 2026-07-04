@@ -1,0 +1,13 @@
+# Specs whose generated test is EXPECTED to fail the static review (an intentional honest-red).
+# One spec path per line, relative to packages/web, forward slashes; "#" lines are comments.
+#
+# gate-all INVERTS the assertion for these specs: the review MUST fail. If a listed spec's review
+# unexpectedly passes, the gate fails — implement the missing pieces for real and delist it here.
+# This keeps CI green while the red-ness itself stays asserted; it does NOT weaken the reviewer
+# (`npm run ai:test:review` on these specs still fails loudly).
+#
+# Currently empty (2026-07-03). The five SKU suites were delisted after the E2E-only regeneration:
+# three suites now emit ONLY live-proven executable E2E tests (review passes for real), and two
+# (max-hero-skus-per-channel, single-prompt-hero-measurement-parsing) have zero automatable cases
+# today, so they are honestly `Generation Status | pending-generation` with no test file. The
+# non-automatable cases are enumerated per spec under "Pending Automation" with their blockers.

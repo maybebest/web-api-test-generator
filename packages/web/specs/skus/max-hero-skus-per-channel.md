@@ -5,7 +5,7 @@
 | Field | Value |
 |---|---|
 | Flow ID | FLOW-SKU-MAX |
-| Spec Version | 1.0.0 |
+| Spec Version | 2.0.0 |
 | Owner | aqa-team@example.com |
 | Priority | P1 |
 | Test Type | regression |
@@ -16,20 +16,20 @@
 | Generation Mode | suite |
 | Review Status | human-reviewed |
 | Generation Source | manual-test-case |
-| Generation Status | generated |
+| Generation Status | pending-generation |
 
 ## User Story
 
 As a media planner,
 I want the Nectar AI planner to enforce maximum hero skus per channel validation correctly,
-So that Hero/Measurement SKU selections and channel limits behave deterministically across the 39 documented cases.
+So that Hero/Measurement SKU selections behave deterministically (0 of the 39 documented cases are automated end-to-end today; the rest are enumerated under Pending Automation).
 
 ## Preconditions
 
 - A valid non-production authenticated Playwright storage state (`playwright/.auth/user.json`).
 - `PLAYWRIGHT_TEST_BASE_URL` points to `https://www.dev.pollen.js-devops.co.uk/`.
 - The advertiser, brand and a brand-linked catalogue with the case SKUs are available.
-- The channel under test can have its maxHeroSkus configured (see Missing test-data functions: setChannelMaxHeroSkus).
+- The channel under test can have its maxHeroSkus configured via the implemented dataManager.setChannelMaxHeroSkus (captured admin_editMedia contract).
 
 ## Out-of-scope
 
@@ -1497,7 +1497,8 @@ So that Hero/Measurement SKU selections and channel limits behave deterministica
 |---|---|---|
 | advertiser | N360_Unilever_MS | Non-production advertiser (data/media-planner.ts) |
 | brand | Unilever \| Knorr \| MS | Non-production brand |
-| dataManager | fixtures/test-data-manager.ts | API helpers to seed channel/SKU preconditions |
+| dataManager | fixtures/test-data-manager.ts | API helpers to seed session/SKU preconditions |
+| skuPool | specs/skus/.sku-pools.json | Real catalogue SKU ids the seeds use (live-probed) |
 | salientCopy | Media limit, Edit SKUs | Salient strings the generated tests must assert |
 
 ## Mocks
@@ -1542,7 +1543,7 @@ So that Hero/Measurement SKU selections and channel limits behave deterministica
 ## Locator Hints
 
 - Prefer role/name and data-testid locators owned by PlanningPage / NectarFlow page objects.
-- Use exact visible text for warning copy (e.g. "Media limit") and summary panel values.
+- Use exact visible text for counter copy (e.g. "Media limit") and summary panel values.
 - Use CSS only with an explicit `// locator-policy:exception <reason>` comment directly above the locator call.
 
 ## Generated Test Requirements
@@ -1558,6 +1559,52 @@ So that Hero/Measurement SKU selections and channel limits behave deterministica
 ## Notes
 
 - This suite targets the live Pollen development environment; `Parallel Safe` is `no` and `Data Isolation` is `external`.
-- The 39 Data Cases are transformed from specs/test-cases-skus-2.yaml (area: Maximum Hero SKUs per channel validation); each carries its source case id in notes for traceability.
-- Several cases depend on test-data management helpers that are not yet implemented (see fixtures/test-data-manager.ts `MISSING_TEST_DATA_FUNCTIONS`); those tests will fail loudly until the helpers are wired.
-- AUTHORING CAVEAT: authored without a live DOM-discovery snapshot. Run `npm run ai:dom:discover` against `/planning` and heal locators before treating generated tests as green.
+- E2E-only policy: every Data Case row above maps to an emitted, executable end-to-end test (API seed of REAL catalogue SKUs -> direct seeded-session navigation -> live UI assertion). Source cases that cannot be verified end-to-end today are enumerated under Pending Automation with their blockers — no weak panel-smoke or guaranteed-red placeholder tests are generated for them.
+- Source: specs/test-cases-skus-2.yaml (area: Maximum Hero SKUs per channel validation); every row keeps its source case id for traceability.
+- Locators were live-audited (2026-07-02/03) against the dev environment; the seed/hydrate/assert pipeline is live-proven.
+
+## Pending Automation (no test emitted)
+
+These 39 source cases are E2E-specified but cannot be verified end-to-end today. They are intentionally NOT generated — the framework ships only executable E2E tests.
+
+| Source Case | Blocker |
+|---|---|
+| TC-MAX-001 — FIX: max+1 boundary warning numeral must equal the configured max, not a literal 3 (re-baselines IND-018/CHAN… | channel-config: needs channel media resolution (E2E_MP_*_CHANNEL) + admin_editMedia write |
+| TC-MAX-002 — Hero SKU count below channel max (count = max-1) — channel added, no warning | channel-config: needs channel media resolution (E2E_MP_*_CHANNEL) + admin_editMedia write |
+| TC-MAX-003 — Hero SKU count equals channel max (count = max) — channel added, no warning, not blocked | channel-config: needs channel media resolution (E2E_MP_*_CHANNEL) + admin_editMedia write |
+| TC-MAX-004 — Hero SKU count exceeds channel max by one (count = max+1) — channel added with all SKUs + exact warning + blo… | channel-config: needs channel media resolution (E2E_MP_*_CHANNEL) + admin_editMedia write |
+| TC-MAX-005 — Hero SKU count far exceeds channel max (count >> max) — all SKUs retained, exact warning, blocked | channel-config: needs channel media resolution (E2E_MP_*_CHANNEL) + admin_editMedia write |
+| TC-MAX-006 — Zero Hero SKUs assigned (count = 0) below max — no warning, not blocked | channel-config: needs channel media resolution (E2E_MP_*_CHANNEL) + admin_editMedia write |
+| TC-MAX-007 — Singleton max (max=1) with exactly 1 Hero SKU — allowed, no warning | channel-config: needs channel media resolution (E2E_MP_*_CHANNEL) + admin_editMedia write |
+| TC-MAX-008 — Singleton max (max=1) with 2 Hero SKUs — warning numeral '1', all SKUs kept, blocked | channel-config: needs channel media resolution (E2E_MP_*_CHANNEL) + admin_editMedia write |
+| TC-MAX-009 — Warning numeral tracks a different configured max (max=5) — verbatim '5' | channel-config: needs channel media resolution (E2E_MP_*_CHANNEL) + admin_editMedia write |
+| TC-MAX-010 — No maximum configured (max=null) — any count allowed, never warned or blocked | no-assertable-expectation: the source case has no UI-checkable outcome without the assistant flow |
+| TC-MAX-011 — No max configured — count equal to other channels' typical max still no warning | no-assertable-expectation: the source case has no UI-checkable outcome without the assistant flow |
+| TC-MAX-012 — Deselect excess via modal then proceed — warning clears, booking unblocked | channel-config: needs channel media resolution (E2E_MP_*_CHANNEL) + admin_editMedia write |
+| TC-MAX-013 — Deselect via modal to over-limit-still (5→4) — warning persists, still blocked | channel-config: needs channel media resolution (E2E_MP_*_CHANNEL) + admin_editMedia write |
+| TC-MAX-014 — Modal deselect exactly to max (count=3) — boundary unblocks | channel-config: needs channel media resolution (E2E_MP_*_CHANNEL) + admin_editMedia write |
+| TC-MAX-015 — Global Hero list set first, then channel selected exceeding its max — channel added, warned, blocked (Scenari… | channel-config: needs channel media resolution (E2E_MP_*_CHANNEL) + admin_editMedia write |
+| TC-MAX-016 — Global Hero list exceeds two channels' max — warning on EACH affected channel, blocked until all fixed | warning-needs-channel: the plan has no channels; needs assignChannelToPlan (unimplemented) or the UI chat flow |
+| TC-MAX-017 — Global exceeds one channel but within another — only over-limit channel warned | warning-needs-channel: the plan has no channels; needs assignChannelToPlan (unimplemented) or the UI chat flow |
+| TC-MAX-018 — Mixed-max multi-channel plan — one channel over blocks the WHOLE plan | warning-needs-channel: the plan has no channels; needs assignChannelToPlan (unimplemented) or the UI chat flow |
+| TC-MAX-019 — Backend: single channel typed exceeds maxHeroSkus — block add, route to ask node | channel-config: needs channel media resolution (E2E_MP_*_CHANNEL) + admin_editMedia write |
+| TC-MAX-020 — Backend: multiple channels typed, one exceeds max — block that one, continue other resolver nodes | no-assertable-expectation: the source case has no UI-checkable outcome without the assistant flow |
+| TC-MAX-021 — Backend: single channel typed below minHeroSkus — block add, inform, ask node | no-assertable-expectation: the source case has no UI-checkable outcome without the assistant flow |
+| TC-MAX-022 — Backend: multiple channels typed, all within min/max — all added, full resolver continues | no-assertable-expectation: the source case has no UI-checkable outcome without the assistant flow |
+| TC-MAX-023 — Backend: no max configured (null) on resolved channel — never blocked regardless of count | no-assertable-expectation: the source case has no UI-checkable outcome without the assistant flow |
+| TC-MAX-024 — Re-exceeding after a valid state — adding SKUs back over max re-triggers warning and re-blocks | warning-needs-channel: the plan has no channels; needs assignChannelToPlan (unimplemented) or the UI chat flow |
+| TC-MAX-025 — Min configured boundary: count below minHeroSkus on UI — informs/blocks (min enforcement) | channel-config: needs channel media resolution (E2E_MP_*_CHANNEL) + admin_editMedia write |
+| TC-MAX-026 — Warning 'Edit SKUs' affordance opens the channel SKU modal scoped to that channel | no-assertable-expectation: the source case has no UI-checkable outcome without the assistant flow |
+| TC-MAX-027 — Booking explicitly attempted while over limit surfaces block reason, no save persisted | warning-needs-channel: the plan has no channels; needs assignChannelToPlan (unimplemented) or the UI chat flow |
+| TC-MAX-028 — Channel max boundary: assigning exactly max Hero SKUs (count == max) is accepted with no warning and booking … | channel-config: needs channel media resolution (E2E_MP_*_CHANNEL) + admin_editMedia write |
+| TC-MAX-029 — Channel max boundary: assigning max-1 Hero SKUs (count < max) is accepted with no warning | channel-config: needs channel media resolution (E2E_MP_*_CHANNEL) + admin_editMedia write |
+| TC-MAX-030 — Channel max boundary: assigning max+1 Hero SKUs (count > max) adds channel with all SKUs but shows verbatim w… | channel-config: needs channel media resolution (E2E_MP_*_CHANNEL) + admin_editMedia write |
+| TC-MAX-031 — Channel with NO max configured: assigning a large Hero SKU count imposes no restriction and no warning | no-assertable-expectation: the source case has no UI-checkable outcome without the assistant flow |
+| TC-MAX-032 — Channel max = exactly 1 (singleton limit): one Hero accepted, two Hero blocked with warning interpolating '1 … | channel-config: needs channel media resolution (E2E_MP_*_CHANNEL) + admin_editMedia write |
+| TC-MAX-033 — Mixed-max plan: one channel over its max blocks booking even while another channel is within its max | warning-needs-channel: the plan has no channels; needs assignChannelToPlan (unimplemented) or the UI chat flow |
+| TC-MAX-034 — Global Hero list exceeds the lower of two channels' DIFFERENT maxes: only the channel whose max is exceeded i… | warning-needs-channel: the plan has no channels; needs assignChannelToPlan (unimplemented) or the UI chat flow |
+| TC-MAX-035 — After deselecting excess down to max, the warning clears and booking unblocks (recompute on save) | channel-config: needs channel media resolution (E2E_MP_*_CHANNEL) + admin_editMedia write |
+| TC-MAX-036 — Reducing an over-max channel to max-1 (not just to max) also clears the warning and unblocks | channel-config: needs channel media resolution (E2E_MP_*_CHANNEL) + admin_editMedia write |
+| TC-MAX-037 — Backend NUP-20507: SINGLE channel typed exceeds maxHeroSkus on activation -> channel blocked from being added… | channel-config: needs channel media resolution (E2E_MP_*_CHANNEL) + admin_editMedia write |
+| TC-MAX-038 — Backend NUP-20507: MULTIPLE channels typed, one exceeds maxHeroSkus -> only that channel blocked, flow contin… | channel-config: needs channel media resolution (E2E_MP_*_CHANNEL) + admin_editMedia write |
+| TC-MAX-039 — Backend NUP-20507: channel BELOW minHeroSkus on activation is blocked and the user informed | no-assertable-expectation: the source case has no UI-checkable outcome without the assistant flow |

@@ -2,6 +2,7 @@ import type { HarApiTestConfig } from '../types/config.js';
 import type { HarNameValue, NormalizedHarEntry, ParsedHarEntry, SupportedHttpMethod } from '../types/har.js';
 import type { JsonValue } from '../types/json.js';
 import { maskHeaders, maskJsonValue, maskString, normalizeHeaderName } from '../utils/masking.js';
+import { compareStrings } from '../utils/compare.js';
 import {
   buildPathWithQuery,
   buildPathWithQueryFromPairs,
@@ -21,17 +22,17 @@ export function normalizeHarEntries(
   return entries
     .map((entry) => normalizeHarEntry(entry, config, baseUrlOverride))
     .sort((left, right) => {
-      const groupCompare = left.groupName.localeCompare(right.groupName);
+      const groupCompare = compareStrings(left.groupName, right.groupName);
       if (groupCompare !== 0) {
         return groupCompare;
       }
 
-      const pathCompare = left.pathPattern.localeCompare(right.pathPattern);
+      const pathCompare = compareStrings(left.pathPattern, right.pathPattern);
       if (pathCompare !== 0) {
         return pathCompare;
       }
 
-      return left.method.localeCompare(right.method);
+      return compareStrings(left.method, right.method);
     });
 }
 
@@ -43,7 +44,7 @@ export function normalizeHarEntry(
   const url = new URL(entry.request.url);
   const method = entry.request.method.toUpperCase() as SupportedHttpMethod;
   const queryPairs = entry.request.queryString ?? urlSearchParamsToHarPairs(url.searchParams);
-  const rawQuery = toRecord(queryPairs);
+  const rawQuery = toQueryRecord(queryPairs);
   const query = maskQuery(rawQuery);
   const { pattern, dynamicSegments } = inferPathPattern(url.pathname);
   const { maskedPath, placeholders } = maskDynamicPath(url.pathname);
@@ -93,24 +94,36 @@ export function toRecord(pairs: HarNameValue[]): Record<string, string> {
   return output;
 }
 
+// Query params are case-SENSITIVE, so (unlike headers) their names must NOT be lower-cased — a
+// generated test has to replay `?perPage=…` as `perPage`, not `perpage`. Masking decisions still
+// lower-case internally (see maskQueryValue), but the emitted key preserves the original casing.
+function toQueryRecord(pairs: HarNameValue[]): Record<string, string> {
+  const output: Record<string, string> = {};
+  for (const pair of pairs) {
+    output[pair.name.trim()] = pair.value;
+  }
+  return output;
+}
+
 function urlSearchParamsToHarPairs(params: URLSearchParams): HarNameValue[] {
   return [...params.entries()].map(([name, value]) => ({ name, value }));
 }
 
 function maskQuery(query: Record<string, string>): Record<string, string> {
   const output: Record<string, string> = {};
-  for (const [key, value] of Object.entries(query).sort(([left], [right]) => left.localeCompare(right))) {
+  for (const [key, value] of Object.entries(query).sort(([left], [right]) => compareStrings(left, right))) {
     output[key] = maskQueryValue(key, value);
   }
   return output;
 }
 
-// Ordered, duplicate-preserving counterpart to maskQuery: keeps repeated names and original order
-// (key normalized to lower-case to match the collapsed record's masking decisions). Used only when
-// generation.preserveDuplicateQueryParams is enabled.
+// Ordered, duplicate-preserving counterpart to maskQuery: keeps repeated names and original order.
+// The key preserves its original casing (query params are case-sensitive; maskQueryValue lower-cases
+// internally only for its masking heuristics). Used only when generation.preserveDuplicateQueryParams
+// is enabled.
 function maskQueryPairs(pairs: HarNameValue[]): Array<[string, string]> {
   return pairs.map((pair) => {
-    const key = normalizeHeaderName(pair.name);
+    const key = pair.name.trim();
     return [key, maskQueryValue(key, pair.value)];
   });
 }

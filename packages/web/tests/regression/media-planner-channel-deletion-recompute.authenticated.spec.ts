@@ -19,7 +19,15 @@ const plan = {
 // budgets the summary renders. Override per environment via E2E_MP_RECOMPUTE_CHANNEL_*.
 const channelA = process.env.E2E_MP_RECOMPUTE_CHANNEL_A ?? 'Homepage Sponsored Product';
 const channelB = process.env.E2E_MP_RECOMPUTE_CHANNEL_B ?? 'SmartShop Handset Home Page (DEMO)';
-const DATES = '15/08/2026 - 14/09/2026';
+// The campaign window is computed at runtime (start ~45 days out, 30-day duration) so the suite
+// never rots into past-dated requests; a hardcoded window was a time-bomb after its start date.
+const formatDdMmYyyy = (date: Date): string =>
+  `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()}`;
+const addDays = (days: number): Date => new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+const DATES = `${formatDdMmYyyy(addDays(45))} - ${formatDdMmYyyy(addDays(75))}`;
+// The chat request phrasing omits the catalogue's ' (DEMO)' suffix; derive it from the resolved
+// name so an E2E_MP_RECOMPUTE_CHANNEL_B override changes both the request and the row assertion.
+const channelBRequestName = channelB.replace(/\s*\(DEMO\)\s*$/, '');
 
 async function buildPlanToChannelStage(planningPage: PlanningPage): Promise<void> {
   await planningPage.goto();
@@ -37,34 +45,37 @@ async function buildPlanToChannelStage(planningPage: PlanningPage): Promise<void
 async function buildTwoChannelPlan(planningPage: PlanningPage): Promise<void> {
   await buildPlanToChannelStage(planningPage);
   await planningPage.enterChannelRequest(`Onsite, ${channelA}, £15000, ${DATES}, Self-Serve`, channelA);
-  await planningPage.enterChannelRequest(`Onsite, SmartShop Handset Home Page, £10000, ${DATES}, Self-Serve`, channelB);
+  await planningPage.enterChannelRequest(`Onsite, ${channelBRequestName}, £10000, ${DATES}, Self-Serve`, channelB);
 }
 
 test.describe.serial(
   'Media Planner channel deletion budget recompute',
   { tag: ['@generated', '@regression', '@media-planner', '@authenticated', '@special-preconditions'] },
   () => {
-    test('AC-001 planning page exposes the Nectar AI Assistant entry point', async ({ page }) => {
+    test('AC-001 the planner entry path reaches the guided flow', async ({ page }) => {
       const planningPage = new PlanningPage(page);
-      await test.step('Open the planning page', async () => {
+      await test.step('Walk the real entry journey (landing -> Try now)', async () => {
         await planningPage.goto();
+        await planningPage.startNectarAiPlanner();
       });
-      await test.step('Assert AC-001: the Nectar AI Assistant entry point is visible', async () => {
-        await expect(planningPage.nectarAssistantHeading()).toBeVisible();
-        await expect(planningPage.startAssistantButton()).toBeVisible();
+      await test.step('Assert AC-001: the guided objective-and-budget flow is reachable', async () => {
+        await expect(planningPage.buildByObjectiveButton()).toBeVisible();
       });
     });
 
     test('AC-002 the guided setup completes and the assistant requests a channel', async ({ page }) => {
-      test.slow();
+      // 4+ streamed assistant turns at 30-60s+ each: the 30s default (even tripled by
+      // test.slow()) cannot cover the journey; use the same explicit budget as the siblings.
+      test.setTimeout(360_000);
       const planningPage = new PlanningPage(page);
       await test.step('Complete the guided plan setup (advertiser, brand, objective, SKU)', async () => {
         await buildPlanToChannelStage(planningPage);
       });
       await test.step('Assert AC-002: the assistant requests a channel, a budget and a timeline', async () => {
-        await expect(planningPage.assistantChatPanel()).toContainText('channel');
-        await expect(planningPage.assistantChatPanel()).toContainText('budget');
-        await expect(planningPage.assistantChatPanel()).toContainText('timeline');
+        // Case-insensitive: this is streamed LLM copy, and casing/wording drifts turn to turn.
+        await expect(planningPage.assistantChatPanel()).toContainText(/channel/i);
+        await expect(planningPage.assistantChatPanel()).toContainText(/budget/i);
+        await expect(planningPage.assistantChatPanel()).toContainText(/timeline|dates?/i);
       });
     });
 

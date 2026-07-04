@@ -56,29 +56,6 @@ test.describe('stageautomation.heartpace.dev /user/security/{param}', () => {
 
 
   // origin: inferred | category: negative | confidence: high | execution: fixme | mutationRisk: guarded | calibration: lenient
-  inferredTest('negative: POST /user/security/{param} rejects missing _csrf @extended @profile @mutating @calibrate', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-security-param-c3092d09.missing-csrf.request.json'));
-    const { response, elapsedMs } = await sendApiRequest({
-      request,
-      defaultBaseUrl: 'https://stageautomation.heartpace.dev',
-      path: '/user/security/${USER_ID}',
-      method: 'POST',
-      headers: {
-        "accept": "application/json, text/javascript, */*; q=0.01",
-        "content-type": "multipart/form-data; boundary=----WebKitFormBoundaryNHuVil7XLzIlCSnA",
-        "x-csrf-token": "${CSRF_TOKEN}",
-        "x-requested-with": "XMLHttpRequest"
-      },
-      payload: requestBody
-    });
-
-    assertStatusCode(response.status(), {"kind":"family","family":"4xx"}, 'negative: POST /user/security/{param} rejects missing _csrf', 'stageautomation.heartpace.dev');
-    assertResponseTime(elapsedMs, 2000);
-    await assertNoSensitiveFieldsInJsonResponse(response, 'negative: POST /user/security/{param} rejects missing _csrf');
-  });
-
-
-  // origin: inferred | category: negative | confidence: high | execution: fixme | mutationRisk: guarded | calibration: lenient
   inferredTest('negative: POST /user/security/{param} rejects missing Security[support_can_login] @extended @profile @mutating @calibrate', async ({ request }, testInfo) => {
     const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-security-param-c3092d09.missing-security-support-can-login.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
@@ -98,6 +75,29 @@ test.describe('stageautomation.heartpace.dev /user/security/{param}', () => {
     assertStatusCode(response.status(), {"kind":"family","family":"4xx"}, 'negative: POST /user/security/{param} rejects missing Security[support_can_login]', 'stageautomation.heartpace.dev');
     assertResponseTime(elapsedMs, 2000);
     await assertNoSensitiveFieldsInJsonResponse(response, 'negative: POST /user/security/{param} rejects missing Security[support_can_login]');
+  });
+
+
+  // origin: inferred | category: negative | confidence: high | execution: fixme | mutationRisk: guarded | calibration: lenient
+  inferredTest('negative: POST /user/security/{param} rejects missing _csrf @extended @profile @mutating @calibrate', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-security-param-c3092d09.missing-csrf.request.json'));
+    const { response, elapsedMs } = await sendApiRequest({
+      request,
+      defaultBaseUrl: 'https://stageautomation.heartpace.dev',
+      path: '/user/security/${USER_ID}',
+      method: 'POST',
+      headers: {
+        "accept": "application/json, text/javascript, */*; q=0.01",
+        "content-type": "multipart/form-data; boundary=----WebKitFormBoundaryNHuVil7XLzIlCSnA",
+        "x-csrf-token": "${CSRF_TOKEN}",
+        "x-requested-with": "XMLHttpRequest"
+      },
+      payload: requestBody
+    });
+
+    assertStatusCode(response.status(), {"kind":"family","family":"4xx"}, 'negative: POST /user/security/{param} rejects missing _csrf', 'stageautomation.heartpace.dev');
+    assertResponseTime(elapsedMs, 2000);
+    await assertNoSensitiveFieldsInJsonResponse(response, 'negative: POST /user/security/{param} rejects missing _csrf');
   });
 
 

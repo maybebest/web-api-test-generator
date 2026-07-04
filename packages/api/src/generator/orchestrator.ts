@@ -20,6 +20,11 @@ export async function generateFromHar(
   config: HarApiTestConfig
 ): Promise<GenerationSummary> {
   const mergedConfig = mergeConfig(config);
+  // CLI --preserve-duplicate-query-params wins over the config value when explicitly given. mergeConfig
+  // returns a fresh `generation` object, so this override does not mutate the shared defaultConfig.
+  if (options.preserveDuplicateQueryParams !== undefined) {
+    mergedConfig.generation.preserveDuplicateQueryParams = options.preserveDuplicateQueryParams;
+  }
   const parsedEntries = await parseHarInputs(options.harInputs);
   const filteredEntries = filterHarEntries(parsedEntries, mergedConfig, {
     include: options.include,

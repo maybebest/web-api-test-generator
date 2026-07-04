@@ -1,6 +1,7 @@
 import type { HarApiTestConfig } from '../types/config.js';
 import type { JsonArray, JsonObject, JsonValue } from '../types/json.js';
 import { isJsonArray, isJsonObject } from '../types/json.js';
+import { compareStrings } from './compare.js';
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const bearerPattern = /^bearer\s+.+$/i;
@@ -46,7 +47,7 @@ export function maskHeaders(
   const ignored = new Set(config.ignoredHeaderNames.map(normalizeHeaderName));
   const secret = new Set(config.secretHeaderNames.map(normalizeHeaderName));
 
-  for (const [rawName, rawValue] of Object.entries(headers).sort(([left], [right]) => left.localeCompare(right))) {
+  for (const [rawName, rawValue] of Object.entries(headers).sort(([left], [right]) => compareStrings(left, right))) {
     const name = normalizeHeaderName(rawName);
     if (ignored.has(name)) {
       continue;
@@ -96,7 +97,7 @@ export function maskJsonValue(value: JsonValue, config: HarApiTestConfig, path: 
 
   if (isJsonObject(value)) {
     const output: JsonObject = {};
-    for (const [key, child] of Object.entries(value).sort(([left], [right]) => left.localeCompare(right))) {
+    for (const [key, child] of Object.entries(value).sort(([left], [right]) => compareStrings(left, right))) {
       output[key] = isSecretField(key, config)
         ? placeholderForField(key)
         : maskJsonValue(child, config, [...path, key]);

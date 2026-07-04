@@ -5,7 +5,7 @@
 | Field | Value |
 |---|---|
 | Flow ID | FLOW-SKU-PARSE |
-| Spec Version | 1.0.0 |
+| Spec Version | 2.0.0 |
 | Owner | aqa-team@example.com |
 | Priority | P1 |
 | Test Type | regression |
@@ -16,13 +16,13 @@
 | Generation Mode | suite |
 | Review Status | human-reviewed |
 | Generation Source | manual-test-case |
-| Generation Status | generated |
+| Generation Status | pending-generation |
 
 ## User Story
 
 As a media planner,
 I want the Nectar AI planner to enforce single-prompt hero and measurement recognition and parsing correctly,
-So that Hero/Measurement SKU selections and channel limits behave deterministically across the 18 documented cases.
+So that Hero/Measurement SKU selections behave deterministically (0 of the 18 documented cases are automated end-to-end today; the rest are enumerated under Pending Automation).
 
 ## Preconditions
 
@@ -735,7 +735,8 @@ So that Hero/Measurement SKU selections and channel limits behave deterministica
 |---|---|---|
 | advertiser | N360_Unilever_MS | Non-production advertiser (data/media-planner.ts) |
 | brand | Unilever \| Knorr \| MS | Non-production brand |
-| dataManager | fixtures/test-data-manager.ts | API helpers to seed channel/SKU preconditions |
+| dataManager | fixtures/test-data-manager.ts | API helpers to seed session/SKU preconditions |
+| skuPool | specs/skus/.sku-pools.json | Real catalogue SKU ids the seeds use (live-probed) |
 | salientCopy | hero, Measurement | Salient strings the generated tests must assert |
 
 ## Mocks
@@ -780,7 +781,7 @@ So that Hero/Measurement SKU selections and channel limits behave deterministica
 ## Locator Hints
 
 - Prefer role/name and data-testid locators owned by PlanningPage / NectarFlow page objects.
-- Use exact visible text for warning copy (e.g. "hero") and summary panel values.
+- Use exact visible text for counter copy (e.g. "hero") and summary panel values.
 - Use CSS only with an explicit `// locator-policy:exception <reason>` comment directly above the locator call.
 
 ## Generated Test Requirements
@@ -796,6 +797,31 @@ So that Hero/Measurement SKU selections and channel limits behave deterministica
 ## Notes
 
 - This suite targets the live Pollen development environment; `Parallel Safe` is `no` and `Data Isolation` is `external`.
-- The 18 Data Cases are transformed from specs/test-cases-skus-2.yaml (area: Single-prompt Hero and Measurement recognition and parsing); each carries its source case id in notes for traceability.
-- Several cases depend on test-data management helpers that are not yet implemented (see fixtures/test-data-manager.ts `MISSING_TEST_DATA_FUNCTIONS`); those tests will fail loudly until the helpers are wired.
-- AUTHORING CAVEAT: authored without a live DOM-discovery snapshot. Run `npm run ai:dom:discover` against `/planning` and heal locators before treating generated tests as green.
+- E2E-only policy: every Data Case row above maps to an emitted, executable end-to-end test (API seed of REAL catalogue SKUs -> direct seeded-session navigation -> live UI assertion). Source cases that cannot be verified end-to-end today are enumerated under Pending Automation with their blockers — no weak panel-smoke or guaranteed-red placeholder tests are generated for them.
+- Source: specs/test-cases-skus-2.yaml (area: Single-prompt Hero and Measurement recognition and parsing); every row keeps its source case id for traceability.
+- Locators were live-audited (2026-07-02/03) against the dev environment; the seed/hydrate/assert pipeline is live-proven.
+
+## Pending Automation (no test emitted)
+
+These 18 source cases are E2E-specified but cannot be verified end-to-end today. They are intentionally NOT generated — the framework ships only executable E2E tests.
+
+| Source Case | Blocker |
+|---|---|
+| TC-PRM-001 — Single prompt with Hero subset extending Measurement is parsed: Measurement={1,2,3,4,5,6}, Hero={3,5,6} | ui-flow-expectation: the expected counts assume assistant-flow actions beyond the seeded state |
+| TC-PRM-002 — Recognized single prompt skips the Measurement and Hero selection tables and shows summary directly | ui-flow-expectation: the expected counts assume assistant-flow actions beyond the seeded state |
+| TC-PRM-003 — Hero SKU declared in prompt that is already in Measurement stays a single Measurement entry marked Hero | ui-flow-expectation: the expected counts assume assistant-flow actions beyond the seeded state |
+| TC-PRM-004 — Hero SKUs entirely outside Measurement are all auto-added (hero extends measurement) | ui-flow-expectation: the expected counts assume assistant-flow actions beyond the seeded state |
+| TC-PRM-005 — Only Measurement SKUs typed (no hero keyword) falls back to the table/Hero-selection flow | no-assertable-expectation: the source case has no UI-checkable outcome without the assistant flow |
+| TC-PRM-006 — Equivalence: alternate phrasings/casing of the hero keyword are all recognized | ui-flow-expectation: the expected counts assume assistant-flow actions beyond the seeded state |
+| TC-PRM-007 — Duplicate SKU ids in the prompt are deduped to unique entries | ui-flow-expectation: the expected counts assume assistant-flow actions beyond the seeded state |
+| TC-PRM-008 — Hero SKU referencing a non-existent / non-brand-linked SKU is rejected with an error and does not silently au… | no-assertable-expectation: the source case has no UI-checkable outcome without the assistant flow |
+| TC-PRM-009 — is_hero flags in StateData.campaign_skus match the parsed Hero set after single-prompt parse | no-assertable-expectation: the source case has no UI-checkable outcome without the assistant flow |
+| TC-PRM-010 — Adding more SKUs via chat after the summary updates the mapped table | ui-flow-expectation: the expected counts assume assistant-flow actions beyond the seeded state |
+| TC-PRM-011 — Boundary: single Measurement SKU also declared Hero (smallest valid single-prompt set) | ui-flow-expectation: the expected counts assume assistant-flow actions beyond the seeded state |
+| TC-PRM-012 — Edge: hero keyword present but with empty Hero list is treated as no Hero (or surfaced), Measurement still pa… | ui-flow-expectation: the expected counts assume assistant-flow actions beyond the seeded state |
+| TC-PRM-013 — Decision-table: parse outcome across (hero ⊆ measurement \\| hero extends measurement \\| hero only \\| measurem… | ui-flow-expectation: the expected counts assume assistant-flow actions beyond the seeded state |
+| TC-PRM-014 — Single-prompt edit of Hero SKUs offers all brand-linked SKUs (not only Measurement) | ui-flow-expectation: the expected counts assume assistant-flow actions beyond the seeded state |
+| TC-PRM-015 — Measurement SKUs table shows real-time Hero indicator reflecting the single-prompt parse and subsequent edits | ui-flow-expectation: the expected counts assume assistant-flow actions beyond the seeded state |
+| TC-PRM-016 — Single-prompt parse equivalence: Measurement and Hero lists given in REVERSED order ('hero skus ... and ...')… | ui-flow-expectation: the expected counts assume assistant-flow actions beyond the seeded state |
+| TC-PRM-017 — Single-prompt parse negative: free text with no numeric SKU ids and a stray 'hero skus' keyword does not fabr… | no-assertable-expectation: the source case has no UI-checkable outcome without the assistant flow |
+| TC-PRM-018 — Single-prompt parse equivalence: Measurement and Hero lists that fully overlap ('1,2,3 and hero skus 1,2,3') … | ui-flow-expectation: the expected counts assume assistant-flow actions beyond the seeded state |

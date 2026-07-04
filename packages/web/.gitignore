@@ -16,9 +16,11 @@ videos/
 *.webm
 *.mp4
 .ai-runs/
+.ui-uploads/
 *.trace.zip
 allure-results/
 allure-report/
+performance/
 .idea/
 npm-debug.log*
 yarn-debug.log*

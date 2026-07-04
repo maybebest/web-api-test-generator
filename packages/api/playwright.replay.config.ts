@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from '@playwright/test';
 import baseConfig from './playwright.config.js';
 
@@ -9,14 +12,32 @@ import baseConfig from './playwright.config.js';
 const port = Number(process.env.REPLAY_PORT ?? 4599);
 const mockUrl = `http://127.0.0.1:${port}`;
 
-// Route every host observed in the capture at the local mock and skip login. resolveBaseUrl honors
-// a per-host BASE_URL_<HOST> override; authSetup early-returns when AUTH_SETUP_ENABLED=false. The
-// dummy values are non-empty only so the preflight env check passes — the mock never reads them.
+// Per-host overrides are DERIVED from the committed replay manifest instead of a hardcoded host
+// list: resolveBaseUrl deliberately keeps foreign hosts on their captured origin (only the primary
+// host follows a global BASE_URL), so any manifest host missing a BASE_URL_<HOST> entry would
+// escape the mock and hit the real environment. Deriving keeps new captures automatically routed.
+// The slug mirrors envHostSlug in tests/generated/support/apiTestUtils.ts.
+const configDir = path.dirname(fileURLToPath(import.meta.url));
+function envHostSlug(host: string): string {
+  return host.replace(/[^a-z0-9]+/gi, '_').replace(/^_+|_+$/g, '').toUpperCase();
+}
+function manifestHosts(): string[] {
+  try {
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(configDir, 'tests/generated/replay-manifest.json'), 'utf8')
+    ) as { routes?: Array<{ hostname?: string }> };
+    return [...new Set((manifest.routes ?? []).map((route) => String(route.hostname ?? '')).filter(Boolean))];
+  } catch {
+    return [];
+  }
+}
+
+// Route every observed host at the local mock and skip login. resolveBaseUrl honors a per-host
+// BASE_URL_<HOST> override; authSetup early-returns when AUTH_SETUP_ENABLED=false. The dummy values
+// are non-empty only so the preflight env check passes — the mock never reads them.
 const replayEnv: Record<string, string> = {
   BASE_URL: mockUrl,
-  BASE_URL_APPS_HEARTPACE_DEV: mockUrl,
-  BASE_URL_STAGEAUTOMATION_HEARTPACE_DEV: mockUrl,
-  BASE_URL_WORKFORCE_HEARTPACE_DEV: mockUrl,
+  ...Object.fromEntries(manifestHosts().map((host) => [`BASE_URL_${envHostSlug(host)}`, mockUrl])),
   AUTH_SETUP_ENABLED: 'false',
   USER_ID: 'replay-user',
   QUERY_ID: 'replay-query',

@@ -55,12 +55,13 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.10.2",
-    "@playwright/test": "^1.56.0",
+    "@playwright/test": "1.59.1",
     "@types/node": "^24.9.1",
     "agent-browser": "0.27.0",
     "allure-commandline": "^2.42.1",
     "allure-playwright": "^3.10.0",
     "dotenv": "^17.2.3",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "web-vitals": "^5.3.0"
   }
 }

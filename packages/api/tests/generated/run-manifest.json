@@ -20,9 +20,9 @@
     "filteredEntries": 67
   },
   "summary": {
-    "totalTests": 107,
+    "totalTests": 106,
     "endpointTests": 99,
-    "scenarioTests": 8,
+    "scenarioTests": 7,
     "schemaCount": 0,
     "schemaCoverage": "none",
     "smokeEndpoints": 36,
@@ -31,18 +31,18 @@
       "smoke": 36,
       "negative": 49,
       "security": 14,
-      "crud": 6,
+      "crud": 5,
       "scenario": 2
     },
     "executions": {
       "active": 60,
-      "fixme": 47,
+      "fixme": 46,
       "skip": 0
     },
     "mutationRisks": {
       "none": 28,
       "guarded": 69,
-      "unsafe": 10
+      "unsafe": 9
     }
   },
   "environment": {
@@ -250,7 +250,8 @@
           "negative: POST /user/talk-settings/{param} rejects missing TalkSettingsForm[talkDuration] header x-csrf-token",
           "negative: POST /user/talk-settings/{param} rejects missing TalkSettingsForm[talkDuration] payload",
           "negative: POST /user/talk-settings/{param} rejects missing _csrf header x-csrf-token",
-          "scenario: stageautomation.heartpace.dev profile read flow step 5: GET /me/account/oauth returns 200 header x-csrf-token",
+          "scenario: stageautomation.heartpace.dev login account logout flow step 4: GET /me/account/oauth returns 200 header x-csrf-token",
+          "scenario: stageautomation.heartpace.dev profile read flow step 3: GET /me/account/oauth returns 200 header x-csrf-token",
           "security: POST /user/notifications/ rejects invalid x-csrf-token payload",
           "security: POST /user/notifications/ rejects missing x-csrf-token payload",
           "security: POST /user/password/{param} rejects invalid x-csrf-token payload",
@@ -290,7 +291,6 @@
         "required": true,
         "usedIn": [
           "auth login setup",
-          "crud: stageautomation.heartpace.dev auth/main/login create-read flow step 1: POST /auth/main/login returns 200 payload.email",
           "negative: POST /auth/main/login rejects missing password payload.email",
           "scenario: stageautomation.heartpace.dev login account logout flow step 1: POST /auth/main/login returns 200 payload.email",
           "smoke: POST /auth/main/login returns 200 payload.email"
@@ -301,7 +301,6 @@
         "required": true,
         "usedIn": [
           "auth login setup",
-          "crud: stageautomation.heartpace.dev auth/main/login create-read flow step 1: POST /auth/main/login returns 200 payload.password",
           "crud: stageautomation.heartpace.dev user/password read-update flow step 2: POST /user/password/{param} returns 200 payload",
           "negative: POST /auth/main/login rejects missing email payload.password",
           "negative: POST /user/password/{param} rejects invalid path parameter payload",
@@ -342,9 +341,8 @@
           "negative: POST /user/security/{param} rejects missing _csrf path",
           "negative: POST /user/talk-settings/{param} rejects missing TalkSettingsForm[talkDuration] path",
           "negative: POST /user/talk-settings/{param} rejects missing _csrf path",
-          "scenario: stageautomation.heartpace.dev login account logout flow step 2: GET /me/account/settings/{param} returns 200 path",
-          "scenario: stageautomation.heartpace.dev profile read flow step 1: GET /users/user/{param} returns 200 path",
-          "scenario: stageautomation.heartpace.dev profile read flow step 2: GET /me/account/settings/{param} returns 200 path",
+          "scenario: stageautomation.heartpace.dev profile read flow step 4: GET /users/user/{param} returns 200 path",
+          "scenario: stageautomation.heartpace.dev profile read flow step 5: GET /me/account/settings/{param} returns 200 path",
           "security: POST /user/password/{param} rejects invalid x-csrf-token path",
           "security: POST /user/password/{param} rejects missing x-csrf-token path",
           "security: POST /user/preferences/{param} rejects invalid x-csrf-token path",
@@ -393,9 +391,10 @@
           "negative: POST /v1/dashboard/news-feed rejects missing perspective header x-site-uuid",
           "negative: POST /v1/dashboard/talks/insights rejects missing period header x-site-uuid",
           "negative: POST /v1/dashboard/talks/insights rejects missing perspective header x-site-uuid",
-          "scenario: stageautomation.heartpace.dev login account logout flow step 4: GET /me/account returns 200 header x-site-uuid",
-          "scenario: stageautomation.heartpace.dev profile read flow step 4: GET /me/account returns 200 header x-site-uuid",
-          "scenario: stageautomation.heartpace.dev profile read flow step 5: GET /me/account/oauth returns 200 header x-site-uuid",
+          "scenario: stageautomation.heartpace.dev login account logout flow step 3: GET /me/account returns 200 header x-site-uuid",
+          "scenario: stageautomation.heartpace.dev login account logout flow step 4: GET /me/account/oauth returns 200 header x-site-uuid",
+          "scenario: stageautomation.heartpace.dev profile read flow step 2: GET /me/account returns 200 header x-site-uuid",
+          "scenario: stageautomation.heartpace.dev profile read flow step 3: GET /me/account/oauth returns 200 header x-site-uuid",
           "security: GET /me/account/oauth rejects invalid x-csrf-token header x-site-uuid",
           "security: GET /me/account/oauth rejects missing x-csrf-token header x-site-uuid",
           "smoke: GET /me/account returns 200 header x-site-uuid",

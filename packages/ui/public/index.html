@@ -1,0 +1,565 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Test Generator Console</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">web-api-test-generator</p>
+        <h1>Test Generator Console</h1>
+      </div>
+      <div class="topbar__meta">
+        <span id="active-status" class="status-pill">Idle</span>
+        <button id="cancel-run" class="button button--danger" type="button" hidden>Cancel</button>
+        <button id="settings-open" class="button button--ghost" type="button">Settings</button>
+        <button id="brain-doctor" class="button button--ghost" type="button">Brain Check</button>
+      </div>
+    </header>
+
+    <nav class="tabs" aria-label="Generator modes">
+      <button class="tab is-active" type="button" data-tab="api">API HAR</button>
+      <button class="tab" type="button" data-tab="spec">Web Spec</button>
+      <button class="tab" type="button" data-tab="recording">Recorder</button>
+      <button class="tab" type="button" data-tab="management">Test Management</button>
+      <button class="tab" type="button" data-tab="runs">Runs</button>
+    </nav>
+
+    <main class="shell">
+      <section class="tab-panel is-active" id="tab-api">
+        <div class="workspace">
+          <form id="api-form" class="panel">
+            <div class="panel__header">
+              <h2>API Tests From HAR</h2>
+              <div class="button-row">
+                <button class="button button--primary" type="submit">Generate</button>
+                <button id="api-smoke" class="button" type="button">Run Smoke</button>
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="api-upload">Upload HAR / JSON / MD</label>
+              <div class="upload-row">
+                <input id="api-upload" type="file" accept=".har,.json,.md" multiple />
+                <button id="api-upload-button" class="button" type="button">Upload</button>
+              </div>
+            </div>
+
+            <label class="field">
+              <span>HAR inputs</span>
+              <input id="api-har-inputs" type="text" list="api-examples" placeholder="examples/session.har" />
+            </label>
+            <datalist id="api-examples"></datalist>
+
+            <div class="grid grid--two">
+              <label class="field">
+                <span>Output directory</span>
+                <input id="api-out-dir" type="text" value="tests/generated" />
+              </label>
+              <label class="field">
+                <span>Base URL override</span>
+                <input id="api-base-url" type="url" placeholder="https://api.example.com" />
+              </label>
+            </div>
+
+            <fieldset class="fieldset">
+              <legend>HTTP methods</legend>
+              <div class="checkbox-grid">
+                <label><input type="checkbox" name="api-method" value="GET" checked /> GET</label>
+                <label><input type="checkbox" name="api-method" value="POST" checked /> POST</label>
+                <label><input type="checkbox" name="api-method" value="PUT" checked /> PUT</label>
+                <label><input type="checkbox" name="api-method" value="PATCH" checked /> PATCH</label>
+                <label><input type="checkbox" name="api-method" value="DELETE" checked /> DELETE</label>
+              </div>
+            </fieldset>
+
+            <fieldset class="fieldset">
+              <legend>Generation modes</legend>
+              <div class="checkbox-grid checkbox-grid--compact">
+                <label><input type="checkbox" name="api-generation-mode" value="smoke" checked /> Smoke</label>
+                <label><input type="checkbox" name="api-generation-mode" value="extended" checked /> Extended</label>
+                <label><input id="api-ai" type="checkbox" /> AI artifacts</label>
+                <label><input id="api-dry-run" type="checkbox" /> Dry run</label>
+              </div>
+            </fieldset>
+
+            <div class="grid grid--two">
+              <label class="field">
+                <span>Include URL filters</span>
+                <textarea id="api-include" rows="3" placeholder="/v1/"></textarea>
+              </label>
+              <label class="field">
+                <span>Exclude URL filters</span>
+                <textarea id="api-exclude" rows="3" placeholder="analytics"></textarea>
+              </label>
+              <label class="field">
+                <span>First-party domains</span>
+                <textarea id="api-first-party" rows="3" placeholder="heartpace.dev"></textarea>
+              </label>
+              <label class="field">
+                <span>Ignored domains</span>
+                <textarea id="api-ignore-domain" rows="3" placeholder="google-analytics.com"></textarea>
+              </label>
+            </div>
+
+            <div class="grid grid--four">
+              <label class="field">
+                <span>Status filters</span>
+                <input id="api-statuses" type="text" placeholder="200,201" />
+              </label>
+              <label class="field">
+                <span>Inference</span>
+                <select id="api-inference-level">
+                  <option value="conservative">Conservative</option>
+                  <option value="balanced" selected>Balanced</option>
+                  <option value="aggressive">Aggressive</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Inferred run</span>
+                <select id="api-inferred-run-mode">
+                  <option value="mixed" selected>Mixed</option>
+                  <option value="all-active">All active</option>
+                  <option value="replay-only">Replay only</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Mutation policy</span>
+                <select id="api-mutation-policy">
+                  <option value="guarded" selected>Guarded</option>
+                  <option value="all-skipped">All skipped</option>
+                  <option value="all-active">All active</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="grid grid--three">
+              <label class="field">
+                <span>Negative status</span>
+                <select id="api-negative-status-policy">
+                  <option value="family" selected>Family</option>
+                  <option value="strict">Strict</option>
+                  <option value="config">Config</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Config file</span>
+                <input id="api-config" type="text" placeholder="config/har-api-tests.config.ts" />
+              </label>
+              <label class="field">
+                <span>Calibration overrides</span>
+                <input id="api-calibration" type="text" placeholder="config/calibration-overrides.json" />
+              </label>
+            </div>
+          </form>
+
+          <aside class="panel panel--output">
+            <div class="panel__header">
+              <h2>API Result</h2>
+              <button id="api-run-all" class="button" type="button">Run All</button>
+            </div>
+            <div id="api-summary" class="summary-grid"></div>
+            <div id="api-files" class="file-list"></div>
+            <pre id="api-log" class="log" aria-live="polite"></pre>
+          </aside>
+        </div>
+      </section>
+
+      <section class="tab-panel" id="tab-spec">
+        <div class="workspace">
+          <form id="spec-form" class="panel">
+            <div class="panel__header">
+              <h2>Web Tests From Spec</h2>
+              <div class="button-row">
+                <button class="button button--primary" type="submit">Create Task</button>
+                <button id="spec-delete" class="button button--danger" type="button">Delete Spec</button>
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="spec-upload">Upload Markdown spec</label>
+              <div class="upload-row">
+                <input id="spec-upload" type="file" accept=".md" />
+                <button id="spec-upload-button" class="button" type="button">Upload</button>
+              </div>
+            </div>
+
+            <details class="editor-block">
+              <summary>Create Markdown spec in UI</summary>
+              <label class="field">
+                <span>Markdown spec</span>
+                <textarea id="spec-editor-content" rows="12"></textarea>
+              </label>
+              <div class="button-row button-row--left">
+                <button id="spec-template-load" class="button" type="button">Load Template</button>
+                <button id="spec-fit" class="button" type="button">Fit to Template</button>
+                <button id="spec-save" class="button button--primary" type="button">Save Spec</button>
+              </div>
+            </details>
+
+            <label class="field">
+              <span>Saved spec</span>
+              <select id="spec-select">
+                <option value="">Choose saved spec</option>
+              </select>
+              <input id="spec-path" type="hidden" />
+            </label>
+            <datalist id="spec-examples"></datalist>
+
+            <label class="field">
+              <span>Save generated test as</span>
+              <input id="spec-target" type="text" placeholder="tests/regression/example.authenticated.spec.ts" />
+            </label>
+
+            <div class="grid grid--two">
+              <label class="field">
+                <span>Generation mode</span>
+                <select id="spec-mode">
+                  <option value="">Take value from spec</option>
+                  <option value="single">Single</option>
+                  <option value="suite">Suite</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="button-row button-row--left">
+              <button id="spec-review" class="button" type="button">Review</button>
+              <button id="spec-gate" class="button" type="button">Gate</button>
+              <button id="spec-drift" class="button" type="button">Drift</button>
+            </div>
+          </form>
+
+          <aside class="panel panel--output">
+            <div class="panel__header">
+              <h2>Spec Result</h2>
+            </div>
+            <div class="result-section result-section--tests">
+              <div class="result-section__header">
+                <div>
+                  <h3>Generated Playwright tests</h3>
+                  <small id="spec-generated-tests-count">0 files</small>
+                </div>
+                <input id="spec-generated-search" class="panel-search" type="search" placeholder="Search tests" />
+              </div>
+              <div id="spec-generated-tests" class="file-list"></div>
+            </div>
+            <div id="spec-saved-list" class="task-list"></div>
+            <div id="spec-task-list" class="task-list"></div>
+            <div id="spec-summary" class="summary-grid"></div>
+            <div id="spec-files" class="file-list"></div>
+            <pre id="spec-log" class="log" aria-live="polite"></pre>
+          </aside>
+        </div>
+      </section>
+
+      <section class="tab-panel" id="tab-recording">
+        <div class="workspace">
+          <form id="recording-form" class="panel">
+            <div class="panel__header">
+              <h2>Web Tests From Recorder</h2>
+              <div class="button-row">
+                <button class="button button--primary" type="submit">Create Task</button>
+                <button id="recording-ai" class="button" type="button">Run AI</button>
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="recording-upload">Upload Recorder JSON</label>
+              <div class="upload-row">
+                <input id="recording-upload" type="file" accept=".json" />
+                <button id="recording-upload-button" class="button" type="button">Upload</button>
+              </div>
+            </div>
+
+            <label class="field">
+              <span>Recording path</span>
+              <input id="recording-path" type="text" list="recording-examples" placeholder="recordings/checkout.json" />
+            </label>
+            <datalist id="recording-examples"></datalist>
+
+            <label class="field">
+              <span>Save generated test as</span>
+              <input id="recording-target" type="text" placeholder="tests/regression/recorded-flow.spec.ts" />
+            </label>
+
+            <div class="button-row button-row--left">
+              <button id="recording-review" class="button" type="button">Review</button>
+              <button id="recording-gate" class="button" type="button">Gate</button>
+              <button id="recording-drift" class="button" type="button">Drift</button>
+            </div>
+          </form>
+
+          <aside class="panel panel--output">
+            <div class="panel__header">
+              <h2>Recording Result</h2>
+            </div>
+            <div id="recording-summary" class="summary-grid"></div>
+            <div id="recording-files" class="file-list"></div>
+            <pre id="recording-log" class="log" aria-live="polite"></pre>
+          </aside>
+        </div>
+      </section>
+
+      <section class="tab-panel" id="tab-management">
+        <div class="management-layout">
+          <form id="tm-case-form" class="panel panel--form-scroll">
+            <div class="panel__header">
+              <h2>Test Case</h2>
+              <button class="button button--primary" type="submit">Save Case</button>
+            </div>
+            <div class="panel-scroll-body">
+              <input id="tm-case-id" type="hidden" />
+              <label class="field">
+                <span>Title</span>
+                <input id="tm-case-title" type="text" placeholder="User can update profile settings" />
+              </label>
+              <div class="grid grid--two">
+                <label class="field">
+                  <span>Area</span>
+                  <input id="tm-case-area" type="text" placeholder="Profile" />
+                </label>
+                <label class="field">
+                  <span>Priority</span>
+                  <select id="tm-case-priority">
+                    <option value="medium" selected>Medium</option>
+                    <option value="low">Low</option>
+                    <option value="high">High</option>
+                    <option value="critical">Critical</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Status</span>
+                  <select id="tm-case-status">
+                    <option value="draft" selected>Draft</option>
+                    <option value="ready">Ready</option>
+                    <option value="deprecated">Deprecated</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Automation</span>
+                  <select id="tm-case-automation">
+                    <option value="candidate" selected>Candidate</option>
+                    <option value="manual">Manual</option>
+                    <option value="automated">Automated</option>
+                  </select>
+                </label>
+              </div>
+              <label class="field">
+                <span>Automated test path</span>
+                <input id="tm-case-test-path" type="text" list="tm-generated-tests" placeholder="packages/web/tests/regression/example.spec.ts" />
+              </label>
+              <datalist id="tm-generated-tests"></datalist>
+              <div class="grid grid--two">
+                <label class="field">
+                  <span>Spec path</span>
+                  <input id="tm-case-spec-path" type="text" list="spec-examples" placeholder="packages/web/specs/example.md" />
+                </label>
+                <label class="field">
+                  <span>Recording path</span>
+                  <input id="tm-case-recording-path" type="text" list="recording-examples" placeholder="packages/web/recordings/example.json" />
+                </label>
+              </div>
+              <label class="field">
+                <span>Tags</span>
+                <input id="tm-case-tags" type="text" placeholder="smoke, profile, regression" />
+              </label>
+              <label class="field">
+                <span>Preconditions</span>
+                <textarea id="tm-case-preconditions" rows="3"></textarea>
+              </label>
+              <label class="field">
+                <span>Steps</span>
+                <textarea id="tm-case-steps" rows="5"></textarea>
+              </label>
+              <label class="field">
+                <span>Expected result</span>
+                <textarea id="tm-case-expected" rows="3"></textarea>
+              </label>
+            </div>
+          </form>
+
+          <form id="tm-suite-form" class="panel panel--form-scroll">
+            <div class="panel__header">
+              <h2>Test Suite</h2>
+              <button class="button button--primary" type="submit">Save Suite</button>
+            </div>
+            <div class="panel-scroll-body">
+              <input id="tm-suite-id" type="hidden" />
+              <label class="field">
+                <span>Name</span>
+                <input id="tm-suite-name" type="text" placeholder="Profile regression" />
+              </label>
+              <label class="field">
+                <span>Description</span>
+                <textarea id="tm-suite-description" rows="3"></textarea>
+              </label>
+              <label class="field">
+                <span>Cases</span>
+                <select id="tm-suite-cases" multiple size="8"></select>
+              </label>
+            </div>
+          </form>
+
+          <form id="tm-run-form" class="panel panel--form-scroll">
+            <div class="panel__header">
+              <h2>Test Run</h2>
+              <button class="button button--primary" type="submit">Create Run</button>
+            </div>
+            <div class="panel-scroll-body">
+              <label class="field">
+                <span>Name</span>
+                <input id="tm-run-name" type="text" placeholder="Release 1.12 regression" />
+              </label>
+              <label class="field">
+                <span>Suite</span>
+                <select id="tm-run-suite"></select>
+              </label>
+              <label class="field">
+                <span>Environment</span>
+                <input id="tm-run-environment" type="text" placeholder="staging" />
+              </label>
+              <label class="field">
+                <span>Cases override</span>
+                <select id="tm-run-cases" multiple size="8"></select>
+              </label>
+            </div>
+          </form>
+        </div>
+
+        <div class="management-board">
+          <section class="panel panel--scroll-list">
+            <div class="panel__header">
+              <h2>Cases</h2>
+              <input id="tm-cases-search" class="panel-search" type="search" placeholder="Search cases" />
+            </div>
+            <div id="tm-cases-list" class="entity-list"></div>
+          </section>
+          <section class="panel panel--scroll-list">
+            <div class="panel__header">
+              <h2>Specs</h2>
+              <input id="tm-specs-search" class="panel-search" type="search" placeholder="Search specs" />
+            </div>
+            <div id="tm-specs-list" class="entity-list"></div>
+          </section>
+          <section class="panel">
+            <div class="panel__header">
+              <h2>Suites</h2>
+            </div>
+            <div id="tm-suites-list" class="entity-list"></div>
+          </section>
+          <section class="panel">
+            <div class="panel__header">
+              <h2>Runs</h2>
+            </div>
+            <div id="tm-runs-list" class="entity-list"></div>
+          </section>
+        </div>
+
+        <section class="panel tm-run-detail">
+          <div class="panel__header">
+            <h2>Run Execution</h2>
+            <span id="tm-selected-run" class="status-pill">No run selected</span>
+          </div>
+          <div id="tm-run-results" class="run-result-list"></div>
+          <pre id="management-log" class="log management-log" aria-live="polite"></pre>
+        </section>
+      </section>
+
+      <section class="tab-panel" id="tab-runs">
+        <div class="panel">
+          <div class="panel__header">
+            <h2>Recent Runs</h2>
+            <button id="refresh-state" class="button" type="button">Refresh</button>
+          </div>
+          <div id="history" class="history-list"></div>
+        </div>
+      </section>
+    </main>
+
+    <dialog id="preview-dialog">
+      <div class="dialog__header">
+        <h2 id="preview-title">File Preview</h2>
+        <button id="preview-close" class="button button--ghost" type="button">Close</button>
+      </div>
+      <pre id="preview-content" class="preview"></pre>
+    </dialog>
+
+    <dialog id="settings-dialog">
+      <form id="settings-form" class="settings-form">
+        <div class="dialog__header">
+          <h2>Settings</h2>
+          <button id="settings-close" class="button button--ghost" type="button">Close</button>
+        </div>
+        <div class="settings-body">
+          <label class="field">
+            <span>AI brain</span>
+            <select id="settings-ai-brain">
+              <option value="auto">Auto</option>
+              <option value="anthropic">Anthropic API</option>
+              <option value="openai">OpenAI API</option>
+              <option value="claude-cli">Claude CLI</option>
+              <option value="codex-cli">Codex CLI</option>
+            </select>
+          </label>
+
+          <div class="grid grid--two">
+            <label class="field">
+              <span>Anthropic API key</span>
+              <input id="settings-anthropic-key" type="password" autocomplete="off" placeholder="sk-ant-..." />
+              <small id="settings-anthropic-status"></small>
+            </label>
+            <label class="field">
+              <span>OpenAI API key</span>
+              <input id="settings-openai-key" type="password" autocomplete="off" placeholder="sk-..." />
+              <small id="settings-openai-status"></small>
+            </label>
+            <label class="field">
+              <span>Anthropic model</span>
+              <input id="settings-anthropic-model" type="text" placeholder="claude-opus-4-8" />
+            </label>
+            <label class="field">
+              <span>OpenAI model</span>
+              <input id="settings-openai-model" type="text" placeholder="gpt-4o-2024-11-20" />
+            </label>
+          </div>
+
+          <label class="field">
+            <span>AI timeout ms</span>
+            <input id="settings-timeout" type="text" placeholder="120000" />
+          </label>
+
+          <fieldset class="fieldset">
+            <legend>Clear saved keys</legend>
+            <div class="checkbox-grid checkbox-grid--compact">
+              <label><input id="settings-clear-anthropic" type="checkbox" /> Anthropic</label>
+              <label><input id="settings-clear-openai" type="checkbox" /> OpenAI</label>
+            </div>
+          </fieldset>
+        </div>
+        <div class="dialog-actions">
+          <button class="button button--primary" type="submit">Save Settings</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- Shared confirmation dialog: EVERY destructive (delete/clear) action must pass through it
+         (app.js confirmDestructive) so nothing is removed on a single click. -->
+    <dialog id="confirm-dialog">
+      <form method="dialog">
+        <div class="dialog__header">
+          <h2 id="confirm-title">Confirm deletion</h2>
+        </div>
+        <p id="confirm-message" class="confirm-message"></p>
+        <div class="dialog-actions">
+          <button class="button button--ghost" value="" autofocus>Cancel</button>
+          <button id="confirm-accept" class="button button--danger" value="accept">Delete</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

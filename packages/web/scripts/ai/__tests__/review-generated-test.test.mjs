@@ -196,6 +196,272 @@ test('reviewer accepts multiple focused tests in explicit suite mode', () => {
   assert.equal(result.passed, true, result.issues.join('\n'));
 });
 
+test('reviewer flags a suite whose data cases mostly carry an empty expected', () => {
+  const workspace = createWorkspace();
+  const specPath = writeSpec(workspace);
+  // 3 of 4 cases have an all-empty `expected` (null/false), so they can only assert generic
+  // visibility — 75% > the 40% threshold, so the weak-coverage gate must fire.
+  const testPath = writeGeneratedTest(
+    workspace,
+    specPath,
+    `
+import { test, expect } from '../../fixtures/test';
+
+const dataCases = [
+  { caseId: 'DC-001', expected: { warning: 'Media limit: 2', count: null, absent: false } },
+  { caseId: 'DC-002', expected: { warning: null, count: null, absent: false } },
+  { caseId: 'DC-003', expected: { warning: null, count: null, absent: false } },
+  { caseId: 'DC-004', expected: { warning: null, count: null, absent: false } }
+];
+
+test.describe.serial('weak suite', () => {
+  for (const dataCase of dataCases) {
+    test(\`\${dataCase.caseId} weak\`, { tag: ['@generated'] }, async ({ page }) => {
+      await test.step('Assert AC-001: outcome', async () => {
+        await expect(page.getByRole('heading')).toBeVisible();
+      });
+    });
+  }
+});
+`
+  );
+
+  const result = reviewSuiteGeneratedTest({ specPath, testPath });
+
+  assert.match(result.issues.join('\n'), /Weak data-case coverage: 3\/4/);
+});
+
+test('reviewer does not flag a suite whose data cases carry real expectations', () => {
+  const workspace = createWorkspace();
+  const specPath = writeSpec(workspace);
+  // Only 1 of 4 cases is empty (25% < 40%), so the weak-coverage gate stays silent.
+  const testPath = writeGeneratedTest(
+    workspace,
+    specPath,
+    `
+import { test, expect } from '../../fixtures/test';
+
+const dataCases = [
+  { caseId: 'DC-001', expected: { warning: null, count: 2, absent: false } },
+  { caseId: 'DC-002', expected: { warning: null, count: 3, absent: false } },
+  { caseId: 'DC-003', expected: { warning: 'Media limit: 2', count: null, absent: false } },
+  { caseId: 'DC-004', expected: { warning: null, count: null, absent: false } }
+];
+
+test.describe.serial('strong suite', () => {
+  for (const dataCase of dataCases) {
+    test(\`\${dataCase.caseId} strong\`, { tag: ['@generated'] }, async ({ page }) => {
+      await test.step('Assert AC-001: outcome', async () => {
+        await expect(page.getByRole('heading')).toBeVisible();
+      });
+    });
+  }
+});
+`
+  );
+
+  const result = reviewSuiteGeneratedTest({ specPath, testPath });
+
+  assert.doesNotMatch(result.issues.join('\n'), /Weak data-case coverage/);
+});
+
+test('reviewer weak-coverage gate cannot be dodged by padding the array with an expected-less row', () => {
+  const workspace = createWorkspace();
+  const specPath = writeSpec(workspace);
+  // 3 empty-expected + 1 real + 1 row with NO `expected` key (the old bypass: one such row used to
+  // make the whole array invisible). Now the expected-less row counts as non-asserting -> 4/5 flagged.
+  const testPath = writeGeneratedTest(
+    workspace,
+    specPath,
+    `
+import { test, expect } from '../../fixtures/test';
+
+const dataCases = [
+  { caseId: 'DC-001', expected: { warning: null, count: null } },
+  { caseId: 'DC-002', expected: { warning: null, count: null } },
+  { caseId: 'DC-003', expected: { warning: null, count: null } },
+  { caseId: 'DC-004', expected: { warning: 'Media limit: 2', count: null } },
+  { caseId: 'DC-005', note: 'no expected here to dodge the gate' }
+];
+
+test.describe.serial('padded suite', () => {
+  for (const dataCase of dataCases) {
+    test(\`\${dataCase.caseId} padded\`, { tag: ['@generated'] }, async ({ page }) => {
+      await test.step('Assert AC-001: outcome', async () => {
+        await expect(page.getByRole('heading')).toBeVisible();
+      });
+    });
+  }
+});
+`
+  );
+
+  const result = reviewSuiteGeneratedTest({ specPath, testPath });
+
+  assert.match(result.issues.join('\n'), /Weak data-case coverage: 4\/5/);
+});
+
+test('reviewer flags critical helpers called via destructuring, a saved reference, or computed access', () => {
+  const workspace = createWorkspace();
+  const specPath = writeSpec(workspace);
+
+  // One fixture per evasion route (each is the ONLY reference in its fixture), so a regression in
+  // any single detection path fails this test on its own — the per-name 1:1 mapping this test used
+  // before was lost when the critical set shrank to setChannelMaxHeroSkus (2026-07-03).
+  const routes = {
+    destructured: `
+  const { setChannelMaxHeroSkus } = dataManager;
+  await test.step('arrange', async () => {
+    await setChannelMaxHeroSkus('offsite', 2);
+    await page.goto('/planning');
+  });`,
+    savedReference: `
+  const savedRef = dataManager.setChannelMaxHeroSkus;
+  await test.step('arrange', async () => {
+    await savedRef('offsite', 2);
+    await page.goto('/planning');
+  });`,
+    computedLiteral: `
+  await test.step('arrange', async () => {
+    await dataManager['setChannelMaxHeroSkus']('offsite', 2);
+    await page.goto('/planning');
+  });`
+  };
+
+  for (const [route, arrange] of Object.entries(routes)) {
+    const testPath = writeGeneratedTest(
+      workspace,
+      specPath,
+      `
+import { test, expect } from '../../fixtures/test';
+
+test('evades via ${route}', async ({ page, dataManager }) => {${arrange}
+  await test.step('Assert AC-001: outcome', async () => {
+    await expect(page.getByRole('heading')).toBeVisible();
+  });
+});
+`
+    );
+
+    const result = reviewGeneratedTest({ specPath, testPath });
+    assert.match(
+      result.issues.join('\n'),
+      /critical precondition helper "setChannelMaxHeroSkus"/,
+      `route not detected: ${route}`
+    );
+  }
+});
+
+test('reviewer weak-coverage gate cannot be hidden by over-padding with expected-less rows', () => {
+  const workspace = createWorkspace();
+  const specPath = writeSpec(workspace);
+  // 6 junk rows without `expected` + 4 empty-expected + 1 real: under the old ">= half must carry
+  // expected" detection rule this array became INVISIBLE (5*2 < 11). Now one expected-bearing row is
+  // enough to evaluate it, and all 10 weak/expected-less rows count as non-asserting.
+  const testPath = writeGeneratedTest(
+    workspace,
+    specPath,
+    `
+import { test, expect } from '../../fixtures/test';
+
+const dataCases = [
+  { caseId: 'DC-001', note: 'junk 1' },
+  { caseId: 'DC-002', note: 'junk 2' },
+  { caseId: 'DC-003', note: 'junk 3' },
+  { caseId: 'DC-004', note: 'junk 4' },
+  { caseId: 'DC-005', note: 'junk 5' },
+  { caseId: 'DC-006', note: 'junk 6' },
+  { caseId: 'DC-007', expected: { warning: null } },
+  { caseId: 'DC-008', expected: { warning: null } },
+  { caseId: 'DC-009', expected: { warning: null } },
+  { caseId: 'DC-010', expected: { warning: null } },
+  { caseId: 'DC-011', expected: { warning: 'Media limit: 2' } }
+];
+
+test.describe.serial('over-padded suite', () => {
+  for (const dataCase of dataCases) {
+    test(\`\${dataCase.caseId} padded\`, { tag: ['@generated'] }, async ({ page }) => {
+      await test.step('Assert AC-001: outcome', async () => {
+        await expect(page.getByRole('heading')).toBeVisible();
+      });
+    });
+  }
+});
+`
+  );
+
+  const result = reviewSuiteGeneratedTest({ specPath, testPath });
+
+  assert.match(result.issues.join('\n'), /Weak data-case coverage: 10\/11/);
+});
+
+test('reviewer flags critical helpers reached via alias chains, holders, and dynamic access', () => {
+  const workspace = createWorkspace();
+  const specPath = writeSpec(workspace);
+
+  // Per-route fixtures for the harder indirections (see the destructuring test above for why each
+  // route stands alone). The dynamic computed key carries no helper name at all, so it is banned
+  // outright rather than name-flagged.
+  const routes = {
+    aliasChain: {
+      arrange: `
+  const direct = dataManager.setChannelMaxHeroSkus;
+  const indirect = direct;
+  await test.step('arrange', async () => {
+    await indirect('offsite', 2);
+    await page.goto('/planning');
+  });`,
+      expectPattern: /critical precondition helper "setChannelMaxHeroSkus"/
+    },
+    arrayHolder: {
+      arrange: `
+  const holders = [dataManager.setChannelMaxHeroSkus];
+  await test.step('arrange', async () => {
+    await holders[0]('offsite', 2);
+    await page.goto('/planning');
+  });`,
+      expectPattern: /critical precondition helper "setChannelMaxHeroSkus"/
+    },
+    objectHolder: {
+      arrange: `
+  const bag = { call: dataManager.setChannelMaxHeroSkus };
+  await test.step('arrange', async () => {
+    await bag.call('offsite', 2);
+    await page.goto('/planning');
+  });`,
+      expectPattern: /critical precondition helper "setChannelMaxHeroSkus"/
+    },
+    dynamicComputedKey: {
+      arrange: `
+  const helperName = 'setChannel' + 'MaxHeroSkus';
+  await test.step('arrange', async () => {
+    await dataManager[helperName]('offsite', 2);
+    await page.goto('/planning');
+  });`,
+      expectPattern: /computed, non-literal key/
+    }
+  };
+
+  for (const [route, { arrange, expectPattern }] of Object.entries(routes)) {
+    const testPath = writeGeneratedTest(
+      workspace,
+      specPath,
+      `
+import { test, expect } from '../../fixtures/test';
+
+test('evades harder via ${route}', async ({ page, dataManager }) => {${arrange}
+  await test.step('Assert AC-001: outcome', async () => {
+    await expect(page.getByRole('heading')).toBeVisible();
+  });
+});
+`
+    );
+
+    const result = reviewGeneratedTest({ specPath, testPath });
+    assert.match(result.issues.join('\n'), expectPattern, `route not detected: ${route}`);
+  }
+});
+
 test('reviewer rejects combined-AC step titles', () => {
   const workspace = createWorkspace();
   const specPath = writeSpec(workspace);
@@ -336,6 +602,35 @@ test.only('flow', async ({ page }) => {
   assert.match(result.issues.join('\n'), /Promise\.race/);
   assert.match(result.issues.join('\n'), /setTimeout/);
   assert.match(result.issues.join('\n'), /test\.only/);
+});
+
+test('reviewer rejects generated tests that reference critical precondition helpers', () => {
+  const workspace = createWorkspace();
+  const specPath = writeSpec(workspace);
+  const testPath = writeGeneratedTest(workspace, specPath, validBodyWithExtras(`
+    await dataManager.setChannelMaxHeroSkus('offsite', 2);
+  `));
+
+  const result = reviewSuiteGeneratedTest({ specPath, testPath });
+
+  assert.equal(result.passed, false);
+  assert.match(result.issues.join('\n'), /critical precondition helper "setChannelMaxHeroSkus"/);
+});
+
+test('reviewer does not flag live-proven seeding helpers (delisted 2026-07-03)', () => {
+  const workspace = createWorkspace();
+  const specPath = writeSpec(workspace);
+  // setPlanHeroSkus / setPlanMeasurementSkus were removed from CRITICAL_PRECONDITION_HELPERS after
+  // being live-proven (real catalogue ids + live session + green executions). Referencing them must
+  // NOT fail review — re-adding them to the set without cause would silently re-red every E2E suite.
+  const testPath = writeGeneratedTest(workspace, specPath, validBodyWithExtras(`
+    await dataManager.setPlanHeroSkus('current', 'offsite', ['7096764']);
+    await dataManager.setPlanMeasurementSkus('current', 'offsite', ['7304367']);
+  `));
+
+  const result = reviewSuiteGeneratedTest({ specPath, testPath });
+
+  assert.doesNotMatch(result.issues.join('\n'), /critical precondition helper "setPlan/);
 });
 
 test('reviewer rejects test.skip defining-form even inside test.describe', () => {
@@ -1573,6 +1868,88 @@ test('gate-all still skips pending-generation specs whose target test does not e
 
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
   assert.match(result.stdout, /Specs awaiting live generation \(not gated\)/);
+});
+
+// gate-all resolves ai:spec:validate / ai:test:review through npm in its cwd, so expected-red
+// workspaces need a fixture package.json pointing those scripts back at the real repo scripts.
+function writeGateAllFixturePackageJson(workspace) {
+  const validate = path.join(process.cwd(), 'scripts', 'ai', 'validate-flow-spec.mjs');
+  const review = path.join(process.cwd(), 'scripts', 'ai', 'review-generated-test.mjs');
+  fs.writeFileSync(
+    path.join(workspace, 'package.json'),
+    JSON.stringify(
+      {
+        name: 'gate-all-fixture',
+        private: true,
+        scripts: {
+          'ai:spec:validate': `node ${validate}`,
+          'ai:test:review': `node ${review}`
+        }
+      },
+      null,
+      2
+    )
+  );
+}
+
+test('gate-all treats a listed expected-red spec whose review fails as confirmed, not a failure', () => {
+  const workspace = createGateAllWorkspace();
+  writeGateAllFixturePackageJson(workspace);
+  writeSpec(path.join(workspace, 'specs'), {});
+  // A test that FAILS review (no spec header at all) — the honest-red state.
+  fs.writeFileSync(
+    path.join(workspace, 'tests', 'regression', 'generated.spec.ts'),
+    "import { test } from '../../fixtures/test';\ntest('stub', async () => {});\n"
+  );
+  fs.writeFileSync(path.join(workspace, 'specs', '.expected-review-red'), 'specs/flow.md\n');
+
+  const result = spawnSync(
+    process.execPath,
+    [path.join(process.cwd(), 'scripts', 'ai', 'gate-all.mjs'), '--dir', 'specs'],
+    { cwd: workspace, encoding: 'utf8' }
+  );
+
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  assert.match(result.stdout, /Expected-red review confirmed/);
+  assert.match(result.stdout, /Intentional honest-reds confirmed red/);
+});
+
+test('gate-all fails when an expected-red spec unexpectedly passes review (inverted assertion)', () => {
+  const workspace = createGateAllWorkspace();
+  writeGateAllFixturePackageJson(workspace);
+  const specPath = writeSpec(path.join(workspace, 'specs'), {});
+  // A test that PASSES review: valid single-mode body + correct behavioral hash header.
+  fs.writeFileSync(
+    path.join(workspace, 'tests', 'regression', 'generated.spec.ts'),
+    `/* spec: specs/flow.md version:1.0.0 sha256:${specSha256(specPath)} */\n${singleBodyWithExtras('')}`
+  );
+  fs.writeFileSync(path.join(workspace, 'specs', '.expected-review-red'), 'specs/flow.md\n');
+
+  const result = spawnSync(
+    process.execPath,
+    [path.join(process.cwd(), 'scripts', 'ai', 'gate-all.mjs'), '--dir', 'specs'],
+    { cwd: workspace, encoding: 'utf8' }
+  );
+
+  assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`);
+  assert.match(result.stderr, /unexpectedly PASSED review/);
+});
+
+test('gate-all flags stale expected-red entries that no longer match a spec', () => {
+  const workspace = createGateAllWorkspace();
+  writeSpec(path.join(workspace, 'specs'), {
+    metadataExtra: ['| Generation Status | pending-generation |']
+  });
+  fs.writeFileSync(path.join(workspace, 'specs', '.expected-review-red'), 'specs/ghost.md\n');
+
+  const result = spawnSync(
+    process.execPath,
+    [path.join(process.cwd(), 'scripts', 'ai', 'gate-all.mjs'), '--dir', 'specs'],
+    { cwd: workspace, encoding: 'utf8' }
+  );
+
+  assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`);
+  assert.match(result.stderr, /no such spec exists\. Remove the stale entry/);
 });
 
 test('directory validation flags duplicate Acceptance Criteria bullets pre-dedup', () => {

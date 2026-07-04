@@ -1,4 +1,5 @@
 import type { NormalizedHarEntry } from '../types/har.js';
+import { compareStrings } from '../utils/compare.js';
 
 export interface EndpointAnalysis {
   groupName: string;
@@ -35,7 +36,7 @@ export function analyzeEntriesForCodex(entries: NormalizedHarEntry[]): EndpointA
         dynamicFieldCandidates: [...new Set(samples.flatMap((sample) => sample.dynamicSegments))].sort()
       };
     })
-    .sort((left, right) => `${left.groupName} ${left.method} ${left.pathPattern}`.localeCompare(`${right.groupName} ${right.method} ${right.pathPattern}`));
+    .sort((left, right) => compareStrings(`${left.groupName} ${left.method} ${left.pathPattern}`, `${right.groupName} ${right.method} ${right.pathPattern}`));
 }
 
 function buildCandidateAssertions(samples: NormalizedHarEntry[]): string[] {

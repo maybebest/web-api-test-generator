@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { compareStrings } from './compare.js';
 
 const dynamicSegmentPatterns = [
   /^[0-9]+$/,
@@ -85,7 +86,7 @@ export function firstStablePathSegment(pathPattern: string): string {
 
 export function buildPathWithQuery(pathname: string, query: Record<string, string>): string {
   const queryString = Object.entries(query)
-    .sort(([left], [right]) => left.localeCompare(right))
+    .sort(([left], [right]) => compareStrings(left, right))
     .map(([key, value]) => `${encodeURIComponent(key)}=${encodeQueryValue(value)}`)
     .join('&');
 
@@ -142,9 +143,12 @@ function inferPathPlaceholder(segments: string[], index: number, placeholderInde
 }
 
 function encodeQueryValue(value: string): string {
-  if (/^\$\{[A-Z0-9_]+\}$/.test(value)) {
-    return value;
-  }
-
-  return encodeURIComponent(value);
+  // Placeholders (${NAME}) must survive encoding wherever they sit in the value — masking's
+  // sweepEmbeddedSecrets can embed one MID-string ("mail to ${TEST_EMAIL} asap"), and a
+  // percent-encoded %24%7BTEST_EMAIL%7D would neither resolve at runtime nor be seen by
+  // collectPlaceholders. Split on placeholder boundaries and encode only the literal parts.
+  return value
+    .split(/(\$\{[A-Z0-9_]+\})/)
+    .map((part) => (/^\$\{[A-Z0-9_]+\}$/.test(part) ? part : encodeURIComponent(part)))
+    .join('');
 }

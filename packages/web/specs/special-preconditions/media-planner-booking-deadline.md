@@ -15,7 +15,7 @@
 | Tags | @generated @regression @media-planner @authenticated @special-preconditions |
 | Review Status | pending-review |
 | Generation Source | manual-test-case |
-| Generation Status | pending-generation |
+| Generation Status | generated |
 | Generation Mode | suite |
 
 ## User Story

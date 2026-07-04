@@ -6,6 +6,9 @@ import { fileURLToPath } from 'node:url';
 
 import { extractCodeBlock, resolveEnv, runBrain, selectBrain } from './lib/ai-client.mjs';
 
+const webRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const repoRoot = path.resolve(webRoot, '..', '..');
+
 export function parseArgs(args) {
   const parsed = {
     task: undefined,
@@ -41,6 +44,39 @@ export function parseArgs(args) {
   }
 
   return parsed;
+}
+
+export function resolveOutputPath(out, packageRoot = webRoot) {
+  if (!out || !String(out).trim()) {
+    throw new Error('Missing --out target.');
+  }
+
+  const raw = String(out).trim();
+  const packageCandidate = path.resolve(packageRoot, raw);
+  const repoCandidate = path.resolve(repoRoot, raw);
+  let resolved = path.isAbsolute(raw) ? path.resolve(raw) : packageCandidate;
+
+  if (!path.isAbsolute(raw) && pathInside(repoCandidate, packageRoot)) {
+    resolved = repoCandidate;
+  }
+
+  const testsRoot = path.join(packageRoot, 'tests');
+  if (!pathInside(resolved, packageRoot)) {
+    throw new Error(`Refusing to write generated test outside packages/web: ${raw}`);
+  }
+  if (!pathInside(resolved, testsRoot)) {
+    throw new Error(`Generated test output must stay under packages/web/tests: ${raw}`);
+  }
+  if (!resolved.endsWith('.spec.ts')) {
+    throw new Error(`Generated test output must end with .spec.ts: ${raw}`);
+  }
+
+  return resolved;
+}
+
+function pathInside(candidate, root) {
+  const relative = path.relative(root, candidate);
+  return relative === '' || (!!relative && !relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
 // Records the generation outcome (brain, model, token usage) into the run manifest
@@ -144,7 +180,13 @@ async function runCli() {
     process.exit(1);
   }
 
-  const outPath = path.resolve(args.out);
+  let outPath;
+  try {
+    outPath = resolveOutputPath(args.out);
+  } catch (error) {
+    console.error(error.message);
+    process.exit(1);
+  }
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
   fs.writeFileSync(outPath, code.endsWith('\n') ? code : `${code}\n`);
 

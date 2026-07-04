@@ -8,6 +8,13 @@ describe('CLI argument parsing', () => {
     expect(() => parseCliArgs(['--out', './tests/generated'])).toThrow(/Missing required --har/);
   });
 
+  it('rejects malformed --status values instead of silently truncating them', () => {
+    // parseInt used to accept "20x" -> 20; normalizeStatus requires a real 3-digit HTTP status.
+    expect(() => parseCliArgs(['--har', './examples', '--status', '20x'])).toThrow(/Unsupported status filter/);
+    expect(() => parseCliArgs(['--har', './examples', '--status', '99'])).toThrow(/Unsupported status filter/);
+    expect(parseCliArgs(['--har', './examples', '--status', '200,404']).statuses).toEqual([200, 404]);
+  });
+
   it('parses spaced, inline, and comma-separated values', () => {
     const options = parseCliArgs([
       '--har=./examples',
@@ -42,6 +49,19 @@ describe('CLI argument parsing', () => {
     expect(parseCliArgs(['--har', 'a.har', '--generation-mode', 'smoke']).generationModes).toEqual(['smoke']);
   });
 
+  it('exposes --preserve-duplicate-query-params as a tri-state override', () => {
+    // Absent: undefined so the config / built-in default is left untouched.
+    expect(parseCliArgs(['--har', './examples']).preserveDuplicateQueryParams).toBeUndefined();
+    // Bare flag: true.
+    expect(
+      parseCliArgs(['--har', './examples', '--preserve-duplicate-query-params']).preserveDuplicateQueryParams
+    ).toBe(true);
+    // Explicit =false: false (lets a CLI run turn the feature OFF over a config that enabled it).
+    expect(
+      parseCliArgs(['--har', './examples', '--preserve-duplicate-query-params=false']).preserveDuplicateQueryParams
+    ).toBe(false);
+  });
+
   it('parses --calibration into a resolved overrides path', () => {
     const options = parseCliArgs(['--har', 'a.har', '--calibration', './out/calibration-overrides.json']);
     expect(options.calibrationOverridesPath).toBe(path.resolve('./out/calibration-overrides.json'));
@@ -55,6 +75,12 @@ describe('CLI argument parsing', () => {
     expect(() => parseCliArgs(['--har', 'a.har', '--generation-mode', 'bogus'])).toThrow(/Unsupported generation mode/);
     expect(() => parseCliArgs(['--har', 'a.har', '--method', 'TRACE'])).toThrow(/Unsupported method/);
     expect(() => parseCliArgs(['--har', 'a.har', '--inference-level', 'wild'])).toThrow(/Unsupported inference level/);
+  });
+
+  it('rejects unknown positional arguments instead of silently ignoring them', () => {
+    expect(() => parseCliArgs(['./examples/session.har', '--har', 'a.har'])).toThrow(
+      /Unexpected positional argument: \.\/examples\/session\.har/
+    );
   });
 });
 

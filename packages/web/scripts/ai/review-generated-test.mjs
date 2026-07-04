@@ -40,6 +40,18 @@ import {
 import { validateSpecFile } from './validate-flow-spec.mjs';
 
 const SEMANTIC_LOCATOR_NAMES = new Set(['getByRole', 'getByLabel', 'getByPlaceholder', 'getByText', 'getByTestId']);
+// Precondition helpers whose arrangement is NOT yet achievable against the live environment, so a
+// generated test referencing them can never execute for real. History: setPlanHeroSkus and
+// setPlanMeasurementSkus were removed from this set on 2026-07-03 after being implemented against
+// captured GraphQL contracts AND live-proven (every emitted E2E data case passes against dev — real
+// catalogue skuIds, live planningAI session via ensurePlanningSession, healed locators, no-op
+// SET_SKUS guard). setChannelMaxHeroSkus stays: its arrange needs channel-media resolution that this
+// dev catalogue cannot satisfy (no 'Offsite Display' media; E2E_MP_*_CHANNEL unset) plus an
+// admin_editMedia write to shared config — verified failing live. The check is reference-based
+// (below) so no alias/indirection dodges it; delist a helper only with live green proof.
+const CRITICAL_PRECONDITION_HELPERS = new Set([
+  'setChannelMaxHeroSkus'
+]);
 // Deprecated string-selector action/query APIs on the Page receiver. The
 // page.* form of these methods always takes a raw selector string, bypassing
 // the locator policy entirely (page.click('xpath=//button') sails past the
@@ -130,12 +142,14 @@ export function reviewGeneratedTest({ specPath, testPath, mode = undefined }) {
   if (generationMode === 'suite') {
     checkPerAcceptanceCriteria(parsedSpec, stepCalls, sourceFile, locatorIdentifiers, constLiteralIdentifiers, issues);
     checkPerNegativeCase(parsedSpec.negativeCases, stepCalls, sourceFile, issues);
+    checkDataCaseAssertionStrength(sourceFile, issues);
   }
   checkSpecTagDeclarations(parsedSpec, sourceFile, constStringIdentifiers, issues);
   checkDataCaseCoverage(parsedSpec.dataCasesJson.value, countableStringLiterals, issues);
   checkSingleResponsibilityAssertions(testCases, sourceFile, issues);
   checkExpectCalls(expectCalls, sourceFile, locatorIdentifiers, constLiteralIdentifiers, issues);
   checkForbiddenRuntimePatterns(sourceFile, issues);
+  checkUnimplementedTestDataHelpers(sourceFile, issues);
   checkForbiddenAgentBrowserRefs(content, issues);
   checkPomLocatorOwnership(sourceFile, content, issues);
   checkStringSelectorActionApis(sourceFile, issues);
@@ -956,6 +970,79 @@ function checkForbiddenRuntimePatterns(sourceFile, issues) {
   });
 }
 
+// Local identifiers that alias a critical precondition helper, so a call routed through
+// destructuring or a saved reference cannot dodge the property-access check below. Maps the local
+// name -> the ORIGINAL helper name so the reported message names the real blocked helper.
+// REFERENCE-based detection (not call-based): flag ANY mention of a critical precondition helper —
+// property access (called or not), computed string access, or destructuring key. A call cannot exist
+// without at least one such reference, so alias chains (`const f = dm.setX; const g = f; g()`),
+// array/object holders (`[dm.setX][0]()`), and callback indirection all reduce to a flagged
+// reference at the point where the helper name appears. This deliberately replaces an earlier
+// alias-tracking map (a strictly weaker re-implementation of lib/ts-ast.mjs's
+// collectTestAliasIdentifiers) — referencing an unimplemented helper in a generated test is itself
+// the defect, whether or not the reviewer can prove the call.
+function checkUnimplementedTestDataHelpers(sourceFile, issues) {
+  const referencedHelpers = new Set();
+  let dynamicAccess = false;
+
+  walk(sourceFile, (node) => {
+    // dataManager.setX / anyReceiver.setX (called or stored)
+    if (ts.isPropertyAccessExpression(node) && CRITICAL_PRECONDITION_HELPERS.has(node.name.text)) {
+      referencedHelpers.add(node.name.text);
+      return;
+    }
+    if (ts.isElementAccessExpression(node)) {
+      const argument = node.argumentExpression;
+      // receiver['setX']
+      if (argument && isStringLiteralLike(argument) && CRITICAL_PRECONDITION_HELPERS.has(argument.text)) {
+        referencedHelpers.add(argument.text);
+        return;
+      }
+      // dataManager[<computed>] with a non-literal key: statically unresolvable — the one indirection
+      // the reference scan cannot see through, so it is rejected outright.
+      if (
+        argument &&
+        !isStringLiteralLike(argument) &&
+        ts.isIdentifier(node.expression) &&
+        node.expression.text === 'dataManager'
+      ) {
+        dynamicAccess = true;
+      }
+      return;
+    }
+    // const { setX } = dataManager  /  const { setX: alias } = ...
+    if (ts.isObjectBindingPattern(node)) {
+      for (const element of node.elements) {
+        const sourceKey =
+          element.propertyName && ts.isIdentifier(element.propertyName)
+            ? element.propertyName.text
+            : ts.isIdentifier(element.name)
+              ? element.name.text
+              : undefined;
+        if (CRITICAL_PRECONDITION_HELPERS.has(sourceKey)) {
+          referencedHelpers.add(sourceKey);
+        }
+      }
+    }
+  });
+
+  for (const helperName of [...referencedHelpers].sort()) {
+    issues.push(
+      `Generated test references critical precondition helper "${helperName}", whose precondition ` +
+        'cannot be arranged against the live environment (channel-media resolution + a shared ' +
+        'admin_editMedia write — verified failing live). A test that can never arrange its own ' +
+        'precondition is not an executable E2E test: move the case to the spec\'s Pending Automation ' +
+        'section instead of emitting it, or make the arrange achievable and prove it live.'
+    );
+  }
+  if (dynamicAccess) {
+    issues.push(
+      'Generated test accesses dataManager with a computed, non-literal key (dataManager[expr]). ' +
+        'Dynamic member access defeats static review of critical precondition helpers — use a literal member access instead.'
+    );
+  }
+}
+
 function isTestUseStorageStateLiteral(callExpression) {
   if (!ts.isPropertyAccessExpression(callExpression.expression)) {
     return false;
@@ -1254,6 +1341,117 @@ function checkDataCaseCoverage(dataCases, stringLiterals, issues) {
     if (caseId && !stringLiterals.some((literal) => literal.includes(caseId))) {
       issues.push(`Data case ${caseId} must appear in a test title, step title, or parameterized row string literal.`);
     }
+  }
+}
+
+// A data-driven suite that loops over an embedded array of cases is only as strong as the
+// expectations those cases carry. A case whose `expected` object is entirely empty (every field
+// null / false / "" / []) has nothing case-specific to assert: at runtime it can only fall through
+// to a generic visibility check ("the page rendered"), which is the "scaffolding presented as
+// coverage" anti-pattern. Fail the review when more than this fraction of the suite's data cases
+// are non-asserting. Tunable — lower is stricter.
+const MAX_NONASSERTING_DATACASE_RATIO = 0.4;
+
+function propAssignmentName(property) {
+  const name = property.name;
+  if (!name) {
+    return undefined;
+  }
+  if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)) {
+    return name.text;
+  }
+  return undefined;
+}
+
+// An expected value is "empty" (carries no checkable expectation) when it is null, false, the empty
+// string, or the empty array. Anything else — a number, true, a non-empty string/array — is a real,
+// assertable expectation.
+function isEmptyExpectedValue(node) {
+  if (node.kind === ts.SyntaxKind.NullKeyword || node.kind === ts.SyntaxKind.FalseKeyword) {
+    return true;
+  }
+  if (ts.isStringLiteral(node) && node.text === '') {
+    return true;
+  }
+  if (ts.isArrayLiteralExpression(node) && node.elements.length === 0) {
+    return true;
+  }
+  return false;
+}
+
+function expectedObjectLiteralOf(objectLiteral) {
+  for (const property of objectLiteral.properties) {
+    if (
+      ts.isPropertyAssignment(property) &&
+      propAssignmentName(property) === 'expected' &&
+      ts.isObjectLiteralExpression(property.initializer)
+    ) {
+      return property.initializer;
+    }
+  }
+  return undefined;
+}
+
+function expectedIsAsserting(expectedLiteral) {
+  for (const property of expectedLiteral.properties) {
+    if (ts.isPropertyAssignment(property) && !isEmptyExpectedValue(property.initializer)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Recognize a data-case parameterization array: an array literal with >=2 object-literal elements
+// where AT LEAST ONE carries an `expected` object property. Detection is deliberately decoupled
+// from expected-density: an earlier ">= half must carry expected" rule meant an attacker could hide
+// the array from this gate by padding it with expected-LESS junk rows (6 junk + 5 weak rows -> the
+// array vanished). Now a single expected-bearing element makes the array a candidate, and every
+// element without `expected` counts as non-asserting below — padding only makes coverage look
+// weaker, never invisible. Arrays with zero `expected` keys (config/tag lists) are still ignored.
+function collectExpectedBearingArrays(sourceFile) {
+  const arrays = [];
+  walk(sourceFile, (node) => {
+    if (!ts.isVariableDeclaration(node) || !node.initializer || !ts.isArrayLiteralExpression(node.initializer)) {
+      return;
+    }
+    const objects = node.initializer.elements.filter((element) => ts.isObjectLiteralExpression(element));
+    if (objects.length < 2) {
+      return;
+    }
+    const withExpected = objects.filter((object) => expectedObjectLiteralOf(object));
+    if (withExpected.length === 0) {
+      return;
+    }
+    arrays.push({ name: node.name.getText(), objects });
+  });
+  return arrays;
+}
+
+function checkDataCaseAssertionStrength(sourceFile, issues) {
+  const candidates = collectExpectedBearingArrays(sourceFile);
+  if (candidates.length === 0) {
+    return;
+  }
+  // The suite's parameterization source is the largest such array.
+  const target = candidates.sort((a, b) => b.objects.length - a.objects.length)[0];
+  const total = target.objects.length;
+  if (total <= 1) {
+    return;
+  }
+  // An element is non-asserting if it has no `expected` object at all, or its `expected` is all-empty.
+  const nonAsserting = target.objects.filter((object) => {
+    const expected = expectedObjectLiteralOf(object);
+    return !expected || !expectedIsAsserting(expected);
+  }).length;
+  const ratio = nonAsserting / total;
+  if (ratio > MAX_NONASSERTING_DATACASE_RATIO) {
+    issues.push(
+      `Weak data-case coverage: ${nonAsserting}/${total} (${Math.round(ratio * 100)}%) of \`${target.name}\` ` +
+        `entries have an empty \`expected\` (every field null/false/empty), so they can only assert generic ` +
+        `visibility — not the case's behaviour. Threshold is ${Math.round(MAX_NONASSERTING_DATACASE_RATIO * 100)}%. ` +
+        `Give these cases a checkable expected value (count, exact text, or a dedicated structural/negative ` +
+        `assertion), or drop them from the suite so coverage is not overstated.`
+    );
   }
 }
 

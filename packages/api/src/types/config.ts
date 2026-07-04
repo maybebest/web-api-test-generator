@@ -78,6 +78,10 @@ export interface CliGenerateOptions {
   mutationPolicy: MutationPolicy;
   ai: boolean;
   dryRun: boolean;
+  // Tri-state CLI override for generation.preserveDuplicateQueryParams: true/false when the flag is
+  // given (--preserve-duplicate-query-params[=true|false]), undefined when absent so the config /
+  // built-in default still wins.
+  preserveDuplicateQueryParams?: boolean;
   configPath?: string;
   calibrationOverridesPath?: string;
 }

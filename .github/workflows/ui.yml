@@ -1,0 +1,53 @@
+name: UI
+
+on:
+  workflow_dispatch: {}
+  pull_request:
+    paths:
+      - 'packages/ui/**'
+      # packages/ui/src/server.mjs deep-imports packages/web/scripts/ai/lib/spec-parser.mjs, so a
+      # web-side change to that lib must re-run the ui suite (otherwise a breaking rename merges green).
+      - 'packages/web/scripts/ai/lib/**'
+      - '.github/workflows/ui.yml'
+      - 'package.json'
+      - 'package-lock.json'
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'packages/ui/**'
+      # packages/ui/src/server.mjs deep-imports packages/web/scripts/ai/lib/spec-parser.mjs, so a
+      # web-side change to that lib must re-run the ui suite (otherwise a breaking rename merges green).
+      - 'packages/web/scripts/ai/lib/**'
+      - '.github/workflows/ui.yml'
+      - 'package.json'
+      - 'package-lock.json'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Typecheck and test UI shell
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run ui:typecheck
+
+      - name: Test
+        run: npm run ui:test

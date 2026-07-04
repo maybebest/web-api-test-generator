@@ -55,6 +55,18 @@ test('a file hidden in a deep sibling of empty dirs is not masked by them', () =
   assert.match(issues[0], /playwright-report\/ contains runtime artifacts/);
 });
 
+test('the performance/ output dir is flagged as a runtime artifact when it has content', () => {
+  const workspace = createWorkspace();
+  // The perf reporter writes performance/summary.json during a run; it must never be committed.
+  fs.mkdirSync(path.join(workspace, 'performance'), { recursive: true });
+  fs.writeFileSync(path.join(workspace, 'performance', 'summary.json'), '{"count":0}');
+
+  const issues = collectCleanTreeIssues(workspace);
+
+  assert.equal(issues.length, 1);
+  assert.match(issues[0], /performance\/ contains runtime artifacts/);
+});
+
 test('trace/video/HAR artifacts outside forbidden dirs are still reported', () => {
   const workspace = createWorkspace();
   fs.mkdirSync(path.join(workspace, 'recordings'), { recursive: true });

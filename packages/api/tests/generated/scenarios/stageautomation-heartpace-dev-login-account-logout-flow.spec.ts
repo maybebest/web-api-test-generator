@@ -35,20 +35,6 @@ test.describe('scenarios', () => {
       const { response: step2Response, elapsedMs: step2ElapsedMs } = await sendApiRequest({
         request: sessionContext,
         defaultBaseUrl: 'https://stageautomation.heartpace.dev',
-        path: '/me/account/settings/${USER_ID}',
-        method: 'GET',
-        isolatedSession: true,
-        headers: {
-          "accept": "application/json, text/plain, */*"
-        }
-      });
-      assertStatusCode(step2Response.status(), {"kind":"exact","status":200}, 'GET /me/account/settings/{param} returns 200');
-      expect(step2Response.headers()['content-type'] ?? '').toContain('application/json');
-      assertResponseTime(step2ElapsedMs, 2000);
-
-      const { response: step3Response, elapsedMs: step3ElapsedMs } = await sendApiRequest({
-        request: sessionContext,
-        defaultBaseUrl: 'https://stageautomation.heartpace.dev',
         path: '/me/account/token',
         method: 'GET',
         isolatedSession: true,
@@ -56,11 +42,11 @@ test.describe('scenarios', () => {
           "accept": "application/json, text/plain, */*"
         }
       });
-      assertStatusCode(step3Response.status(), {"kind":"exact","status":200}, 'GET /me/account/token returns 200');
-      expect(step3Response.headers()['content-type'] ?? '').toContain('application/json');
-      assertResponseTime(step3ElapsedMs, 2000);
+      assertStatusCode(step2Response.status(), {"kind":"exact","status":200}, 'GET /me/account/token returns 200');
+      expect(step2Response.headers()['content-type'] ?? '').toContain('application/json');
+      assertResponseTime(step2ElapsedMs, 2000);
 
-      const { response: step4Response, elapsedMs: step4ElapsedMs } = await sendApiRequest({
+      const { response: step3Response, elapsedMs: step3ElapsedMs } = await sendApiRequest({
         request: sessionContext,
         defaultBaseUrl: 'https://stageautomation.heartpace.dev',
         path: '/me/account',
@@ -71,7 +57,24 @@ test.describe('scenarios', () => {
           "x-site-uuid": "${X_SITE_UUID}"
         }
       });
-      assertStatusCode(step4Response.status(), {"kind":"exact","status":200}, 'GET /me/account returns 200');
+      assertStatusCode(step3Response.status(), {"kind":"exact","status":200}, 'GET /me/account returns 200');
+      expect(step3Response.headers()['content-type'] ?? '').toContain('application/json');
+      assertResponseTime(step3ElapsedMs, 2000);
+
+      const { response: step4Response, elapsedMs: step4ElapsedMs } = await sendApiRequest({
+        request: sessionContext,
+        defaultBaseUrl: 'https://stageautomation.heartpace.dev',
+        path: '/me/account/oauth',
+        method: 'GET',
+        isolatedSession: true,
+        headers: {
+          "accept": "application/json, text/plain, */*",
+          "x-csrf-token": "${CSRF_TOKEN}",
+          "x-requested-with": "XMLHttpRequest",
+          "x-site-uuid": "${X_SITE_UUID}"
+        }
+      });
+      assertStatusCode(step4Response.status(), {"kind":"exact","status":200}, 'GET /me/account/oauth returns 200');
       expect(step4Response.headers()['content-type'] ?? '').toContain('application/json');
       assertResponseTime(step4ElapsedMs, 2000);
 

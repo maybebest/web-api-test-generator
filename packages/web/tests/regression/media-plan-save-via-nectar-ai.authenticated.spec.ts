@@ -1,9 +1,16 @@
 // Spec-bound header: sha256 is the behavioral hash of the spec (computed via
 // scripts/ai/lib/spec-parser.mjs specSha256). Re-stamp with `npm run ai:spec:drift`
 // if the spec's behavioral sections change.
-/* spec: specs/media-plan-save-via-nectar-ai.md version:1.0.0 sha256:220c5e61c9d2de604b7313f7b299fa8c318d2aff462024602727a6ddd00bcb4c */
+/* spec: specs/media-plan-save-via-nectar-ai.md version:1.0.0 sha256:ee02a50128cce44253f84ef260c2b4031d8e1d691755bc46642221771bbf77f8 */
 import { test, expect } from '../../fixtures/test';
 import { PlanningPage } from '../../pages/PlanningPage';
+
+// The campaign window is computed at runtime (start ~45 days out, 30-day duration) so the request
+// can never rot into past dates — the assistant rejects past-dated channels outright
+// ("The dates provided ... are in the past", observed live 2026-07-03).
+const formatDdMmYyyy = (date: Date): string =>
+  `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()}`;
+const addDays = (days: number): Date => new Date(Date.now() + days * 24 * 60 * 60 * 1000);
 
 // DC-001 from specs/media-plan-save-via-nectar-ai.md — the single deterministic
 // happy-path journey for building and saving a media plan via Nectar AI.
@@ -13,7 +20,10 @@ const dataCase = {
   brand: 'Unilever | Knorr | MS',
   objective: 'Customer retention',
   productSearch: 'knorr',
-  channelRequest: 'Offsite, DD Pubmatic - Display, 20/04/2026 till 20/05/2026, the budget is 7k'
+  channelRequest: `Offsite, Meta, ${formatDdMmYyyy(addDays(45))} till ${formatDdMmYyyy(addDays(75))}, the budget is 7k, Self-Serve`,
+  // Passing the resolved name pins the (non-deterministic) fuzzy disambiguation click AND switches
+  // the landing signal to this channel's own summary row instead of loose chat text.
+  resolvedChannelName: 'Meta'
 } as const;
 
 // Spec Stability Requirements declare Parallel Safe = no, so the journey runs as
@@ -53,7 +63,7 @@ test.describe.serial('Build and save a media plan via Nectar AI', () => {
       });
 
       await test.step('AC-005: add the offsite channel via chat', async () => {
-        await planningPage.enterChannelRequest(dataCase.channelRequest);
+        await planningPage.enterChannelRequest(dataCase.channelRequest, dataCase.resolvedChannelName);
       });
 
       await test.step('AC-006, AC-007: confirm and save the plan', async () => {
@@ -62,14 +72,21 @@ test.describe.serial('Build and save a media plan via Nectar AI', () => {
       });
 
       await test.step('AC-008: download the saved plan (a download must fire)', async () => {
+        // downloadCsv resolves only when the browser download EVENT fires; the reviewer's
+        // locator-only expect policy keeps the filename itself out of expect().
         await planningPage.downloadCsv();
       });
 
       await test.step('Assert AC-006: the plan is saved with the correct name and post-save actions enabled', async () => {
-        await expect(planningPage.savedConfirmation()).toContainText('Your plan is now saved.');
-        await expect(planningPage.planName()).toContainText('2026-04');
-        await expect(planningPage.planName()).toContainText('offsite');
-        await expect(planningPage.planName()).toContainText(/\d{2,}/);
+        await expect(planningPage.savedConfirmation()).toContainText('Your plan has been saved as a draft.');
+        // RULE-002 live-observed name structure (2026-07-03): the visible plan name is
+        // "<YYYY_MM of creation>_<Advertiser|Brand chain>_" and the unique objective+number
+        // suffix renders in an editable INPUT (input values are not textContent, so only the
+        // static visible part is assertable via toContainText).
+        await expect(planningPage.planName()).toContainText(/2026_\d{2}_Unilever\|Knorr\|MS_/);
+        // Live counter contract: whole-row concatenated text, digit-lookbehind guard; the journey
+        // selects exactly one measurement SKU (hero promotion is not part of this flow).
+        await expect(planningPage.summaryMeasurementCount()).toContainText(new RegExp('(?<!\\d)1 SKUs?'));
         await expect(planningPage.downloadButton()).toBeEnabled();
         await expect(planningPage.editInPollenLink()).toBeEnabled();
       });

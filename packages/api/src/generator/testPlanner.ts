@@ -17,6 +17,7 @@ import type {
   MutationRisk
 } from '../types/testCase.js';
 import { shortHash, slugify } from '../utils/url.js';
+import { compareStrings } from '../utils/compare.js';
 
 interface PlannerOptions {
   modes: string[];
@@ -76,7 +77,7 @@ export function planGeneratedTests(
     endpointCases: applyCalibrationOverrides(ensureUniqueTitles(endpointCases), plannerOptions.calibrationOverrides).sort(
       compareEndpointCases
     ),
-    scenarioCases: ensureUniqueScenarioTitles(scenarioCases).sort((left, right) => left.fileName.localeCompare(right.fileName))
+    scenarioCases: ensureUniqueScenarioTitles(scenarioCases).sort((left, right) => compareStrings(left.fileName, right.fileName))
   };
 }
 
@@ -385,7 +386,25 @@ function inferCrudScenarios(
 
   const scenarios: GeneratedScenarioTestCase[] = [];
   for (const [, resourceEntries] of byResource) {
+    // Auth/session endpoints (login/logout/token/csrf/session) are credential exchanges, not REST
+    // resources — a POST+GET on the same /auth/main/login path is a sign-in + precondition fetch,
+    // never create->read. Skip them so CRUD inference does not fabricate a bogus flow.
+    if (isAuthResource(resourceEntries[0].pathPattern)) {
+      continue;
+    }
+
     const steps = crudStepsForResource(resourceEntries);
+    // A GET that shares the create's exact collection path is a precondition/list fetch, not a read
+    // of the just-created item; do not let it manufacture a create->read flow.
+    if (
+      steps.create &&
+      steps.read &&
+      steps.create.pathPattern === steps.read.pathPattern &&
+      !steps.create.pathPattern.includes('{param}')
+    ) {
+      steps.read = undefined;
+    }
+
     const verbs = CRUD_ORDER.filter((verb) => steps[verb]);
     const orderedEntries = verbs.map((verb) => steps[verb]).filter((entry): entry is NormalizedHarEntry => Boolean(entry));
 
@@ -445,6 +464,14 @@ function crudStepsForResource(
   }
 
   return result;
+}
+
+// Auth/session endpoints are credential exchanges, not REST resources, so they must not be grouped
+// into CRUD flows (a POST+GET on /auth/main/login is sign-in + a precondition fetch, not create+read).
+function isAuthResource(pathPattern: string): boolean {
+  return /(^|\/)(login|logout|sign-?in|sign-?out|signin|signout|auth|authenticate|token|refresh|csrf|session)(\/|$)/i.test(
+    pathPattern
+  );
 }
 
 // Mirrors collectionPattern: only a TRAILING dynamic segment marks an item path. A {param} in the
@@ -536,6 +563,11 @@ function buildScenario(
 
   warnPossibleMissingCorrelation(`${category}: ${title}`, entries);
 
+  // A scenario is only "mutating" for the execution policy if at least one step is a mutating method.
+  // A read-only (all-GET) flow must not be treated as POST — that wrongly downgrades it under
+  // mutationPolicy=all-skipped even though mutationRisk is already 'none'.
+  const scenarioMethod: SupportedHttpMethod = entries.every((entry) => entry.method === 'GET') ? 'GET' : 'POST';
+
   return {
     id,
     title: `${category}: ${title}`,
@@ -543,7 +575,7 @@ function buildScenario(
     origin: 'inferred',
     category,
     confidence,
-    execution: resolveExecution(category, confidence, mutationRisk, 'POST', options),
+    execution: resolveExecution(category, confidence, mutationRisk, scenarioMethod, options),
     mutationRisk,
     isolated,
     steps: entries.map((entry, index) => ({
@@ -560,61 +592,44 @@ function buildScenario(
 
 // Generation-time advisory (stderr only — emits NO test output, so committed specs are unchanged).
 // Generated scenarios replay each observed step verbatim and resolve ${PLACEHOLDER} values from the
-// environment; they do NOT chain data from one step's response into the next. When a step that
-// follows a create/login reuses such a placeholder, the flow may not actually exercise correlated
-// data (e.g. a read using a static ${USER_ID} rather than the id returned by the preceding create).
-// Surface that so the author can verify or wire correlation manually.
-function warnPossibleMissingCorrelation(title: string, entries: NormalizedHarEntry[]): void {
+// environment; they do NOT chain data from one step's response into the next. The suspect pattern is
+// a read-then-modify on the SAME resource keyed by a STATIC id: when one ${PLACEHOLDER} appears in
+// the PATH of two or more steps (e.g. GET then POST /user/password/${USER_ID}), the flow exercises a
+// fixed env id rather than one derived from a prior step's response. Keying off path-reuse (rather
+// than a create/login "producer") covers read-update flows AND avoids false positives on isolated
+// login/account/logout flows whose steps target different paths.
+// Exported for unit testing (tests/unit/testPlanner.test.ts): a false negative/positive here is the
+// A4 correlation-warning inversion regression, so its input->warn mapping is asserted directly.
+export function warnPossibleMissingCorrelation(title: string, entries: NormalizedHarEntry[]): void {
   if (entries.length < 2) {
     return;
   }
 
-  const producerIndex = entries.findIndex(
-    (entry) =>
-      entry.method === 'POST' && (/login/i.test(entry.pathPattern) || !hasTrailingDynamicSegment(entry))
-  );
-  if (producerIndex === -1) {
-    return;
+  const stepsPerPlaceholder = new Map<string, number>();
+  for (const entry of entries) {
+    const names = new Set<string>();
+    // Scan only the PATH (not the query string) — the warning is about placeholders reused in the
+    // path of two or more steps; a shared query placeholder is not a path-correlation signal.
+    const pathOnly = entry.pathWithQuery.split('?', 1)[0];
+    for (const match of pathOnly.matchAll(/\$\{([A-Z0-9_]+)\}/g)) {
+      names.add(match[1]);
+    }
+    for (const name of names) {
+      stepsPerPlaceholder.set(name, (stepsPerPlaceholder.get(name) ?? 0) + 1);
+    }
   }
 
-  const reused = new Set<string>();
-  entries.forEach((entry, index) => {
-    if (index <= producerIndex) {
-      return;
-    }
-    for (const name of placeholdersInStep(entry)) {
-      reused.add(name);
-    }
-  });
-  if (reused.size === 0) {
+  const reused = [...stepsPerPlaceholder.entries()].filter(([, count]) => count >= 2).map(([name]) => name);
+  if (reused.length === 0) {
     return;
   }
 
   console.warn(
-    `[har-api-tests] scenario "${title}" reuses ${[...reused].sort().join(', ')} from the environment ` +
-      `in a step after a create/login, not from the prior step's response. Generated scenarios do not ` +
-      `chain response data — verify the flow exercises correlated values (or wire the correlation manually).`
+    `[har-api-tests] scenario "${title}" reuses ${reused.sort().join(', ')} in the path of multiple steps ` +
+      `as a static environment value, not one derived from a prior step's response. Generated scenarios ` +
+      `do not chain response data — verify the flow exercises correlated values (or wire the correlation ` +
+      `manually).`
   );
-}
-
-function placeholdersInStep(entry: NormalizedHarEntry): string[] {
-  const haystacks = [
-    entry.pathWithQuery,
-    ...Object.values(entry.requestHeaders),
-    entry.requestBody === undefined
-      ? ''
-      : typeof entry.requestBody === 'string'
-        ? entry.requestBody
-        : JSON.stringify(entry.requestBody)
-  ];
-
-  const names = new Set<string>();
-  for (const haystack of haystacks) {
-    for (const match of haystack.matchAll(/\$\{([A-Z0-9_]+)\}/g)) {
-      names.add(match[1]);
-    }
-  }
-  return [...names];
 }
 
 function dedupeEntries(entries: NormalizedHarEntry[]): NormalizedHarEntry[] {
@@ -897,7 +912,7 @@ function ensureUniqueScenarioTitles(cases: GeneratedScenarioTestCase[]): Generat
 }
 
 function compareEntryChronology(left: NormalizedHarEntry, right: NormalizedHarEntry): number {
-  const sourceCompare = left.sourceFile.localeCompare(right.sourceFile);
+  const sourceCompare = compareStrings(left.sourceFile, right.sourceFile);
   if (sourceCompare !== 0) {
     return sourceCompare;
   }
@@ -906,7 +921,8 @@ function compareEntryChronology(left: NormalizedHarEntry, right: NormalizedHarEn
 }
 
 function compareEndpointCases(left: GeneratedEndpointTestCase, right: GeneratedEndpointTestCase): number {
-  return `${left.hostname} ${left.pathPattern} ${left.category} ${left.title}`.localeCompare(
+  return compareStrings(
+    `${left.hostname} ${left.pathPattern} ${left.category} ${left.title}`,
     `${right.hostname} ${right.pathPattern} ${right.category} ${right.title}`
   );
 }

@@ -28,10 +28,12 @@ const supportedMutationPolicies = new Set(['guarded', 'all-skipped', 'all-active
 export function parseCliArgs(argv: string[]): CliGenerateOptions {
   const values: Record<string, string[]> = {};
   const flags = new Set<string>();
+  const positionalArgs: string[] = [];
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (!arg.startsWith('--')) {
+      positionalArgs.push(arg);
       continue;
     }
 
@@ -53,6 +55,10 @@ export function parseCliArgs(argv: string[]): CliGenerateOptions {
     flags.add(name);
   }
 
+  if (positionalArgs.length > 0) {
+    throw new Error(`Unexpected positional argument: ${positionalArgs[0]}`);
+  }
+
   const harInputs = collect(values.har);
   if (harInputs.length === 0) {
     throw new Error('Missing required --har option.');
@@ -69,7 +75,7 @@ export function parseCliArgs(argv: string[]): CliGenerateOptions {
     ignoredDomains: collect(values.ignoreDomain),
     firstPartyDomains: collect(values.firstParty),
     methods: collect(values.method).map(normalizeMethod),
-    statuses: collect(values.status).map((value) => Number.parseInt(value, 10)).filter(Number.isFinite),
+    statuses: collect(values.status).map(normalizeStatus),
     generationModes: [...new Set(collect(values.generationMode, ['smoke', 'extended']).map(normalizeGenerationMode))],
     inferenceLevel: normalizeInferenceLevel(first(values.inferenceLevel) ?? 'balanced'),
     inferredRunMode: normalizeInferredRunMode(first(values.inferredRunMode) ?? 'mixed'),
@@ -77,9 +83,27 @@ export function parseCliArgs(argv: string[]): CliGenerateOptions {
     mutationPolicy: normalizeMutationPolicy(first(values.mutationPolicy) ?? 'guarded'),
     ai: flags.has('ai') || first(values.ai) === 'true',
     dryRun: flags.has('dryRun') || first(values.dryRun) === 'true',
+    preserveDuplicateQueryParams: optionalBoolean(flags, values, 'preserveDuplicateQueryParams'),
     configPath: first(values.config),
     calibrationOverridesPath: calibrationPath === undefined ? undefined : path.resolve(calibrationPath)
   };
+}
+
+// Tri-state boolean CLI option: a bare flag (--name) is true, --name=false is false, and an absent
+// option is undefined so the config / built-in default is left untouched.
+function optionalBoolean(
+  flags: Set<string>,
+  values: Record<string, string[]>,
+  name: string
+): boolean | undefined {
+  if (flags.has(name)) {
+    return true;
+  }
+  const value = first(values[name]);
+  if (value === undefined) {
+    return undefined;
+  }
+  return value === 'true';
 }
 
 export async function loadUserConfig(configPath?: string): Promise<Partial<HarApiTestConfig>> {
@@ -117,6 +141,15 @@ function normalizeMethod(value: string): SupportedHttpMethod {
   }
 
   return method as SupportedHttpMethod;
+}
+
+// Strict, like normalizeMethod: reject anything that is not a 3-digit HTTP status. The previous
+// Number.parseInt + isFinite filter silently accepted partial prefixes (e.g. "20x" -> 20, "2oo" -> 2).
+function normalizeStatus(value: string): number {
+  if (!/^[1-5]\d{2}$/.test(value.trim())) {
+    throw new Error(`Unsupported status filter: ${value} (expected a 3-digit HTTP status such as 200)`);
+  }
+  return Number.parseInt(value, 10);
 }
 
 function normalizeGenerationMode(value: string): GenerationMode {

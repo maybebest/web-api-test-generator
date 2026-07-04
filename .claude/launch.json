@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "test-generator-ui",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["packages/ui/src/server.mjs"],
+      "port": 4317,
+      "autoPort": true
+    }
+  ]
+}

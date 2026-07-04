@@ -1,5 +1,7 @@
 import path from 'node:path';
+import { compareStrings } from '../utils/compare.js';
 import type { HarApiTestConfig } from '../types/config.js';
+import type { SupportedHttpMethod } from '../types/har.js';
 import type { JsonValue } from '../types/json.js';
 import type {
   ExpectedStatus,
@@ -89,7 +91,93 @@ export async function writeGeneratedTests(
   await writeTextFile(envExamplePath, buildEnvExample(environment));
   generatedFiles.push(runManifestPath, envExamplePath);
 
+  // Per-route status manifest for the deterministic replay mock (scripts/replay-mock-server.mjs).
+  // Lets the blanket-200 mock become status-aware so a capture whose ACTIVE @smoke tier includes a
+  // non-200 status (e.g. a 201 create) is still satisfied without a live system-under-test.
+  const replayManifestPath = path.join(outDir, 'replay-manifest.json');
+  await writeJsonFile(replayManifestPath, buildReplayManifest(plan));
+  generatedFiles.push(replayManifestPath);
+
   return generatedFiles.sort();
+}
+
+interface ReplayRoute {
+  method: SupportedHttpMethod;
+  pathPattern: string;
+  hostname: string;
+  status: number;
+  // Observed response content type — active smokes assert `toContain(<base type>)`, so the mock
+  // must answer text/html routes with text/html, not a blanket application/json.
+  contentType: string;
+}
+
+// Mirrors the mock's pattern matching so generation-time collision checks see what the mock sees.
+function replayPatternToRegExp(pathPattern: string): RegExp {
+  const source = pathPattern
+    .split(/\{[^}]+\}/)
+    .map((literal) => literal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('[^/]+');
+  return new RegExp(`^${source}$`);
+}
+
+// The active @smoke tier is exactly what `npm run test:api:replay` runs against the mock. Emit each
+// active-smoke route's exact expected status + content type so the mock can answer it; family-status
+// (non-exact) cases never reach the mock (they are test.fixme / excluded by --grep @smoke), and
+// scenario/CRUD specs carry no @smoke tag so the replay grep never runs them — both omitted.
+function buildReplayManifest(plan: GeneratedTestPlan): { routes: ReplayRoute[] } {
+  const routes: ReplayRoute[] = [];
+  for (const testCase of plan.endpointCases) {
+    if (testCase.category !== 'smoke' || testCase.execution !== 'active') {
+      continue;
+    }
+    if (testCase.expectedStatus.kind !== 'exact') {
+      continue;
+    }
+    routes.push({
+      method: testCase.method,
+      pathPattern: testCase.pathPattern,
+      hostname: testCase.hostname,
+      status: testCase.expectedStatus.status,
+      contentType: testCase.responseContentType ?? 'application/json'
+    });
+  }
+
+  // The replay mock matches on method+path only and takes the first match (literal routes before
+  // pattern routes). Two collision shapes are surfaced at generation time so ambiguity is visible
+  // instead of silently serving the wrong status:
+  //  1. exact same method+pathPattern on different hosts with different statuses;
+  //  2. a {param} pattern route whose regex also matches a same-method LITERAL sibling route
+  //     (literal wins at the mock now, but the overlap deserves a look if statuses differ).
+  const firstByKey = new Map<string, ReplayRoute>();
+  for (const route of routes) {
+    const key = `${route.method} ${route.pathPattern}`;
+    const first = firstByKey.get(key);
+    if (!first) {
+      firstByKey.set(key, route);
+    } else if (first.status !== route.status) {
+      console.warn(
+        `[har-api-tests] replay-manifest route collision: "${key}" expects ${first.status} on ${first.hostname} ` +
+          `but ${route.status} on ${route.hostname}. The replay mock matches method+path only and will serve the ` +
+          `first (${first.status}); disambiguate by host or path if both statuses matter.`
+      );
+    }
+  }
+  const patternRoutes = routes.filter((route) => route.pathPattern.includes('{'));
+  const literalRoutes = routes.filter((route) => !route.pathPattern.includes('{'));
+  for (const pattern of patternRoutes) {
+    const regex = replayPatternToRegExp(pattern.pathPattern);
+    for (const literal of literalRoutes) {
+      if (literal.method === pattern.method && regex.test(literal.pathPattern) && literal.status !== pattern.status) {
+        console.warn(
+          `[har-api-tests] replay-manifest pattern/literal overlap: "${pattern.method} ${pattern.pathPattern}" ` +
+            `(${pattern.status}) also matches literal "${literal.pathPattern}" (${literal.status}). The mock matches ` +
+            `literal routes first, so the literal wins for that exact path.`
+        );
+      }
+    }
+  }
+
+  return { routes };
 }
 
 export interface SupportHostInfo {
@@ -111,7 +199,7 @@ function collectHosts(plan: GeneratedTestPlan): SupportHostInfo {
     }
   }
 
-  const ranked = [...counts.entries()].sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]));
+  const ranked = [...counts.entries()].sort((left, right) => right[1] - left[1] || compareStrings(left[0], right[0]));
   return {
     primaryHost: ranked[0]?.[0] ?? '',
     knownHosts: ranked.map(([host]) => host).sort()
@@ -143,7 +231,7 @@ function collectFixtures(plan: GeneratedTestPlan): Map<string, unknown> {
     }
   }
 
-  return new Map([...fixtures.entries()].sort(([left], [right]) => left.localeCompare(right)));
+  return new Map([...fixtures.entries()].sort(([left], [right]) => compareStrings(left, right)));
 }
 
 function collectSchemaSamples(cases: GeneratedEndpointTestCase[]): Map<string, JsonValue[]> {
@@ -177,9 +265,9 @@ function groupEndpointCases(cases: GeneratedEndpointTestCase[]): Map<string, Gen
     [...groups.entries()]
       .map(([key, values]): [string, GeneratedEndpointTestCase[]] => [
         key,
-        values.sort((left, right) => `${left.category} ${left.title}`.localeCompare(`${right.category} ${right.title}`))
+        values.sort((left, right) => compareStrings(`${left.category} ${left.title}`, `${right.category} ${right.title}`))
       ])
-      .sort(([left], [right]) => left.localeCompare(right))
+      .sort(([left], [right]) => compareStrings(left, right))
   );
 }
 

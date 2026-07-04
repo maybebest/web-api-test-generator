@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import http from 'node:http';
+import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -8,6 +9,7 @@ import { defaultConfig } from '../../src/config/defaultConfig.js';
 import { generateFromHar } from '../../src/generator/orchestrator.js';
 
 const tmpRoot = path.resolve('tests/.tmp/playwright-generated');
+const require = createRequire(import.meta.url);
 
 describe('generated Playwright API tests', () => {
   let server: http.Server | undefined;
@@ -88,7 +90,7 @@ describe('generated Playwright API tests', () => {
       defaultConfig
     );
 
-    const playwrightCli = path.resolve('node_modules/@playwright/test/cli.js');
+    const playwrightCli = require.resolve('@playwright/test/cli');
     await runPlaywright([playwrightCli, 'test', outDir, '--config', path.resolve('playwright.config.ts')], {
       cwd: process.cwd(),
       env: {

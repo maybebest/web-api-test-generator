@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const FORBIDDEN_DIRS = ['.ai-runs', 'playwright-report', 'test-results', 'allure-results', 'allure-report'];
+const FORBIDDEN_DIRS = ['.ai-runs', 'playwright-report', 'test-results', 'allure-results', 'allure-report', 'performance'];
 const FORBIDDEN_FILE_PATTERNS = [/\.trace\.zip$/i, /^trace\.zip$/i, /\.webm$/i, /\.mp4$/i, /\.har$/i];
 const SCAN_SKIP_DIRS = new Set(['node_modules', '.git', '.idea']);
 const PLACEHOLDER_NAMES = new Set(['.gitkeep', '.DS_Store']);

@@ -14,6 +14,9 @@ const ASSISTANT_REPLY_TIMEOUT = 60_000;
 // slowest, most variable assistant operation; give it extra headroom so a slow turn
 // does not flake the channel-add wait.
 const CHANNEL_ADD_TIMEOUT = 120_000;
+// Restoring a saved session (/planning/nectar-ai/<sessionId>) replays the whole
+// conversation progressively; observed live at 60-90s+ before the summary renders.
+const SESSION_HYDRATION_TIMEOUT = 150_000;
 
 /**
  * Page Object for the Nectar AI guided media-planning flow on the Pollen app
@@ -25,6 +28,13 @@ const CHANNEL_ADD_TIMEOUT = 120_000;
  * tagged INFERRED sit deeper in the journey than the read-only recon went (it
  * stopped before products/channel/save so as not to write a plan to the DB) and
  * must be confirmed by extending the recon before the end-to-end test is green.
+ * Re-audited read-only on 2026-07-02 against the live landing page, a fresh
+ * assistant view and a restored saved-plan session (including opening/closing both
+ * Edit SKU modals): every CONFIRMED/VERIFIED locator that renders in those states
+ * was re-observed; the channel-stage and save-stage locators (heroLimitWarning,
+ * channel delete/match/added, saveButton, savedConfirmation, in-chat
+ * productCheckboxes) need a plan with channels / a live run past the read-only
+ * boundary and remain unverified.
  * The app exposes stable data-testids throughout, so getByTestId is preferred
  * (matches the e2e-testing-patterns "use data attributes" guidance).
  */
@@ -44,6 +54,26 @@ export class PlanningPage extends BasePage {
     await this.startAssistantButton().waitFor({ state: 'visible', timeout: READY_TIMEOUT });
   }
 
+  /**
+   * Open an EXISTING planningAI session directly (observed URL scheme
+   * /planning/nectar-ai/<sessionId>, re-audited live 2026-07-02). The saved conversation
+   * hydrates progressively and can take 60-90s+, so readiness gates on the summary panel
+   * rendering, not on load state. Use after seeding the session via dataManager
+   * (planningAI SET_SKUS) so the asserted summary reflects the seeded state.
+   */
+  async gotoSession(sessionId: string): Promise<void> {
+    await this.page.addInitScript(() => {
+      const g = globalThis as unknown as { localStorage: { setItem(key: string, value: string): void } };
+      g.localStorage.setItem(
+        'feature-flags',
+        JSON.stringify({ FEATURE_NECTAR_AI: true, FEATURE_NUP: true, FEATURE_NECTAR_AI_MP: true })
+      );
+    });
+    await this.page.goto(`/planning/nectar-ai/${sessionId}`);
+    await this.page.waitForLoadState('domcontentloaded');
+    await this.summaryPanel().waitFor({ state: 'visible', timeout: SESSION_HYDRATION_TIMEOUT });
+  }
+
   // --- Entry: planning page -> Nectar AI assistant ----------- CONFIRMED ---
   startAssistantButton(): Locator {
     // "Try now" under the Nectar AI Assistant card; opens /planning/nectar-ai.
@@ -61,7 +91,9 @@ export class PlanningPage extends BasePage {
 
   async chooseBuildByObjectiveAndBudget(): Promise<void> {
     await this.buildByObjectiveButton().click();
-    await this.advertiserBrandPanel().waitFor({ state: 'visible', timeout: READY_TIMEOUT });
+    // The advertiser/brand panel renders inside the assistant's streamed reply to
+    // the objective-and-budget prompt (30-60s+), so budget the assistant-turn timeout.
+    await this.advertiserBrandPanel().waitFor({ state: 'visible', timeout: ASSISTANT_REPLY_TIMEOUT });
   }
 
   // --- Conversational assistant chat -------------------------- CONFIRMED ---
@@ -160,10 +192,12 @@ export class PlanningPage extends BasePage {
   }
 
   // Search measurement products by name or SKU; result checkboxes render in-chat.
+  // The rows arrive inside a streamed assistant turn (30-60s+), so budget the
+  // assistant-reply timeout, not the page-readiness one.
   async searchProducts(term: string): Promise<void> {
     await this.sendChatMessage(term);
     // locator-policy:exception waits for the first returned product row to render
-    await this.productCheckboxes().first().waitFor({ state: 'visible', timeout: READY_TIMEOUT });
+    await this.productCheckboxes().first().waitFor({ state: 'visible', timeout: ASSISTANT_REPLY_TIMEOUT });
   }
 
   async selectFirstProduct(): Promise<void> {
@@ -221,6 +255,13 @@ export class PlanningPage extends BasePage {
     return this.page.getByTestId('plan-hero-skus');
   }
 
+  // The per-channel "Media limit: <max> Hero SKUs. Edit SKUs" over-limit warning. The numeral is
+  // interpolated from the channel's configured maxHeroSkus (it must NOT be hardcoded). Matched by
+  // its stable prefix; heal to a data-testid if one becomes available.
+  heroLimitWarning(): Locator {
+    return this.page.getByText(/Media limit:\s*\d+\s*Hero SKUs/i);
+  }
+
   summaryEditMeasurementButton(): Locator {
     return this.page.getByRole('button', { name: 'open modal Measurement SKUs' });
   }
@@ -248,12 +289,17 @@ export class PlanningPage extends BasePage {
     return this.page.getByTestId('selected-skus-length');
   }
 
+  // HEALED 2026-07-02 (live audit, restored-session state): the chat history's
+  // committed SKU panel keeps its own visible selectedSku-<sku> rows in the DOM, so
+  // a page-wide getByTestId resolves to TWO elements once the edit modal is open
+  // (5 chat rows + 5 dialog rows observed) — a strict-mode violation. Scope to the
+  // open dialog, like editModalConfirm/Cancel below.
   modalSkuRow(sku: string): Locator {
-    return this.page.getByTestId(`selectedSku-${sku}`);
+    return this.editSkuModal().getByTestId(`selectedSku-${sku}`);
   }
 
   modalRemoveSku(sku: string): Locator {
-    return this.page.getByTestId(`remove-selectedSku-${sku}`);
+    return this.editSkuModal().getByTestId(`remove-selectedSku-${sku}`);
   }
 
   // The open edit modal's own Confirm/Cancel/dismiss (scoped to the visible dialog so
@@ -444,30 +490,57 @@ export class PlanningPage extends BasePage {
   // only late-stage CTA observed; the save/confirm controls below are inferred
   // from the manual test case and must be confirmed before treating as green.
   async confirmPlan(): Promise<void> {
-    await this.confirmSelectionButton().click();
+    // HEALED 2026-07-03 (content review vs live audit): confirm-selection-button
+    // belongs to the advertiser/brand step and RELABELS to "Confirmed" once
+    // committed, so clicking it at the plan-confirm stage hits a stale committed
+    // control (or strict-mode-collides). The chat-stage commit control is the
+    // ACTIVE exact-match "Confirm" button — committed panels relabel, so
+    // exact:true targets only the live one.
+    await this.panelConfirmButton().click();
   }
 
   saveButton(): Locator {
-    // NOTE: "Proceed to Booking" is a DIFFERENT action (it books, it does not save)
-    // and must not be matched here — live verification showed the old regex matched
-    // that button. The real save CTA ("Confirm the save plan") renders past the
-    // read-only recon boundary; verify it before relying on this step.
-    return this.page.getByRole('button', { name: /confirm the save plan|save plan/i });
+    // VERIFIED 2026-07-03 (live save run): the save CTA the assistant renders after the
+    // plan-confirm turn is labelled exactly "Save plan as draft". "Proceed to Booking" is a
+    // DIFFERENT action (it books, it does not save) and must never be matched here.
+    return this.page.getByRole('button', { name: /save plan as draft/i });
   }
 
   async savePlan(): Promise<void> {
     await this.saveButton().click();
-    await this.savedConfirmation().waitFor({ state: 'visible', timeout: READY_TIMEOUT });
+    // "Your plan is now saved." arrives as a streamed assistant reply (30-60s+),
+    // so budget the assistant-turn timeout, not the page-readiness one.
+    await this.savedConfirmation().waitFor({ state: 'visible', timeout: ASSISTANT_REPLY_TIMEOUT });
   }
 
   savedConfirmation(): Locator {
-    return this.page.getByText('Your plan is now saved.');
+    // VERIFIED 2026-07-03 (live save run): the assistant's post-save reply reads
+    // "Your plan has been saved as a draft. What would you like to do next?" — the previously
+    // inferred "Your plan is now saved." copy does not exist in the live flow.
+    return this.page.getByText('Your plan has been saved as a draft.');
   }
 
-  // INFERRED: no dedicated plan-name testid was seen on the summary; the saved
-  // plan title renders top-right after saving. Heal once the save step is reached.
+  // VERIFIED 2026-07-03: rendered alongside the saved-as-draft confirmation; opens the
+  // saved-plan review view (where the post-save outputs live).
+  reviewSavedPlanButton(): Locator {
+    return this.page.getByRole('button', { name: /review my plan/i });
+  }
+
+  async reviewSavedPlan(): Promise<void> {
+    await this.reviewSavedPlanButton().click();
+  }
+
+  // HEALED 2026-07-02 (live audit, restored saved-plan session): there is NO
+  // `plan-name` testid in the live DOM. The saved plan title renders at the top of
+  // the summary as "Plan name: <name>" — a label span, the name text and the
+  // name-suffix input (testid `plan-name-input`, with `plan-name-tooltip` /
+  // `confirm-plan-name` / `remove-plan-name` controls) inside a single container.
+  // Anchor on the visible label and take its container so the located element's
+  // text includes the plan name (supports toContainText on the name tokens).
   planName(): Locator {
-    return this.page.getByTestId('plan-name');
+    // locator-policy:exception no testid wraps the full "Plan name: <name>" row;
+    // the label span's parent container is the observed stable structure.
+    return this.page.getByText(/^Plan name:/).locator('..');
   }
 
   // --- Post-save outputs -------------------------------------- CONFIRMED ---

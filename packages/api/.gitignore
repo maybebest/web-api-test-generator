@@ -8,6 +8,7 @@ playwright-report/
 .DS_Store
 tests/.tmp/
 .calibration/
+.ui-uploads/
 # Unmasked WebInspector/HAR network captures (contain real tokens/cookies/PII).
 # Kept locally for reference; the generator only consumes examples/*.har (sanitized).
 examples/*.md

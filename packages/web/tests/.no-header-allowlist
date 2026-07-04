@@ -1,3 +1,10 @@
 # Hand-written tests not bound to a flow spec.
-# One path per line, relative to the repo root, using forward slashes.
+# One path per line, relative to the packages/web root, using forward slashes.
 # Lines beginning with "#" are comments.
+#
+# The three nectar-* suites below are hand-authored from the manual specs/test-cases.yaml
+# case list (not a Flow spec), so they have no behavioral spec to hash against. They predate
+# the generated specs/skus/*.md suites and are exempted here rather than retro-fitted with a
+# synthetic header.
+tests/regression/nectar-edit-sku-list.authenticated.spec.ts
+tests/regression/nectar-sku-management.authenticated.spec.ts

@@ -83,10 +83,22 @@ jobs:
       # above is what exercises the committed suite in CI.
       - name: Generated suite drift check (when source captures are present)
         run: |
-          if node -e "const fs=require('fs');const m=require('./tests/generated/run-manifest.json');const miss=m.sources.harFiles.filter(f=>!fs.existsSync(f));if(miss.length){console.log('Drift check skipped — source captures not in this checkout: '+miss.join(', '));process.exit(1)}"; then
+          # Distinct exit codes so a GUARD CRASH (missing/corrupt run-manifest.json, renamed
+          # sources.harFiles field -> TypeError) can't masquerade as "captures absent -> skip":
+          #   0 = captures present -> run the regenerate-and-diff
+          #   2 = captures absent  -> loud skip
+          #   other = guard error  -> fail the step
+          rc=0
+          node -e "const fs=require('fs');const m=require('./tests/generated/run-manifest.json');const miss=(m.sources.harFiles||[]).filter(f=>!fs.existsSync(f));if(miss.length){console.log('source captures not in this checkout: '+miss.join(', '));process.exit(2)}" || rc=$?
+          if [ "$rc" = "0" ]; then
             npm run generate -- --har ./examples
             git add -A tests/generated
             git diff --cached --exit-code -- tests/generated
+          elif [ "$rc" = "2" ]; then
+            echo "::warning::Generated-suite drift check skipped — source HAR captures are not in this checkout."
+          else
+            echo "::error::Drift-check guard crashed (exit $rc) — run-manifest.json missing/corrupt or its schema changed."
+            exit 1
           fi
 
       - name: Generated API smoke

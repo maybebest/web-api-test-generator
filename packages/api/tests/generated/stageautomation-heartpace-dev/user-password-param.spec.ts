@@ -56,8 +56,8 @@ test.describe('stageautomation.heartpace.dev /user/password/{param}', () => {
 
 
   // origin: inferred | category: negative | confidence: high | execution: fixme | mutationRisk: guarded | calibration: lenient
-  inferredTest('negative: POST /user/password/{param} rejects missing _csrf @extended @auth @mutating @calibrate', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-password-param-5fe744e7.missing-csrf.request.json'));
+  inferredTest('negative: POST /user/password/{param} rejects missing PasswordForm[password] @extended @auth @mutating @calibrate', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-password-param-5fe744e7.missing-passwordform-password.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://stageautomation.heartpace.dev',
@@ -72,9 +72,9 @@ test.describe('stageautomation.heartpace.dev /user/password/{param}', () => {
       payload: requestBody
     });
 
-    assertStatusCode(response.status(), {"kind":"family","family":"4xx"}, 'negative: POST /user/password/{param} rejects missing _csrf', 'stageautomation.heartpace.dev');
+    assertStatusCode(response.status(), {"kind":"family","family":"4xx"}, 'negative: POST /user/password/{param} rejects missing PasswordForm[password]', 'stageautomation.heartpace.dev');
     assertResponseTime(elapsedMs, 2000);
-    await assertNoSensitiveFieldsInJsonResponse(response, 'negative: POST /user/password/{param} rejects missing _csrf');
+    await assertNoSensitiveFieldsInJsonResponse(response, 'negative: POST /user/password/{param} rejects missing PasswordForm[password]');
   });
 
 
@@ -125,8 +125,8 @@ test.describe('stageautomation.heartpace.dev /user/password/{param}', () => {
 
 
   // origin: inferred | category: negative | confidence: high | execution: fixme | mutationRisk: guarded | calibration: lenient
-  inferredTest('negative: POST /user/password/{param} rejects missing PasswordForm[password] @extended @auth @mutating @calibrate', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-password-param-5fe744e7.missing-passwordform-password.request.json'));
+  inferredTest('negative: POST /user/password/{param} rejects missing _csrf @extended @auth @mutating @calibrate', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-password-param-5fe744e7.missing-csrf.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://stageautomation.heartpace.dev',
@@ -141,9 +141,9 @@ test.describe('stageautomation.heartpace.dev /user/password/{param}', () => {
       payload: requestBody
     });
 
-    assertStatusCode(response.status(), {"kind":"family","family":"4xx"}, 'negative: POST /user/password/{param} rejects missing PasswordForm[password]', 'stageautomation.heartpace.dev');
+    assertStatusCode(response.status(), {"kind":"family","family":"4xx"}, 'negative: POST /user/password/{param} rejects missing _csrf', 'stageautomation.heartpace.dev');
     assertResponseTime(elapsedMs, 2000);
-    await assertNoSensitiveFieldsInJsonResponse(response, 'negative: POST /user/password/{param} rejects missing PasswordForm[password]');
+    await assertNoSensitiveFieldsInJsonResponse(response, 'negative: POST /user/password/{param} rejects missing _csrf');
   });
 
 

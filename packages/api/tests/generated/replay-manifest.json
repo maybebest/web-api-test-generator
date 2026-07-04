@@ -1,0 +1,228 @@
+{
+  "routes": [
+    {
+      "method": "POST",
+      "pathPattern": "/v1/dashboard/activities/employees-stats/subordinates",
+      "hostname": "apps.heartpace.dev",
+      "status": 200,
+      "contentType": "application/json"
+    },
+    {
+      "method": "POST",
+      "pathPattern": "/v1/dashboard/activities/overall/tasks",
+      "hostname": "apps.heartpace.dev",
+      "status": 200,
+      "contentType": "application/json"
+    },
+    {
+      "method": "POST",
+      "pathPattern": "/v1/dashboard/employees/celebrations",
+      "hostname": "apps.heartpace.dev",
+      "status": 200,
+      "contentType": "application/json"
+    },
+    {
+      "method": "POST",
+      "pathPattern": "/v1/dashboard/employees/manager",
+      "hostname": "apps.heartpace.dev",
+      "status": 200,
+      "contentType": "application/json"
+    },
+    {
+      "method": "POST",
+      "pathPattern": "/v1/dashboard/employees/team",
+      "hostname": "apps.heartpace.dev",
+      "status": 200,
+      "contentType": "application/json"
+    },
+    {
+      "method": "POST",
+      "pathPattern": "/v1/dashboard/meta",
+      "hostname": "apps.heartpace.dev",
+      "status": 200,
+      "contentType": "application/json"
+    },
+    {
+      "method": "POST",
+      "pathPattern": "/v1/dashboard/meta/links",
+      "hostname": "apps.heartpace.dev",
+      "status": 200,
+      "contentType": "application/json"
+    },
+    {
+      "method": "POST",
+      "pathPattern": "/v1/dashboard/news-feed",
+      "hostname": "apps.heartpace.dev",
+      "status": 200,
+      "contentType": "application/json"
+    },
+    {
+      "method": "POST",
+      "pathPattern": "/v1/dashboard/talks/insights",
+      "hostname": "apps.heartpace.dev",
+      "status": 200,
+      "contentType": "application/json"
+    },
+    {
+      "method": "GET",
+      "pathPattern": "/v1/navigation/top",
+      "hostname": "apps.heartpace.dev",
+      "status": 200,
+      "contentType": "application/json"
+    },
+    {
+      "method": "GET",
+      "pathPattern": "/v1/navigation/top/meta",
+      "hostname": "apps.heartpace.dev",
+      "status": 200,
+      "contentType": "application/json"
+    },
+    {
+      "method": "GET",
+      "pathPattern": "/auth/main/login",
+      "hostname": "stageautomation.heartpace.dev",
+      "status": 200,
+      "contentType": "application/json; charset=UTF-8"
+    },
+    {
+      "method": "POST",
+      "pathPattern": "/auth/main/login",
+      "hostname": "stageautomation.heartpace.dev",
+      "status": 200,
+      "contentType": "application/json; charset=UTF-8"
+    },
+    {
+      "method": "GET",
+      "pathPattern": "/me/account",
+      "hostname": "stageautomation.heartpace.dev",
+      "status": 200,
+      "contentType": "application/json; charset=UTF-8"
+    },
+    {
+      "method": "GET",
+      "pathPattern": "/me/account/oauth",
+      "hostname": "stageautomation.heartpace.dev",
+      "status": 200,
+      "contentType": "application/json; charset=UTF-8"
+    },
+    {
+      "method": "GET",
+      "pathPattern": "/me/account/settings/{param}",
+      "hostname": "stageautomation.heartpace.dev",
+      "status": 200,
+      "contentType": "application/json; charset=UTF-8"
+    },
+    {
+      "method": "GET",
+      "pathPattern": "/me/account/token",
+      "hostname": "stageautomation.heartpace.dev",
+      "status": 200,
+      "contentType": "application/json; charset=UTF-8"
+    },
+    {
+      "method": "GET",
+      "pathPattern": "/user/activity/{param}",
+      "hostname": "stageautomation.heartpace.dev",
+      "status": 200,
+      "contentType": "text/html; charset=UTF-8"
+    },
+    {
+      "method": "POST",
+      "pathPattern": "/user/notifications/",
+      "hostname": "stageautomation.heartpace.dev",
+      "status": 200,
+      "contentType": "application/json; charset=UTF-8"
+    },
+    {
+      "method": "GET",
+      "pathPattern": "/user/notifications/{param}",
+      "hostname": "stageautomation.heartpace.dev",
+      "status": 200,
+      "contentType": "text/html; charset=UTF-8"
+    },
+    {
+      "method": "GET",
+      "pathPattern": "/user/password/{param}",
+      "hostname": "stageautomation.heartpace.dev",
+      "status": 200,
+      "contentType": "text/html; charset=UTF-8"
+    },
+    {
+      "method": "GET",
+      "pathPattern": "/user/preferences/{param}",
+      "hostname": "stageautomation.heartpace.dev",
+      "status": 200,
+      "contentType": "text/html; charset=UTF-8"
+    },
+    {
+      "method": "POST",
+      "pathPattern": "/user/preferences/{param}",
+      "hostname": "stageautomation.heartpace.dev",
+      "status": 200,
+      "contentType": "application/json; charset=UTF-8"
+    },
+    {
+      "method": "GET",
+      "pathPattern": "/user/security/{param}",
+      "hostname": "stageautomation.heartpace.dev",
+      "status": 200,
+      "contentType": "text/html; charset=UTF-8"
+    },
+    {
+      "method": "POST",
+      "pathPattern": "/user/security/{param}",
+      "hostname": "stageautomation.heartpace.dev",
+      "status": 200,
+      "contentType": "application/json; charset=UTF-8"
+    },
+    {
+      "method": "GET",
+      "pathPattern": "/user/session",
+      "hostname": "stageautomation.heartpace.dev",
+      "status": 200,
+      "contentType": "application/json; charset=UTF-8"
+    },
+    {
+      "method": "GET",
+      "pathPattern": "/user/support/{param}",
+      "hostname": "stageautomation.heartpace.dev",
+      "status": 200,
+      "contentType": "text/html; charset=UTF-8"
+    },
+    {
+      "method": "GET",
+      "pathPattern": "/user/talk-settings/{param}",
+      "hostname": "stageautomation.heartpace.dev",
+      "status": 200,
+      "contentType": "text/html; charset=UTF-8"
+    },
+    {
+      "method": "POST",
+      "pathPattern": "/user/talk-settings/{param}",
+      "hostname": "stageautomation.heartpace.dev",
+      "status": 200,
+      "contentType": "application/json; charset=UTF-8"
+    },
+    {
+      "method": "GET",
+      "pathPattern": "/user/twostepauthsettings/{param}",
+      "hostname": "stageautomation.heartpace.dev",
+      "status": 200,
+      "contentType": "text/html; charset=UTF-8"
+    },
+    {
+      "method": "GET",
+      "pathPattern": "/users/user/{param}",
+      "hostname": "stageautomation.heartpace.dev",
+      "status": 200,
+      "contentType": "application/json; charset=UTF-8"
+    },
+    {
+      "method": "POST",
+      "pathPattern": "/v1/approval/my-team/running-chains/requests",
+      "hostname": "workforce.heartpace.dev",
+      "status": 200,
+      "contentType": "application/json"
+    }
+  ]
+}

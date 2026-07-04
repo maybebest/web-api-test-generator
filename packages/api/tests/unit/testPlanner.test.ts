@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { defaultConfig } from '../../src/config/defaultConfig.js';
-import { planGeneratedTests } from '../../src/generator/testPlanner.js';
+import { planGeneratedTests, warnPossibleMissingCorrelation } from '../../src/generator/testPlanner.js';
 import type { NormalizedHarEntry } from '../../src/types/har.js';
 
 describe('v2 test planner (smoke + extended)', () => {
@@ -414,6 +414,55 @@ describe('v2 test planner (smoke + extended)', () => {
     expect(loginFlow?.execution).toBe('active');
     // Read-only profile flow shares the global session.
     expect(profileFlow?.isolated).toBe(false);
+  });
+});
+
+// A4 regression guard: warnPossibleMissingCorrelation must warn when a placeholder is reused in the
+// PATH of >=2 steps (a static env value the generator does not chain), and stay silent otherwise.
+// A prior version had this inverted (warned on isolated single-use, silent on real reuse).
+describe('A4 missing-correlation warning', () => {
+  function captureWarn(entries: NormalizedHarEntry[]): string[] {
+    const messages: string[] = [];
+    const spy = vi.spyOn(console, 'warn').mockImplementation((message?: unknown) => {
+      messages.push(String(message));
+    });
+    try {
+      warnPossibleMissingCorrelation('users read/update flow', entries);
+    } finally {
+      spy.mockRestore();
+    }
+    return messages;
+  }
+
+  it('warns when a placeholder is reused across the path of two steps', () => {
+    // GET then PUT on /users/${USER_ID}: the same USER_ID appears in both step paths.
+    const messages = captureWarn([getUserItem(), putUserItem()]);
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toContain('USER_ID');
+    expect(messages[0]).toMatch(/correlated/);
+  });
+
+  it('stays silent for an isolated login flow with no reused placeholder', () => {
+    // login + a create POST: neither path carries a placeholder, so nothing is "reused".
+    expect(captureWarn([loginEntry(), postUsers()])).toEqual([]);
+  });
+
+  it('stays silent when a placeholder appears in only one step', () => {
+    // Only the GET carries ${USER_ID}; the POST /users path has no placeholder -> count 1, not reuse.
+    expect(captureWarn([getUserItem(), postUsers()])).toEqual([]);
+  });
+
+  it('stays silent for a single-entry scenario', () => {
+    expect(captureWarn([getUserItem()])).toEqual([]);
+  });
+
+  it('ignores placeholders that appear only in the query string, not the path', () => {
+    // The same ${USER_ID} is reused, but only in the QUERY of both steps — the warning is about PATH
+    // correlation, so it must stay silent.
+    const first = getUserItem({ id: 'q-a', pathPattern: '/users', pathWithQuery: '/users?ref=${USER_ID}' });
+    const second = putUserItem({ id: 'q-b', pathPattern: '/orders', pathWithQuery: '/orders?ref=${USER_ID}' });
+    expect(captureWarn([first, second])).toEqual([]);
   });
 });
 

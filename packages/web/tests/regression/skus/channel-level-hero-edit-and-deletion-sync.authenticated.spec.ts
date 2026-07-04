@@ -1,28 +1,160 @@
 // Spec-bound header: sha256 is the behavioral hash of the spec. Re-stamp with
 // `npm run ai:spec:drift` if the spec's behavioral sections change.
-/* spec: specs/skus/channel-level-hero-edit-and-deletion-sync.md version:1.0.0 sha256:31d952d64b5ee40a3346c96ce6ea3362b50f21628f68da83b7bbe1f8ffa76afa */
+/* spec: specs/skus/channel-level-hero-edit-and-deletion-sync.md version:2.0.0 sha256:896ab6db83c7511d9c663fe39b88fe18afbbfbd6c937ed45e9a558130400d040 */
 import { test, expect } from '../../../fixtures/test';
 import { PlanningPage } from '../../../pages/PlanningPage';
 
-// 30 Data Cases (DC-001..DC-030) transformed from specs/test-cases-skus-2.yaml.
-const dataCaseIds = [
-  'DC-001', 'DC-002', 'DC-003', 'DC-004', 'DC-005', 'DC-006', 'DC-007', 'DC-008', 'DC-009', 'DC-010', 'DC-011', 'DC-012', 'DC-013', 'DC-014', 'DC-015', 'DC-016', 'DC-017', 'DC-018', 'DC-019', 'DC-020', 'DC-021', 'DC-022', 'DC-023', 'DC-024', 'DC-025', 'DC-026', 'DC-027', 'DC-028', 'DC-029', 'DC-030'
+// 7 automatable Data Cases (of 30 source cases; the rest are declared
+// under "Pending Automation" in the spec — E2E-only policy, no placeholder tests). Each row seeds
+// REAL catalogue skuIds (specs/skus/.sku-pools.json) into a live planningAI session and asserts the
+// summary counters the UI actually renders.
+type SkuDataCase = {
+  caseId: string;
+  sourceId: string;
+  heroSkus: string[];
+  measurementSkus: string[];
+  // Real catalogue pool the ids come from ('persil' / 'big:<brand>'); 'none' seeds an empty set.
+  skuPool: string;
+  expected: {
+    heroCount: number | null;
+    measurementCount: number | null;
+  };
+};
+
+const dataCases: SkuDataCase[] = [
+  {
+    "caseId": "DC-001",
+    "sourceId": "TC-CHAN-001",
+    "heroSkus": [
+      "7096764",
+      "7304367",
+      "7759164"
+    ],
+    "measurementSkus": [],
+    "skuPool": "persil",
+    "expected": {
+      "heroCount": 3,
+      "measurementCount": null
+    }
+  },
+  {
+    "caseId": "DC-002",
+    "sourceId": "TC-CHAN-002",
+    "heroSkus": [
+      "7096764",
+      "7304367"
+    ],
+    "measurementSkus": [],
+    "skuPool": "persil",
+    "expected": {
+      "heroCount": 2,
+      "measurementCount": null
+    }
+  },
+  {
+    "caseId": "DC-003",
+    "sourceId": "TC-CHAN-004",
+    "heroSkus": [
+      "7096764",
+      "7304367",
+      "7759164"
+    ],
+    "measurementSkus": [],
+    "skuPool": "persil",
+    "expected": {
+      "heroCount": 3,
+      "measurementCount": null
+    }
+  },
+  {
+    "caseId": "DC-004",
+    "sourceId": "TC-CHAN-005",
+    "heroSkus": [
+      "7096764",
+      "7304367"
+    ],
+    "measurementSkus": [],
+    "skuPool": "persil",
+    "expected": {
+      "heroCount": 2,
+      "measurementCount": null
+    }
+  },
+  {
+    "caseId": "DC-005",
+    "sourceId": "TC-CHAN-007",
+    "heroSkus": [
+      "7096764",
+      "7304367"
+    ],
+    "measurementSkus": [],
+    "skuPool": "persil",
+    "expected": {
+      "heroCount": 2,
+      "measurementCount": null
+    }
+  },
+  {
+    "caseId": "DC-006",
+    "sourceId": "TC-CHAN-008",
+    "heroSkus": [
+      "7096764",
+      "7304367"
+    ],
+    "measurementSkus": [],
+    "skuPool": "persil",
+    "expected": {
+      "heroCount": 2,
+      "measurementCount": null
+    }
+  },
+  {
+    "caseId": "DC-007",
+    "sourceId": "TC-CHAN-028",
+    "heroSkus": [
+      "7096764",
+      "7304367"
+    ],
+    "measurementSkus": [],
+    "skuPool": "persil",
+    "expected": {
+      "heroCount": 2,
+      "measurementCount": null
+    }
+  }
 ];
+
+// Live DOM contract (observed 2026-07-03): plan-hero-skus / plan-measurement-skus resolve to the
+// whole summary row, whose textContent concatenates children WITHOUT whitespace
+// ("ProductHero SKUs2 SKUsEdit…") — so \b never exists around the numeral; a digit lookbehind
+// keeps "12 SKUs" from satisfying "2 SKUs". An empty counter renders "To be defined".
+const countPattern = (count: number): RegExp =>
+  count === 0 ? new RegExp('(?<!\\d)0 SKUs?|To be defined') : new RegExp(`(?<!\\d)${count} SKUs?`);
 
 // Spec Stability Requirements declare Parallel Safe = no, so the suite runs serially.
 test.describe.serial("Channel-level Hero edit, per-channel SKU definition and deletion sync", () => {
-  for (const caseId of dataCaseIds) {
+  for (const dataCase of dataCases) {
     test(
-      `${caseId} channel-level-hero-edit-and-deletion-sync data case`,
+      `${dataCase.caseId} ${dataCase.sourceId}`,
       { tag: ['@generated', '@regression', '@media-planner', '@authenticated', '@channel-level-hero-edit-and-deletion-sync'] },
       async ({ page, dataManager }) => {
         const planningPage = new PlanningPage(page);
-        await test.step('arrange the data-case precondition', async () => {
-          await dataManager.setPlanHeroSkus('current', 'offsite', []);
-          await planningPage.goto();
+        await test.step('seed the session with the case SKU sets and open it', async () => {
+          const sessionId = await dataManager.ensurePlanningSession();
+          if (dataCase.heroSkus.length > 0) {
+            await dataManager.setPlanHeroSkus(sessionId, 'offsite', dataCase.heroSkus);
+          }
+          if (dataCase.measurementSkus.length > 0) {
+            await dataManager.setPlanMeasurementSkus(sessionId, 'offsite', dataCase.measurementSkus);
+          }
+          await planningPage.gotoSession(sessionId);
         });
-        await test.step('Assert AC-006: Hero / Edit reflects the data case', async () => {
-          await expect(planningPage.summaryHeroCount()).toBeVisible();
+        await test.step('Assert AC-004: seeded Hero/Measurement counter matches the data case', async () => {
+          if (dataCase.expected.heroCount !== null) {
+            await expect(planningPage.summaryHeroCount()).toContainText(countPattern(dataCase.expected.heroCount));
+          } else {
+            await expect(planningPage.summaryMeasurementCount()).toContainText(countPattern(dataCase.expected.measurementCount as number));
+          }
         });
       }
     );
@@ -31,14 +163,14 @@ test.describe.serial("Channel-level Hero edit, per-channel SKU definition and de
   test(
     "AC-001 channel-level-hero-edit-and-deletion-sync",
     { tag: ['@generated', '@regression', '@media-planner', '@authenticated', '@channel-level-hero-edit-and-deletion-sync'] },
-    async ({ page, dataManager }) => {
+    async ({ page }) => {
       const planningPage = new PlanningPage(page);
-      await test.step('arrange the planner state', async () => {
-        await dataManager.setPlanMeasurementSkus('current', 'offsite', ['12345', '234235']);
+      await test.step('walk the planner entry path', async () => {
         await planningPage.goto();
+        await planningPage.startNectarAiPlanner();
       });
-      await test.step("Assert AC-001: Hero / Edit control under the Measurement table", async () => {
-        await expect(planningPage.summaryEditMeasurementButton()).toBeVisible();
+      await test.step('Assert AC-001: the guided objective-and-budget flow is reachable', async () => {
+        await expect(planningPage.buildByObjectiveButton()).toBeVisible();
       });
     }
   );
@@ -48,12 +180,12 @@ test.describe.serial("Channel-level Hero edit, per-channel SKU definition and de
     { tag: ['@generated', '@regression', '@media-planner', '@authenticated', '@channel-level-hero-edit-and-deletion-sync'] },
     async ({ page, dataManager }) => {
       const planningPage = new PlanningPage(page);
-      await test.step('arrange the planner state', async () => {
-        await dataManager.setPlanMeasurementSkus('current', 'offsite', ['12345', '234235']);
-        await planningPage.goto();
+      await test.step('open the live planning session directly', async () => {
+        const sessionId = await dataManager.ensurePlanningSession();
+        await planningPage.gotoSession(sessionId);
       });
-      await test.step("Assert AC-002: Hero / Edit modal opens", async () => {
-        await expect(planningPage.editSkuModal()).toBeVisible();
+      await test.step('Assert AC-002: the seeded session hydrates to its summary panel', async () => {
+        await expect(planningPage.summaryPanel()).toBeVisible();
       });
     }
   );
@@ -63,42 +195,13 @@ test.describe.serial("Channel-level Hero edit, per-channel SKU definition and de
     { tag: ['@generated', '@regression', '@media-planner', '@authenticated', '@channel-level-hero-edit-and-deletion-sync'] },
     async ({ page, dataManager }) => {
       const planningPage = new PlanningPage(page);
-      await test.step('arrange the planner state', async () => {
-        await dataManager.setPlanMeasurementSkus('current', 'offsite', ['12345', '234235']);
-        await planningPage.goto();
+      await test.step('seed exactly two Hero SKUs from the real catalogue pool', async () => {
+        const sessionId = await dataManager.ensurePlanningSession();
+        await dataManager.setPlanHeroSkus(sessionId, 'offsite', ["7096764","7304367"]);
+        await planningPage.gotoSession(sessionId);
       });
-      await test.step("Assert AC-003: Measurement count reflects the change", async () => {
-        await expect(planningPage.summaryMeasurementCount()).toBeVisible();
-      });
-    }
-  );
-
-  test(
-    "AC-004 channel-level-hero-edit-and-deletion-sync",
-    { tag: ['@generated', '@regression', '@media-planner', '@authenticated', '@channel-level-hero-edit-and-deletion-sync'] },
-    async ({ page, dataManager }) => {
-      const planningPage = new PlanningPage(page);
-      await test.step('arrange the planner state', async () => {
-        await dataManager.setPlanHeroSkus('current', 'offsite', ['3', '5', '6']);
-        await planningPage.goto();
-      });
-      await test.step("Assert AC-004: Hero / Edit control under the Hero table", async () => {
-        await expect(planningPage.summaryEditHeroButton()).toBeVisible();
-      });
-    }
-  );
-
-  test(
-    "AC-005 channel-level-hero-edit-and-deletion-sync",
-    { tag: ['@generated', '@regression', '@media-planner', '@authenticated', '@channel-level-hero-edit-and-deletion-sync'] },
-    async ({ page, dataManager }) => {
-      const planningPage = new PlanningPage(page);
-      await test.step('arrange the planner state', async () => {
-        await dataManager.setPlanHeroSkus('current', 'offsite', ['3', '5', '6']);
-        await planningPage.goto();
-      });
-      await test.step("Assert AC-005: modal shows the selected count", async () => {
-        await expect(planningPage.modalSelectedCount()).toBeVisible();
+      await test.step('Assert AC-003: the Hero counter equals the seeded Hero count', async () => {
+        await expect(planningPage.summaryHeroCount()).toContainText(countPattern(2));
       });
     }
   );
@@ -106,28 +209,15 @@ test.describe.serial("Channel-level Hero edit, per-channel SKU definition and de
   test(
     "NEG-001 channel-level-hero-edit-and-deletion-sync",
     { tag: ['@generated', '@regression', '@media-planner', '@authenticated', '@channel-level-hero-edit-and-deletion-sync'] },
-    async ({ page }) => {
-      const planningPage = new PlanningPage(page);
-      await test.step('arrange the planner state', async () => {
-        await planningPage.goto();
-      });
-      await test.step("Assert NEG-001: Hero / Edit control absent with no SKUs", async () => {
-        await expect(planningPage.summaryEditMeasurementButton()).toBeHidden();
-      });
-    }
-  );
-
-  test(
-    "NEG-002 channel-level-hero-edit-and-deletion-sync",
-    { tag: ['@generated', '@regression', '@media-planner', '@authenticated', '@channel-level-hero-edit-and-deletion-sync'] },
     async ({ page, dataManager }) => {
       const planningPage = new PlanningPage(page);
-      await test.step('arrange the planner state', async () => {
-        await dataManager.setPlanHeroSkus('current', 'offsite', ['3', '5', '6']);
-        await planningPage.goto();
+      await test.step('clear the session SKU selection via API and open it', async () => {
+        const sessionId = await dataManager.ensurePlanningSession();
+        await dataManager.setPlanHeroSkus(sessionId, 'offsite', []);
+        await planningPage.gotoSession(sessionId);
       });
-      await test.step("Assert NEG-002: modal dismissed without changes", async () => {
-        await expect(planningPage.editSkuModal()).toBeHidden();
+      await test.step('Assert NEG-001: no SKU edit control renders for an empty selection', async () => {
+        await expect(planningPage.summaryEditMeasurementButton()).toBeHidden();
       });
     }
   );

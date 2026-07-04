@@ -44,6 +44,8 @@ export default defineConfig({
   workers: isCI ? 1 : undefined,
   reporter: [
     ['list'],
+    // Aggregates each test's `performance` attachment into the dedicated performance/ folder.
+    ['./fixtures/perf/reporter.ts'],
     ['html', { outputFolder: 'playwright-report', open: 'never' }],
     ['junit', { outputFile: 'test-results/junit.xml' }],
     ...(allureEnabled
