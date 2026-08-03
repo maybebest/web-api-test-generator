@@ -5,7 +5,9 @@ import { isPendingGenerationSpec, validateSpecDirectory } from '../validate-flow
 
 const RECORDING_HEADER = /\/\*\s*recording:\s+([^\s]+)\s+title:(.*?)\s+sha256:([a-f0-9]{64})\s*\*\//i;
 const RECORDING_MARKER = /\/\*\s*recording\s*:/gi;
-const SPEC_MARKER = /\/\*\s*spec\s*:/gi;
+const SPEC_HEADER = /^\/\*\s*spec:\s*([^\s]+)\s+version:\s*([^\s]+)\s+sha256:\s*([a-f0-9]{64})\s*\*\/$/i;
+const SPEC_MARKER_START = /(?:\/\*+|\/\/+)[\t ]*spec\b/gi;
+const BLOCK_COMMENT = /\/\*[\s\S]*?\*\//g;
 const ALLOWLIST_PATH = path.join('tests', '.no-header-allowlist');
 const SPEC_BOUND_DIRS = ['tests/regression', 'tests/smoke', 'tests/accessibility', 'tests/visual'];
 const RECORDED_TEST_DIR = 'tests/recorded';
@@ -85,13 +87,31 @@ function assertHandwrittenTargetAllowed(testPath, webRoot) {
   );
 }
 
+function parseStrictSpecMarker(source) {
+  const text = String(source ?? '');
+  const markerStarts = [...text.matchAll(SPEC_MARKER_START)];
+  if (markerStarts.length > 1) throw new Error('Heal target declares duplicate or ambiguous spec headers.');
+  if (markerStarts.length === 0) return null;
+  const markers = [...text.matchAll(BLOCK_COMMENT)]
+    .map((match) => match[0])
+    .filter((comment) => /^\/\*\s*spec\b/i.test(comment));
+  if (markers.length !== 1) throw new Error('Heal target declares a malformed spec header.');
+  const parsed = markers[0].match(SPEC_HEADER);
+  if (!parsed) throw new Error('Heal target declares a malformed spec header.');
+  return Object.freeze({
+    specPath: assertPortableRepoPath(parsed[1], 'Spec header path'),
+    version: parsed[2],
+    sha256: parsed[3].toLowerCase()
+  });
+}
+
 export function resolveHealContract(options) {
   const testPath = assertPortableRepoPath(options.testPath, 'Test path');
   const source = String(options.source ?? '');
   const recordingMarkers = [...source.matchAll(RECORDING_MARKER)];
-  const specMarkers = [...source.matchAll(SPEC_MARKER)];
+  const specMarker = parseStrictSpecMarker(source);
   if (recordingMarkers.length > 1) throw new Error('Heal target declares ambiguous recording headers.');
-  if (recordingMarkers.length > 0 && specMarkers.length > 0) {
+  if (recordingMarkers.length > 0 && specMarker) {
     throw new Error('Heal target declares both recording and spec contracts.');
   }
   const recording = source.match(RECORDING_HEADER);
@@ -101,6 +121,17 @@ export function resolveHealContract(options) {
   if (recording) {
     const recordingPath = assertPortableRepoPath(recording[1], 'Recording path');
     return Object.freeze({ kind: 'recording', testPath, recordingPath });
+  }
+  if (specMarker && !specBinding) {
+    throw new Error(`Heal target spec header ${specMarker.specPath} has no validated spec binding.`);
+  }
+  if (specBinding && !specMarker) {
+    throw new Error(`Heal target is bound to ${specBinding.specPath} but is missing its spec header.`);
+  }
+  if (specBinding && specMarker.specPath !== specBinding.specPath) {
+    throw new Error(
+      `Heal target spec header ${specMarker.specPath} does not match validated spec binding ${specBinding.specPath}.`
+    );
   }
   if (specBinding) return Object.freeze({ kind: 'spec', testPath, ...specBinding });
   assertHandwrittenTargetAllowed(testPath, options.webRoot);

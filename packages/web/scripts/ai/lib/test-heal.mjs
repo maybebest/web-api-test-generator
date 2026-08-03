@@ -185,7 +185,6 @@ export function extractRuntimeFailureEvidence(report, targetTestFile, { secretVa
   return evidence;
 }
 
-const LOCATOR_EXCEPTION_PATTERN = /\/\/\s*locator-policy:exception\b/g;
 const XPATH_STRING_PATTERN = /^\s*\/\/|\bxpath\s*=|::-p-xpath/i;
 const NTH_CHILD_STRING_PATTERN = /:nth-child\s*\(/i;
 const SKIP_FAMILY_NAMES = new Set(['skip', 'fixme', 'fail', 'only']);
@@ -202,11 +201,68 @@ const SHORT_CIRCUIT_OPERATORS = new Set([
   ts.SyntaxKind.BarBarToken,
   ts.SyntaxKind.QuestionQuestionToken
 ]);
-
-function countMatches(source, pattern) {
-  const matches = String(source ?? '').match(pattern);
-  return matches ? matches.length : 0;
-}
+const REQUEST_MUTATION_METHOD_NAMES = new Set(['post', 'put', 'patch', 'delete']);
+const PLAYWRIGHT_ACTION_METHOD_NAMES = new Set([
+  '$$eval',
+  '$eval',
+  'blur',
+  'check',
+  'clear',
+  'click',
+  'dblclick',
+  'dispatchEvent',
+  'dragAndDrop',
+  'dragTo',
+  'evaluate',
+  'evaluateAll',
+  'evaluateHandle',
+  'fetch',
+  'fill',
+  'focus',
+  'goBack',
+  'goForward',
+  'goto',
+  'hover',
+  'press',
+  'pressSequentially',
+  'reload',
+  'screenshot',
+  'scrollIntoViewIfNeeded',
+  'selectOption',
+  'selectText',
+  'setChecked',
+  'setContent',
+  'setInputFiles',
+  'tap',
+  'type',
+  'uncheck'
+]);
+const LOCATOR_FACTORY_METHOD_NAMES = new Set([
+  'frameLocator',
+  'getByAltText',
+  'getByLabel',
+  'getByPlaceholder',
+  'getByRole',
+  'getByTestId',
+  'getByText',
+  'getByTitle',
+  'locator'
+]);
+const LOCATOR_CHAIN_METHOD_NAMES = new Set(['and', 'filter', 'first', 'last', 'nth', 'or']);
+const LOCATOR_WAIT_STATES = new Set(['attached', 'visible']);
+const EXECUTABLE_TRIVIA_TOKENS = new Set([
+  ts.SyntaxKind.CloseBraceToken,
+  ts.SyntaxKind.CloseBracketToken,
+  ts.SyntaxKind.CloseParenToken,
+  ts.SyntaxKind.ColonToken,
+  ts.SyntaxKind.CommaToken,
+  ts.SyntaxKind.DotToken,
+  ts.SyntaxKind.EndOfFileToken,
+  ts.SyntaxKind.OpenBraceToken,
+  ts.SyntaxKind.OpenBracketToken,
+  ts.SyntaxKind.OpenParenToken,
+  ts.SyntaxKind.SemicolonToken
+]);
 
 function leftmostIdentifierName(node) {
   let cursor = node;
@@ -264,6 +320,56 @@ function isConditionallyGuarded(node) {
   return false;
 }
 
+function bindingNameText(node) {
+  if (!node) return undefined;
+  if (ts.isIdentifier(node)) return node.text;
+  if (ts.isStringLiteralLike(node)) return node.text;
+  return undefined;
+}
+
+function collectRequestAliases(sourceFile) {
+  const aliases = new Set(['request']);
+  const declarations = [];
+  const visit = (node) => {
+    if (ts.isBindingElement(node) && bindingNameText(node.propertyName) === 'request') {
+      const alias = bindingNameText(node.name);
+      if (alias) aliases.add(alias);
+    }
+    if (ts.isVariableDeclaration(node)) declarations.push(node);
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const declaration of declarations) {
+      if (!ts.isIdentifier(declaration.name)
+        || !declaration.initializer) continue;
+      if (isRequestAccessExpression(declaration.initializer, aliases)
+        && !aliases.has(declaration.name.text)) {
+        aliases.add(declaration.name.text);
+        changed = true;
+      }
+    }
+  }
+  return aliases;
+}
+
+function isRequestAccessExpression(node, requestAliases) {
+  const cursor = unwrapTransparentExpression(node);
+  if (ts.isIdentifier(cursor)) return requestAliases.has(cursor.text);
+  if (ts.isPropertyAccessExpression(cursor)) return cursor.name.text === 'request';
+  return ts.isElementAccessExpression(cursor)
+    && ts.isStringLiteralLike(cursor.argumentExpression)
+    && cursor.argumentExpression.text === 'request';
+}
+
+function isUnresolvedDynamicRequestMutationCall(node, requestAliases) {
+  if (!ts.isCallExpression(node) || !ts.isElementAccessExpression(node.expression)) return false;
+  if (ts.isStringLiteralLike(node.expression.argumentExpression)) return false;
+  return isRequestAccessExpression(node.expression.expression, requestAliases);
+}
+
 // One AST pass over a candidate source. Comments and string bodies cannot fake
 // these counts the way raw-text regexes could.
 export function analyzeHealSource(source) {
@@ -276,6 +382,7 @@ export function analyzeHealSource(source) {
     tryStatementCount: 0,
     skipFamilyCount: 0,
     dynamicTestAccessCount: 0,
+    unresolvedDynamicRequestMutationCount: 0,
     waitForTimeoutCount: 0,
     positionalPickCount: 0,
     xpathStringCount: 0,
@@ -283,6 +390,7 @@ export function analyzeHealSource(source) {
     matcherCounts: new Map(),
     containsSecrets: hasKnownSecretShape(text)
   };
+  const requestAliases = collectRequestAliases(sourceFile);
   const bumpMatcher = (name) => {
     analysis.matcherCounts.set(name, (analysis.matcherCounts.get(name) ?? 0) + 1);
   };
@@ -324,6 +432,9 @@ export function analyzeHealSource(source) {
           analysis.dynamicTestAccessCount += 1;
         }
       }
+    }
+    if (isUnresolvedDynamicRequestMutationCall(node, requestAliases)) {
+      analysis.unresolvedDynamicRequestMutationCount += 1;
     }
     ts.forEachChild(node, visit);
   };
@@ -375,7 +486,7 @@ function isTestOrDescribeCall(node) {
 function isSemanticLocatorCall(node) {
   if (!ts.isCallExpression(node)) return false;
   if (!ts.isPropertyAccessExpression(node.expression)) return false;
-  return node.expression.name.text === 'locator' || /^getBy[A-Z]/.test(node.expression.name.text);
+  return LOCATOR_FACTORY_METHOD_NAMES.has(node.expression.name.text);
 }
 
 function containsSemanticLocatorCall(node) {
@@ -392,17 +503,363 @@ function containsSemanticLocatorCall(node) {
   return found;
 }
 
-function isLocatorChainExpression(node) {
-  if (ts.isParenthesizedExpression(node) || ts.isNonNullExpression(node)) {
-    return isLocatorChainExpression(node.expression);
+function staticCalledMethodName(node) {
+  if (!ts.isCallExpression(node)) return undefined;
+  if (ts.isPropertyAccessExpression(node.expression)) return node.expression.name.text;
+  if (ts.isElementAccessExpression(node.expression) && ts.isStringLiteralLike(node.expression.argumentExpression)) {
+    return node.expression.argumentExpression.text;
   }
-  if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
-    return isLocatorChainExpression(node.expression);
+  return undefined;
+}
+
+function unwrapTransparentExpression(node) {
+  let cursor = node;
+  while (ts.isParenthesizedExpression(cursor)
+    || ts.isNonNullExpression(cursor)
+    || ts.isAsExpression(cursor)
+    || ts.isTypeAssertionExpression(cursor)
+    || ts.isSatisfiesExpression(cursor)) {
+    cursor = cursor.expression;
   }
-  if (ts.isCallExpression(node)) {
-    return isSemanticLocatorCall(node) || isLocatorChainExpression(node.expression);
+  return cursor;
+}
+
+function isSideEffectFreeLocatorArgument(node) {
+  const cursor = unwrapTransparentExpression(node);
+  if (ts.isCallExpression(cursor)) return isEffectSafeValidatedLocatorExpression(cursor);
+  if (ts.isStringLiteralLike(cursor)
+    || ts.isNumericLiteral(cursor)
+    || ts.isRegularExpressionLiteral(cursor)
+    || [
+      ts.SyntaxKind.BigIntLiteral,
+      ts.SyntaxKind.FalseKeyword,
+      ts.SyntaxKind.NullKeyword,
+      ts.SyntaxKind.TrueKeyword
+    ].includes(cursor.kind)) {
+    return true;
+  }
+  if (ts.isPrefixUnaryExpression(cursor)
+    && [ts.SyntaxKind.PlusToken, ts.SyntaxKind.MinusToken].includes(cursor.operator)) {
+    const operand = unwrapTransparentExpression(cursor.operand);
+    return ts.isNumericLiteral(operand) || operand.kind === ts.SyntaxKind.BigIntLiteral;
+  }
+  if (ts.isArrayLiteralExpression(cursor)) {
+    return cursor.elements.every((element) => ts.isOmittedExpression(element)
+      || (!ts.isSpreadElement(element) && isSideEffectFreeLocatorArgument(element)));
+  }
+  if (ts.isObjectLiteralExpression(cursor)) {
+    return cursor.properties.every((property) => ts.isPropertyAssignment(property)
+      && !ts.isComputedPropertyName(property.name)
+      && (ts.isIdentifier(property.name)
+        || ts.isStringLiteralLike(property.name)
+        || ts.isNumericLiteral(property.name))
+      && isSideEffectFreeLocatorArgument(property.initializer));
   }
   return false;
+}
+
+function locatorCallArgumentsAreSafe(call) {
+  return call.arguments.every((argument) => isSideEffectFreeLocatorArgument(argument));
+}
+
+function validatedLocatorRoot(node) {
+  const cursor = unwrapTransparentExpression(node);
+  if (!ts.isCallExpression(cursor) || !ts.isPropertyAccessExpression(cursor.expression)) return undefined;
+  if (!locatorCallArgumentsAreSafe(cursor)) return undefined;
+  const method = cursor.expression.name.text;
+  const receiver = unwrapTransparentExpression(cursor.expression.expression);
+  if (LOCATOR_FACTORY_METHOD_NAMES.has(method)) {
+    return validatedLocatorRoot(receiver) ?? receiver;
+  }
+  if (LOCATOR_CHAIN_METHOD_NAMES.has(method) && validatedLocatorRoot(receiver)) {
+    return validatedLocatorRoot(receiver);
+  }
+  return undefined;
+}
+
+function isValidatedLocatorExpression(node) {
+  return validatedLocatorRoot(node) !== undefined;
+}
+
+function isEffectSafeValidatedLocatorExpression(node) {
+  const root = validatedLocatorRoot(node);
+  return root !== undefined && ts.isIdentifier(unwrapTransparentExpression(root));
+}
+
+function isStaticPositiveNumber(node) {
+  if (!ts.isNumericLiteral(node)) return false;
+  const value = Number(node.text.replaceAll('_', ''));
+  return Number.isFinite(value) && value >= 0;
+}
+
+function isAllowedLocatorWaitOptions(node) {
+  if (!ts.isObjectLiteralExpression(node)) return false;
+  const seen = new Set();
+  for (const property of node.properties) {
+    if (!ts.isPropertyAssignment(property)) return false;
+    const name = bindingNameText(property.name);
+    if (!name || seen.has(name) || !['state', 'timeout'].includes(name)) return false;
+    seen.add(name);
+    if (name === 'state') {
+      const state = staticStringText(property.initializer);
+      if (!LOCATOR_WAIT_STATES.has(state)) return false;
+    } else if (!isStaticPositiveNumber(property.initializer)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function isAllowedSynchronizationStatement(node) {
+  if (!ts.isExpressionStatement(node) || !ts.isAwaitExpression(node.expression)) return false;
+  const call = unwrapTransparentExpression(node.expression.expression);
+  if (!ts.isCallExpression(call) || staticCalledMethodName(call) !== 'waitFor') return false;
+  if (!ts.isPropertyAccessExpression(call.expression)) return false;
+  if (!isEffectSafeValidatedLocatorExpression(call.expression.expression)) return false;
+  return call.arguments.length === 0
+    || (call.arguments.length === 1 && isAllowedLocatorWaitOptions(call.arguments[0]));
+}
+
+function executableLeafValue(node) {
+  if (ts.isIdentifier(node) || ts.isPrivateIdentifier(node)) return node.text;
+  if (ts.isStringLiteralLike(node) || ts.isNumericLiteral(node) || ts.isRegularExpressionLiteral(node)) {
+    return node.text;
+  }
+  if (node.kind === ts.SyntaxKind.BigIntLiteral
+    || node.kind === ts.SyntaxKind.TemplateHead
+    || node.kind === ts.SyntaxKind.TemplateMiddle
+    || node.kind === ts.SyntaxKind.TemplateTail) {
+    return node.text;
+  }
+  return undefined;
+}
+
+function executableTokenPosition(node, sourceFile, closing = false) {
+  return closing ? node.end : node.getStart(sourceFile, false);
+}
+
+function appendExecutableTokens(node, sourceFile, tokens, {
+  events,
+  maskLocators = true,
+  markSynchronization = true
+} = {}) {
+  const push = (token, closing = false) => {
+    tokens.push(token);
+    if (events) {
+      events.push(Object.freeze({
+        position: executableTokenPosition(node, sourceFile, closing),
+        synchronization: token.startsWith('sync:')
+      }));
+    }
+  };
+  if (ts.isParenthesizedExpression(node)) {
+    appendExecutableTokens(node.expression, sourceFile, tokens, { events, maskLocators, markSynchronization });
+    return;
+  }
+  if (markSynchronization && isAllowedSynchronizationStatement(node)) {
+    const synchronizationTokens = [];
+    appendExecutableTokens(node, sourceFile, synchronizationTokens, {
+      maskLocators,
+      markSynchronization: false
+    });
+    push(`sync:${JSON.stringify(synchronizationTokens)}`);
+    return;
+  }
+  if (maskLocators && isValidatedLocatorExpression(node)) {
+    const rootTokens = [];
+    appendExecutableTokens(validatedLocatorRoot(node), sourceFile, rootTokens, {
+      maskLocators: false,
+      markSynchronization: false
+    });
+    push(`locator:${JSON.stringify(rootTokens)}`);
+    return;
+  }
+  if (EXECUTABLE_TRIVIA_TOKENS.has(node.kind)) return;
+  push(`open:${node.kind}`);
+  const value = executableLeafValue(node);
+  if (value !== undefined) push(`value:${JSON.stringify(value)}`);
+  for (const child of node.getChildren(sourceFile)) {
+    appendExecutableTokens(child, sourceFile, tokens, { events, maskLocators, markSynchronization });
+  }
+  push(`close:${node.kind}`, true);
+}
+
+function collectExecutableHealModel(source) {
+  const text = String(source ?? '');
+  const sourceFile = ts.createSourceFile('heal-executable.ts', text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const tokens = [];
+  const events = [];
+  appendExecutableTokens(sourceFile, sourceFile, tokens, { events });
+  return {
+    events,
+    positionalStatements: collectPositionalStatementFacts(sourceFile),
+    sourceFile,
+    text,
+    tokens
+  };
+}
+
+function normalizedCommentFact(tokenText, tokenKind) {
+  const line = tokenKind === ts.SyntaxKind.SingleLineCommentTrivia;
+  const body = line ? tokenText.slice(2) : tokenText.slice(2, -2);
+  return Object.freeze({
+    kind: line ? 'line' : 'block',
+    text: body
+      .replace(/^[\t ]*\*?[\t ]?/gm, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+  });
+}
+
+function commentPlacement(events, start, end) {
+  let boundary = 0;
+  let nextPosition = Number.POSITIVE_INFINITY;
+  let nextSynchronization = false;
+  for (const event of events) {
+    if (!event.synchronization && event.position < start) boundary += 1;
+    if (event.position < end || event.position > nextPosition) continue;
+    if (event.position < nextPosition) {
+      nextPosition = event.position;
+      nextSynchronization = event.synchronization;
+    } else if (event.synchronization) {
+      nextSynchronization = true;
+    }
+  }
+  return { boundary, nextSynchronization };
+}
+
+function countDirectPositionalLocatorPicks(statement) {
+  if (ts.isFunctionLike(statement)) return 0;
+  let count = 0;
+  const visit = (node) => {
+    if (node !== statement && (ts.isFunctionLike(node) || ts.isStatement(node))) return;
+    if (ts.isCallExpression(node)
+      && ['first', 'last', 'nth'].includes(staticCalledMethodName(node))
+      && isValidatedLocatorExpression(node)) {
+      count += 1;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(statement);
+  return count;
+}
+
+function collectPositionalStatementFacts(sourceFile) {
+  const statements = [];
+  const visit = (node) => {
+    if (ts.isStatement(node) && !isAllowedSynchronizationStatement(node)) {
+      statements.push(Object.freeze({
+        count: countDirectPositionalLocatorPicks(node),
+        start: node.getStart(sourceFile, false)
+      }));
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return statements.sort((left, right) => left.start - right.start);
+}
+
+function immediatelyFollowingPositionalStatementIndex(text, executableModel, commentEnd) {
+  const index = executableModel.positionalStatements.findIndex((statement) => statement.start >= commentEnd);
+  if (index < 0) return -1;
+  const statement = executableModel.positionalStatements[index];
+  return !/\S/.test(text.slice(commentEnd, statement.start)) && statement.count > 0
+    ? index
+    : -1;
+}
+
+function collectHealCommentFacts(source, executableModel) {
+  const text = String(source ?? '');
+  const scanner = ts.createScanner(
+    ts.ScriptTarget.Latest,
+    false,
+    ts.LanguageVariant.Standard,
+    text
+  );
+  const comments = [];
+  for (let token = scanner.scan(); token !== ts.SyntaxKind.EndOfFileToken; token = scanner.scan()) {
+    if (token === ts.SyntaxKind.SingleLineCommentTrivia || token === ts.SyntaxKind.MultiLineCommentTrivia) {
+      const positionalStatementIndex = immediatelyFollowingPositionalStatementIndex(
+        text,
+        executableModel,
+        scanner.getTextPos()
+      );
+      comments.push(Object.freeze({
+        ...normalizedCommentFact(scanner.getTokenText(), token),
+        ...commentPlacement(executableModel.events, scanner.getTokenPos(), scanner.getTextPos()),
+        positionalStatementIndex
+      }));
+    }
+  }
+  return comments;
+}
+
+function commentFactDelta(baseline, candidate) {
+  const remaining = new Map();
+  for (const fact of baseline) {
+    const key = JSON.stringify(fact);
+    remaining.set(key, (remaining.get(key) ?? 0) + 1);
+  }
+  const added = [];
+  for (const fact of candidate) {
+    const key = JSON.stringify(fact);
+    const count = remaining.get(key) ?? 0;
+    if (count > 0) remaining.set(key, count - 1);
+    else added.push(fact);
+  }
+  const removed = [];
+  for (const [key, count] of remaining) {
+    for (let index = 0; index < count; index += 1) removed.push(JSON.parse(key));
+  }
+  return { added, removed };
+}
+
+function isJustifiedLocatorExceptionComment(fact) {
+  return fact.kind === 'line'
+    && Number.isSafeInteger(fact.positionalStatementIndex)
+    && fact.positionalStatementIndex >= 0
+    && /^locator-policy:exception\s+\S/.test(fact.text);
+}
+
+function bindAddedLocatorExceptions(addedComments, baselineExecutable, healedExecutable) {
+  const statementCount = Math.max(
+    baselineExecutable.positionalStatements.length,
+    healedExecutable.positionalStatements.length
+  );
+  const remainingDeltas = Array.from({ length: statementCount }, (_, index) => Math.max(
+    0,
+    (healedExecutable.positionalStatements[index]?.count ?? 0)
+      - (baselineExecutable.positionalStatements[index]?.count ?? 0)
+  ));
+  const addedPositional = remainingDeltas.reduce((sum, count) => sum + count, 0);
+  const addedExceptions = [];
+  for (const fact of addedComments) {
+    const index = fact.positionalStatementIndex;
+    if (isJustifiedLocatorExceptionComment(fact) && (remainingDeltas[index] ?? 0) > 0) {
+      remainingDeltas[index] -= 1;
+      addedExceptions.push(fact);
+    }
+  }
+  return { addedExceptions, addedPositional };
+}
+
+function executableTokensAllowOnlyAddedSynchronization(baseline, candidate) {
+  let baselineIndex = 0;
+  let candidateIndex = 0;
+  while (baselineIndex < baseline.length && candidateIndex < candidate.length) {
+    if (baseline[baselineIndex] === candidate[candidateIndex]) {
+      baselineIndex += 1;
+      candidateIndex += 1;
+      continue;
+    }
+    if (candidate[candidateIndex].startsWith('sync:')) {
+      candidateIndex += 1;
+      continue;
+    }
+    return false;
+  }
+  while (candidateIndex < candidate.length && candidate[candidateIndex].startsWith('sync:')) candidateIndex += 1;
+  return baselineIndex === baseline.length && candidateIndex === candidate.length;
 }
 
 function freezeFacts(value) {
@@ -512,7 +969,7 @@ export function collectAnnotationFacts(sourceFile) {
 function assertionFact(expectCall, sourceFile) {
   const modifiers = [];
   const expectArguments = expectCall.arguments
-    .filter((argument) => !isLocatorChainExpression(argument))
+    .filter((argument) => !isValidatedLocatorExpression(argument))
     .map((argument) => argument.getText(sourceFile));
   let cursor = expectCall;
   while (cursor.parent) {
@@ -550,23 +1007,11 @@ export function collectAssertionArgumentFacts(sourceFile) {
   return assertions;
 }
 
-const ACTION_METHOD_NAMES = new Set([
-  'fill',
-  'type',
-  'press',
-  'pressSequentially',
-  'selectOption',
-  'setInputFiles',
-  'goto'
-]);
-const REQUEST_MUTATION_METHOD_NAMES = new Set(['post', 'put', 'patch', 'delete']);
-
 function actionMethodName(node) {
-  if (!ts.isPropertyAccessExpression(node.expression)) return undefined;
-  const method = node.expression.name.text;
-  if (ACTION_METHOD_NAMES.has(method)) return method;
-  if (REQUEST_MUTATION_METHOD_NAMES.has(method)) return method;
-  return undefined;
+  const method = staticCalledMethodName(node);
+  return PLAYWRIGHT_ACTION_METHOD_NAMES.has(method) || REQUEST_MUTATION_METHOD_NAMES.has(method)
+    ? method
+    : undefined;
 }
 
 export function collectActionPayloadFacts(sourceFile) {
@@ -577,7 +1022,9 @@ export function collectActionPayloadFacts(sourceFile) {
       if (method) {
         payloads.push({
           method,
-          arguments: node.arguments.map((argument) => argument.getText(sourceFile))
+          arguments: node.arguments.map((argument) => isValidatedLocatorExpression(argument)
+            ? '<validated-locator-expression>'
+            : argument.getText(sourceFile))
         });
       }
     }
@@ -676,6 +1123,21 @@ export function verifyHealedSourcePolicy({ previousSource, healedSource }) {
   requireEqualFact(issues, issueCodes, 'ACTION_PAYLOAD_CHANGED', 'action payloads', baselineFacts.actionPayloads, healedFacts.actionPayloads);
   requireEqualFact(issues, issueCodes, 'COVERAGE_TOKEN_CHANGED', 'coverage tokens', baselineFacts.coverageTokens, healedFacts.coverageTokens);
 
+  const baselineExecutable = collectExecutableHealModel(previous);
+  const healedExecutable = collectExecutableHealModel(healedSource);
+  if (!executableTokensAllowOnlyAddedSynchronization(baselineExecutable.tokens, healedExecutable.tokens)) {
+    issueCodes.push('EXECUTABLE_SEMANTICS_CHANGED');
+    issues.push(
+      'Healed source changes executable semantics outside validated locator expressions and the explicit synchronization allowlist.'
+    );
+  }
+
+  if (baseline.unresolvedDynamicRequestMutationCount > 0
+    || healed.unresolvedDynamicRequestMutationCount > 0) {
+    issueCodes.push('UNRESOLVED_DYNAMIC_REQUEST_MUTATION');
+    issues.push('Heal policy cannot resolve a dynamic request mutation method and therefore fails closed.');
+  }
+
   if (healed.skipFamilyCount > 0) {
     issues.push('Healed source must not contain test.skip, test.fixme, test.fail, test.only, or describe.skip/fixme/only in any form.');
   }
@@ -691,10 +1153,25 @@ export function verifyHealedSourcePolicy({ previousSource, healedSource }) {
   if (healed.nthChildStringCount > baseline.nthChildStringCount) {
     issues.push('Healed source must not introduce nth-child selector chains.');
   }
-  const addedPositional = healed.positionalPickCount - baseline.positionalPickCount;
-  const addedExceptions = countMatches(healedSource, LOCATOR_EXCEPTION_PATTERN)
-    - countMatches(previous, LOCATOR_EXCEPTION_PATTERN);
-  if (addedPositional > 0 && addedExceptions < addedPositional) {
+  const commentDelta = commentFactDelta(
+    collectHealCommentFacts(previous, baselineExecutable),
+    collectHealCommentFacts(healedSource, healedExecutable)
+  );
+  const { addedExceptions, addedPositional } = bindAddedLocatorExceptions(
+    commentDelta.added,
+    baselineExecutable,
+    healedExecutable
+  );
+  const invalidAddedComments = commentDelta.added.length - addedExceptions.length;
+  if (commentDelta.removed.length > 0
+    || invalidAddedComments > 0
+    || addedExceptions.length !== Math.max(0, addedPositional)) {
+    issueCodes.push('COMMENTS_CHANGED');
+    issues.push(
+      'Healed source changes comments outside exact, justified locator-policy exceptions for newly added positional locator picks.'
+    );
+  }
+  if (addedPositional > 0 && addedExceptions.length < addedPositional) {
     issues.push(
       'Healed source introduces positional picks (.first()/.last()/.nth()) without matching // locator-policy:exception justifications.'
     );

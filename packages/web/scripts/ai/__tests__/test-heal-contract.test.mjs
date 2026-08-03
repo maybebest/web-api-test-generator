@@ -126,3 +126,71 @@ test('discovered spec paths must already be portable and normalized', () => {
     }), /Spec path.*portable repository-relative path|Spec path.*normalized portable repository-relative path/i);
   }
 });
+
+test('spec markers fail closed when malformed, duplicated, missing a binding, or mismatched', () => {
+  const webRoot = makeWebRoot();
+  const validHeader = `/* spec: specs/save.md version:1.0.0 sha256:${'b'.repeat(64)} */`;
+  const cases = [
+    {
+      label: 'malformed',
+      source: '/* spec: specs/save.md version:1.0.0 sha256:not-a-hash */',
+      discoverSpec: () => null
+    },
+    {
+      label: 'unterminated marker',
+      source: `/* spec: specs/save.md version:1.0.0 sha256:${'b'.repeat(64)}`,
+      discoverSpec: () => null
+    },
+    {
+      label: 'JSDoc marker',
+      source: `/** spec: specs/save.md version:1.0.0 sha256:${'b'.repeat(64)} */`,
+      discoverSpec: () => null
+    },
+    {
+      label: 'line marker',
+      source: `// spec: specs/save.md version:1.0.0 sha256:${'b'.repeat(64)}`,
+      discoverSpec: () => null
+    },
+    {
+      label: 'duplicate',
+      source: `${validHeader}\n${validHeader}`,
+      discoverSpec: () => ({ specPath: 'specs/save.md', validation: {} })
+    },
+    {
+      label: 'missing binding',
+      source: validHeader,
+      discoverSpec: () => null
+    },
+    {
+      label: 'mismatched binding',
+      source: validHeader,
+      discoverSpec: () => ({ specPath: 'specs/other.md', validation: {} })
+    }
+  ];
+
+  for (const { label, source, discoverSpec } of cases) {
+    assert.throws(
+      () => resolveHealContract({
+        testPath: 'tests/helpers/save.spec.ts',
+        source,
+        webRoot,
+        discoverSpec
+      }),
+      /spec (?:header|marker|contract|binding)|malformed|duplicate|ambiguous|mismatch/i,
+      label
+    );
+  }
+});
+
+test('a discovered or explicit spec binding requires exactly one matching source marker', () => {
+  const webRoot = makeWebRoot();
+  assert.throws(
+    () => resolveHealContract({
+      testPath: 'tests/regression/save.spec.ts',
+      source: 'import { test } from "@playwright/test";',
+      webRoot,
+      discoverSpec: () => ({ specPath: 'specs/save.md', validation: {} })
+    }),
+    /missing.*spec|spec.*marker|spec.*header/i
+  );
+});

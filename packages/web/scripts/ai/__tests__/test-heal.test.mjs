@@ -21,19 +21,28 @@ import {
   redactKnownSecretValues,
   verifyHealedSourcePolicy
 } from '../lib/test-heal.mjs';
-import { healCandidatePath, healSingleTest, helpText, inferStandaloneProject, lintCandidate, parseArgs } from '../heal-test.mjs';
+import {
+  executeStandaloneTarget,
+  healCandidatePath,
+  healSingleTest,
+  helpText,
+  inferStandaloneProject,
+  lintCandidate,
+  parseArgs
+} from '../heal-test.mjs';
 
 const PASSING_TYPECHECK = () => ({ passed: true, issues: [] });
 const PASSING_LINT = () => ({ passed: true, issues: [] });
 
-const CLEAN_SOURCE = `/* spec: specs/flow.md version:1.0.0 sha256:abc123 */
-import { test, expect } from '../../fixtures/test';
+const CLEAN_SOURCE = `import { test, expect } from '../../fixtures/test';
 
 test('flow works', async ({ page }) => {
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page.getByTestId('status')).toHaveText('Saved');
 });
 `;
+const SPEC_SOURCE = `/* spec: specs/flow.md version:1.0.0 sha256:${'a'.repeat(64)} */
+${CLEAN_SOURCE}`;
 
 function validRepositoryContext() {
   return {
@@ -168,16 +177,16 @@ test('policy guard accepts a clean locator heal', () => {
 
 test('policy guard rejects masked or weakened heals', () => {
   const cases = [
-    ['empty output', '', /empty/i],
-    ['dropped spec header', CLEAN_SOURCE.replace(/\/\* spec:[\s\S]*?\*\/\n/, ''), /traceability header/],
-    ['added test.skip', CLEAN_SOURCE.replace("test('flow works'", "test.skip('flow works'"), /test\.skip/],
-    ['added waitForTimeout', CLEAN_SOURCE.replace('.click();', '.click();\n  await page.waitForTimeout(5000);'), /waitForTimeout/],
-    ['introduced xpath', CLEAN_SOURCE.replace("page.getByTestId('status')", "page.locator('//div[2]')"), /XPath/],
-    ['introduced nth-child', CLEAN_SOURCE.replace("getByTestId('status')", "locator('li:nth-child(3)')"), /nth-child/],
-    ['removed assertion', CLEAN_SOURCE.replace(/ {2}await expect\([\s\S]*?\n/, ''), /removes assertions/]
+    ['empty output', CLEAN_SOURCE, '', /empty/i],
+    ['dropped spec header', SPEC_SOURCE, CLEAN_SOURCE, /traceability header/],
+    ['added test.skip', CLEAN_SOURCE, CLEAN_SOURCE.replace("test('flow works'", "test.skip('flow works'"), /test\.skip/],
+    ['added waitForTimeout', CLEAN_SOURCE, CLEAN_SOURCE.replace('.click();', '.click();\n  await page.waitForTimeout(5000);'), /waitForTimeout/],
+    ['introduced xpath', CLEAN_SOURCE, CLEAN_SOURCE.replace("page.getByTestId('status')", "page.locator('//div[2]')"), /XPath/],
+    ['introduced nth-child', CLEAN_SOURCE, CLEAN_SOURCE.replace("getByTestId('status')", "locator('li:nth-child(3)')"), /nth-child/],
+    ['removed assertion', CLEAN_SOURCE, CLEAN_SOURCE.replace(/ {2}await expect\([\s\S]*?\n/, ''), /removes assertions/]
   ];
-  for (const [label, healedSource, pattern] of cases) {
-    const verdict = verifyHealedSourcePolicy({ previousSource: CLEAN_SOURCE, healedSource });
+  for (const [label, previousSource, healedSource, pattern] of cases) {
+    const verdict = verifyHealedSourcePolicy({ previousSource, healedSource });
     assert.equal(verdict.passed, false, label);
     assert.match(verdict.issues.join(' '), pattern, label);
   }
@@ -558,7 +567,10 @@ test('known low-entropy secrets in the original source fail before execution, pr
 test('realistic traceability sha256 headers are not mistaken for secret material', async () => {
   const { webRoot, target, targetPath } = makeHealWorkspace();
   const traceabilityHash = '1eb2468715d547fd92573232b3f1f0872fc1fef7767bdfbacce43ebb7e4b08ff';
-  fs.writeFileSync(targetPath, CLEAN_SOURCE.replace('sha256:abc123', `sha256:${traceabilityHash}`));
+  fs.writeFileSync(
+    targetPath,
+    `/* spec: specs/flow.md version:1.0.0 sha256:${traceabilityHash} */\n${CLEAN_SOURCE}`
+  );
   let executionCalls = 0;
   const result = await healSingleTest({
     testPath: target,
@@ -1127,7 +1139,6 @@ test('post-rename audit failure still reports the committed healed mutation accu
     issues: ['locator.click: Timeout 30000ms exceeded while using credential pin7']
   };
   const { run } = executionSequence([FAILED_EXECUTION, secretBearingFailure, PASSED_EXECUTION]);
-  const chmodPaths = [];
   const result = await healSingleTest({
     testPath: target,
     env: { AI_AUTOHEAL_ENABLED: 'true', API_TOKEN: 'pin7' },
@@ -1141,17 +1152,11 @@ test('post-rename audit failure still reports the committed healed mutation accu
     targetDirty: () => false,
     executeStandalone: run,
     archiveFactory: writableArchiveFactory({ failOn: (fileName) => fileName === 'heal-summary.json' }),
-    chmod: (filePath, mode) => {
-      chmodPaths.push(filePath);
-      fs.chmodSync(filePath, mode);
-    },
+    chmod: () => assert.fail('promotion must never chmod a candidate pathname'),
     heal: async () => ({ code: healedSource })
   });
   assert.equal(result.status, 'healed');
   assert.equal(fs.readFileSync(targetPath, 'utf8'), healedSource);
-  assert.equal(chmodPaths.length, 1);
-  assert.match(chmodPaths[0], /\.candidate(?:\.authenticated)?\.spec\.ts$/);
-  assert.notEqual(chmodPaths[0], targetPath);
   assert.deepEqual(result.auditIssues, ['HEAL_AUDIT_FAILURE: Audit details were omitted.']);
   assert.doesNotMatch(JSON.stringify(result.attemptTrail), /pin7/);
   assert.equal(result.attemptTrail.some((entry) => Object.hasOwn(entry, 'detail')), false);
@@ -1684,9 +1689,168 @@ test('healSingleTest aborts when a verified candidate changes on disk', async ()
   assert.equal(fs.readFileSync(targetPath, 'utf8'), CLEAN_SOURCE);
 });
 
-test('healSingleTest runs spec-bound static review before spending a verification run', async () => {
+test('healSingleTest rejects a same-byte candidate inode replacement', async () => {
   const { webRoot, target, targetPath } = makeHealWorkspace();
   const healedSource = CLEAN_SOURCE.replace("getByRole('button', { name: 'Save' })", "getByTestId('save-button')");
+  const { run } = executionSequence([FAILED_EXECUTION, PASSED_EXECUTION]);
+  const result = await healSingleTest({
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true' },
+    webRoot,
+    log: () => {},
+    apply: true,
+    targetDirty: () => false,
+    resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+    reviewContract: () => ({ passed: true, issues: [] }),
+    typecheck: PASSING_TYPECHECK,
+    lint: PASSING_LINT,
+    executeStandalone: (options) => {
+      const outcome = run(options);
+      if (outcome.passed) {
+        const candidatePath = path.resolve(webRoot, options.testPath);
+        const replacementPath = path.join(path.dirname(candidatePath), '.same-byte-replacement.spec.ts');
+        fs.writeFileSync(replacementPath, healedSource, { flag: 'wx', mode: 0o600 });
+        fs.renameSync(replacementPath, candidatePath);
+      }
+      return outcome;
+    },
+    heal: async () => ({ code: healedSource })
+  });
+
+  assert.equal(result.status, 'aborted-candidate-mutation');
+  assert.equal(fs.readFileSync(targetPath, 'utf8'), CLEAN_SOURCE);
+  assert.equal(fs.lstatSync(targetPath).isFile(), true);
+});
+
+test('healSingleTest never follows, chmods, or promotes a same-byte candidate symlink replacement', async () => {
+  const { webRoot, target, targetPath } = makeHealWorkspace();
+  const healedSource = CLEAN_SOURCE.replace("getByRole('button', { name: 'Save' })", "getByTestId('save-button')");
+  const externalPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'heal-candidate-victim-')), 'victim.ts');
+  fs.writeFileSync(externalPath, healedSource, { mode: 0o600 });
+  const externalMode = fs.statSync(externalPath).mode & 0o777;
+  const { run } = executionSequence([FAILED_EXECUTION, PASSED_EXECUTION]);
+  const result = await healSingleTest({
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true' },
+    webRoot,
+    log: () => {},
+    apply: true,
+    targetDirty: () => false,
+    resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+    reviewContract: () => ({ passed: true, issues: [] }),
+    typecheck: PASSING_TYPECHECK,
+    lint: PASSING_LINT,
+    executeStandalone: (options) => {
+      const outcome = run(options);
+      if (outcome.passed) {
+        const candidatePath = path.resolve(webRoot, options.testPath);
+        fs.unlinkSync(candidatePath);
+        fs.symlinkSync(externalPath, candidatePath);
+      }
+      return outcome;
+    },
+    heal: async () => ({ code: healedSource })
+  });
+
+  assert.equal(result.status, 'aborted-candidate-mutation');
+  assert.equal(fs.readFileSync(targetPath, 'utf8'), CLEAN_SOURCE);
+  assert.equal(fs.lstatSync(targetPath).isFile(), true);
+  assert.equal(fs.statSync(externalPath).mode & 0o777, externalMode);
+  assert.equal(fs.readFileSync(externalPath, 'utf8'), healedSource);
+});
+
+test('healSingleTest promotes an unchanged regular candidate with the original target mode', async () => {
+  const { webRoot, target, targetPath } = makeHealWorkspace();
+  fs.chmodSync(targetPath, 0o640);
+  const healedSource = CLEAN_SOURCE.replace("getByRole('button', { name: 'Save' })", "getByTestId('save-button')");
+  const { run } = executionSequence([FAILED_EXECUTION, PASSED_EXECUTION]);
+  const result = await healSingleTest({
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true' },
+    webRoot,
+    log: () => {},
+    apply: true,
+    targetDirty: () => false,
+    resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+    reviewContract: () => ({ passed: true, issues: [] }),
+    typecheck: PASSING_TYPECHECK,
+    lint: PASSING_LINT,
+    executeStandalone: run,
+    heal: async () => ({ code: healedSource })
+  });
+
+  assert.equal(result.status, 'healed');
+  assert.equal(fs.readFileSync(targetPath, 'utf8'), healedSource);
+  assert.equal(fs.lstatSync(targetPath).isFile(), true);
+  assert.equal(fs.lstatSync(targetPath).isSymbolicLink(), false);
+  assert.equal(fs.statSync(targetPath).mode & 0o777, 0o640);
+});
+
+test('standalone verification rejects every symlinked run-root component before browser work', () => {
+  for (const nested of [false, true]) {
+    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'heal-standalone-root-'));
+    const externalRoot = path.join(workspace, 'external');
+    const linkedRoot = path.join(workspace, 'linked');
+    fs.mkdirSync(externalRoot);
+    fs.symlinkSync(externalRoot, linkedRoot, 'dir');
+    const runRoot = nested ? path.join(linkedRoot, 'nested', '.ai-runs') : linkedRoot;
+    let commandCalls = 0;
+
+    assert.throws(
+      () => executeStandaloneTarget({
+        testPath: 'tests/helpers/example.spec.ts',
+        project: 'chromium',
+        repeatEach: 2,
+        env: {},
+        webRoot: workspace,
+        runRoot,
+        commandRunner: () => {
+          commandCalls += 1;
+          return 1;
+        }
+      }),
+      /run root.*symbolic link|symbolic links.*run root/i
+    );
+    assert.equal(commandCalls, 0, 'browser command must not run for a symlinked root');
+    assert.deepEqual(fs.readdirSync(externalRoot), [], 'verification and cleanup must not touch the symlink target');
+  }
+});
+
+test('standalone verification revalidates run-root identity after creating its child', () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'heal-standalone-identity-'));
+  const runRoot = path.join(workspace, '.ai-runs');
+  const displacedRoot = path.join(workspace, '.ai-runs-original');
+  fs.mkdirSync(runRoot);
+  let commandCalls = 0;
+
+  assert.throws(
+    () => executeStandaloneTarget({
+      testPath: 'tests/helpers/example.spec.ts',
+      project: 'chromium',
+      repeatEach: 2,
+      env: {},
+      webRoot: workspace,
+      runRoot,
+      createRunDirectory: (runDir, options) => {
+        fs.mkdirSync(runDir, options);
+        fs.renameSync(runRoot, displacedRoot);
+        fs.mkdirSync(runRoot, { mode: 0o700 });
+        fs.mkdirSync(runDir, { mode: 0o700 });
+      },
+      commandRunner: () => {
+        commandCalls += 1;
+        return 1;
+      }
+    }),
+    /run root.*identity|identity.*run root/i
+  );
+  assert.equal(commandCalls, 0, 'browser command must not run after the run root is replaced');
+});
+
+test('healSingleTest runs spec-bound static review before spending a verification run', async () => {
+  const { webRoot, target, targetPath } = makeHealWorkspace();
+  fs.writeFileSync(targetPath, SPEC_SOURCE);
+  const healedSource = SPEC_SOURCE.replace("getByRole('button', { name: 'Save' })", "getByTestId('save-button')");
   const { run, calls } = executionSequence([FAILED_EXECUTION, PASSED_EXECUTION]);
   const reviews = [];
   const result = await healSingleTest({
@@ -1724,7 +1888,7 @@ test('healSingleTest routes recorded candidates through the recorded reviewer be
   fs.mkdirSync(testDir, { recursive: true });
   const target = 'tests/recorded/save.spec.ts';
   const targetPath = path.join(webRoot, target);
-  const recordedSource = `/* recording: recordings/save.json title:Save sha256:${'a'.repeat(64)} */\n${CLEAN_SOURCE.split('\n').slice(1).join('\n')}`;
+  const recordedSource = `/* recording: recordings/save.json title:Save sha256:${'a'.repeat(64)} */\n${CLEAN_SOURCE}`;
   const healedSource = recordedSource.replace("getByRole('button', { name: 'Save' })", "getByTestId('save-button')");
   fs.writeFileSync(targetPath, recordedSource, { mode: 0o644 });
   const { run, calls } = executionSequence([FAILED_EXECUTION, PASSED_EXECUTION]);
@@ -1761,7 +1925,7 @@ test('healSingleTest rejects a removed recorded header before candidate runtime 
   fs.mkdirSync(testDir, { recursive: true });
   const target = 'tests/recorded/save.spec.ts';
   const targetPath = path.join(webRoot, target);
-  const recordedSource = `/* recording: recordings/save.json title:Save sha256:${'a'.repeat(64)} */\n${CLEAN_SOURCE.split('\n').slice(1).join('\n')}`;
+  const recordedSource = `/* recording: recordings/save.json title:Save sha256:${'a'.repeat(64)} */\n${CLEAN_SOURCE}`;
   fs.writeFileSync(targetPath, recordedSource, { mode: 0o644 });
   const { run, calls } = executionSequence([FAILED_EXECUTION]);
 

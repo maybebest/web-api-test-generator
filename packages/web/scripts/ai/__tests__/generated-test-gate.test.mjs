@@ -102,7 +102,16 @@ test('playwright stage pins the html reporter to never auto-open', () => {
   });
 
   assert.equal(stage.command, 'npx');
-  assert.deepEqual(stage.args, ['playwright', 'test', TARGET, '--project=chromium', '--reporter=html,json']);
+  assert.deepEqual(stage.args, [
+    'playwright',
+    'test',
+    TARGET,
+    '--project=chromium',
+    '--reporter=html,json',
+    '--retries=0',
+    '--repeat-each=3',
+    '--max-failures=1'
+  ]);
   assert.equal(stage.env.PLAYWRIGHT_HTML_OPEN, 'never');
   assert.equal(stage.env.PW_TEST_HTML_REPORT_OPEN, 'never');
   // Caller-provided stage env must survive the merge, and the JSON report

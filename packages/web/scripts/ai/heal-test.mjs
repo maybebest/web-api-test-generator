@@ -27,7 +27,11 @@ import { reviewRecordedTest } from './review-recorded-test.mjs';
 import { isPendingGenerationSpec, validateSpecDirectory } from './validate-flow-spec.mjs';
 import { resolveEnv } from './lib/ai-client.mjs';
 import { executeGeneratedPair } from './lib/generated-gate-runner.mjs';
-import { ensureVerifiedDirectory, readVerifiedJsonFile } from './lib/verified-file-read.mjs';
+import {
+  ensureVerifiedDirectory,
+  readVerifiedJsonFile,
+  verifiedDirectory
+} from './lib/verified-file-read.mjs';
 import { buildGateEnvironment, knownSecretEnvValues } from './lib/gate-environment.mjs';
 import { resolveHealContract, reviewHealContract } from './lib/test-heal-contract.mjs';
 import { collectHealContext } from './lib/test-heal-context.mjs';
@@ -36,6 +40,7 @@ import { hasKnownSecretShape, redactSecretMaterial } from './lib/secret-safety.m
 import {
   MAX_AUTOHEAL_MAX_ATTEMPTS,
   MAX_HEAL_EVIDENCE_ITEMS,
+  MAX_HEAL_SOURCE_BYTES,
   autoHealEnabled,
   autoHealMaxAttempts,
   autoHealVerifyRuns,
@@ -171,6 +176,61 @@ function detectPackageManager(rootDir) {
   return 'npm';
 }
 
+function directoryIdentity(directory) {
+  const stat = fs.lstatSync(directory);
+  if (stat.isSymbolicLink() || !stat.isDirectory()) {
+    throw new Error(`Standalone verification directory must remain a real directory: ${directory}`);
+  }
+  return Object.freeze({ dev: stat.dev, ino: stat.ino });
+}
+
+function sameDirectoryIdentity(left, right) {
+  return left?.dev === right?.dev && left?.ino === right?.ino;
+}
+
+function strictDescendant(candidate, root) {
+  const relative = path.relative(root, candidate);
+  return !!relative && !relative.startsWith('..') && !path.isAbsolute(relative);
+}
+
+function assertStandaloneRunDirectoryIdentity(identity) {
+  const root = verifiedDirectory(identity.rootReal, 'Standalone verification run root');
+  const run = verifiedDirectory(identity.runReal, 'Standalone verification execution directory');
+  if (root.real !== identity.rootReal
+    || run.real !== identity.runReal
+    || !strictDescendant(run.real, root.real)
+    || !sameDirectoryIdentity(identity.root, directoryIdentity(root.real))
+    || !sameDirectoryIdentity(identity.run, directoryIdentity(run.real))) {
+    throw new Error('Standalone verification run root or execution directory identity changed before browser work.');
+  }
+}
+
+function prepareStandaloneRunDirectory(requestedRunRoot, createDirectory = fs.mkdirSync) {
+  const verifiedRoot = ensureVerifiedDirectory(
+    requestedRunRoot,
+    'Standalone verification run root',
+    0o700
+  );
+  const rootIdentity = directoryIdentity(verifiedRoot.real);
+  const runDir = path.join(
+    verifiedRoot.real,
+    `heal-verify-${Date.now()}-${process.pid}-${crypto.randomUUID()}`
+  );
+  createDirectory(runDir, { mode: 0o700 });
+  const verifiedRunDir = verifiedDirectory(runDir, 'Standalone verification execution directory');
+  if (!strictDescendant(verifiedRunDir.real, verifiedRoot.real)) {
+    throw new Error('Standalone verification execution directory escaped its verified run root.');
+  }
+  const runDirIdentity = Object.freeze({
+    rootReal: verifiedRoot.real,
+    root: rootIdentity,
+    runReal: verifiedRunDir.real,
+    run: directoryIdentity(verifiedRunDir.real)
+  });
+  assertStandaloneRunDirectoryIdentity(runDirIdentity);
+  return Object.freeze({ runDir: verifiedRunDir.real, runDirIdentity });
+}
+
 // Single-project verification lane for tests that are not bound to a flow spec.
 // Mirrors executeGeneratedPair's per-project contract: JSON report verified for
 // the exact repeat count with retries=0, flaky or skipped outcomes fail.
@@ -182,14 +242,12 @@ export function executeStandaloneTarget({
   webRoot = process.cwd(),
   runRoot,
   commandRunner = defaultCommandRunner,
-  packageManager = detectPackageManager(webRoot)
+  packageManager = detectPackageManager(webRoot),
+  createRunDirectory = fs.mkdirSync
 }) {
   const resolvedRunRoot = path.resolve(runRoot ?? path.join(webRoot, '.ai-runs'));
-  const runDir = path.join(
-    resolvedRunRoot,
-    `heal-verify-${Date.now()}-${process.pid}-${crypto.randomUUID()}`
-  );
-  fs.mkdirSync(runDir, { recursive: true, mode: 0o700 });
+  const preparedRun = prepareStandaloneRunDirectory(resolvedRunRoot, createRunDirectory);
+  const { runDir, runDirIdentity } = preparedRun;
   const jsonReportPath = path.join(runDir, 'playwright.json');
   const htmlReportDir = path.join(runDir, 'html');
   const testResultsDir = path.join(runDir, 'test-results');
@@ -203,6 +261,7 @@ export function executeStandaloneTarget({
     repeatEach
   });
   const profile = project === 'local-chromium' ? 'local-runtime' : 'external-runtime';
+  assertStandaloneRunDirectoryIdentity(runDirIdentity);
   const status = commandRunner({
     ...stage,
     // Serial execution keeps "N consecutive runs" literal for repeat-each.
@@ -221,7 +280,7 @@ export function executeStandaloneTarget({
   });
   const passed = status === 0 && verdict.passed === true;
   if (passed) {
-    fs.rmSync(runDir, { recursive: true, force: true });
+    cleanupFailedRunDir({ runDir, runDirIdentity }, resolvedRunRoot);
     return { passed: true, attempted: true, stage: 'accepted', issues: [], artifacts: [], runDir: undefined };
   }
   return {
@@ -230,7 +289,8 @@ export function executeStandaloneTarget({
     stage: playwrightFailureStage(status, verdict),
     issues: verdict.issues ?? [`Playwright exited ${status} for ${testPath}.`],
     artifacts: [{ project, jsonReportPath, htmlReportDir, testResultsDir }],
-    runDir
+    runDir,
+    runDirIdentity
   };
 }
 
@@ -266,9 +326,20 @@ export function collectRuntimeEvidence(execution, targetTestFile, {
 function cleanupFailedRunDir(execution, runRoot) {
   const runDir = execution?.runDir;
   if (!runDir) return;
-  const resolved = path.resolve(runDir);
-  if (!resolved.startsWith(`${path.resolve(runRoot)}${path.sep}`)) return;
-  fs.rmSync(resolved, { recursive: true, force: true });
+  try {
+    const root = verifiedDirectory(path.resolve(runRoot), 'Standalone verification cleanup root');
+    const run = verifiedDirectory(path.resolve(runDir), 'Standalone verification cleanup directory');
+    if (!strictDescendant(run.real, root.real)) return;
+    const captured = execution.runDirIdentity;
+    if (captured) {
+      if (captured.rootReal !== root.real || captured.runReal !== run.real) return;
+      if (!sameDirectoryIdentity(captured.root, directoryIdentity(root.real))) return;
+      if (!sameDirectoryIdentity(captured.run, directoryIdentity(run.real))) return;
+    }
+    fs.rmSync(run.real, { recursive: true, force: true });
+  } catch {
+    // Cleanup is best effort and must never cross an unverified path.
+  }
 }
 
 // The generated-test gates typecheck candidates via their global static stage;
@@ -317,6 +388,132 @@ export function typecheckCandidate({ candidatePath, targetPath, webRoot = proces
 
 function sha256(bytes) {
   return crypto.createHash('sha256').update(bytes).digest('hex');
+}
+
+function boundRegularFileStat(stat) {
+  return Object.freeze({
+    dev: stat.dev,
+    ino: stat.ino,
+    mode: stat.mode,
+    size: stat.size,
+    mtimeMs: stat.mtimeMs,
+    ctimeMs: stat.ctimeMs
+  });
+}
+
+function sameBoundRegularFileStat(left, right) {
+  return left.dev === right.dev
+    && left.ino === right.ino
+    && left.mode === right.mode
+    && left.size === right.size
+    && left.mtimeMs === right.mtimeMs
+    && left.ctimeMs === right.ctimeMs;
+}
+
+function readDescriptorBytes(descriptor, size, label) {
+  if (!Number.isSafeInteger(size) || size < 0 || size > MAX_HEAL_SOURCE_BYTES) {
+    throw new Error(`${label} has an invalid or oversized file length.`);
+  }
+  const bytes = Buffer.alloc(size);
+  let offset = 0;
+  while (offset < size) {
+    const count = fs.readSync(descriptor, bytes, offset, size - offset, offset);
+    if (count === 0) throw new Error(`${label} changed while its bytes were read.`);
+    offset += count;
+  }
+  return bytes;
+}
+
+function closeBoundRegularFile(binding) {
+  if (!binding || binding.closed) return;
+  binding.closed = true;
+  fs.closeSync(binding.descriptor);
+}
+
+function removePathWithoutFollowingLinks(filePath) {
+  try {
+    const stat = fs.lstatSync(filePath);
+    if (!stat.isDirectory()) fs.unlinkSync(filePath);
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+  }
+}
+
+function removeBoundRegularFile(binding) {
+  if (!binding) return;
+  closeBoundRegularFile(binding);
+  removePathWithoutFollowingLinks(binding.path);
+}
+
+function createBoundRegularFile(filePath, source, mode, label) {
+  const bytes = Buffer.isBuffer(source) ? Buffer.from(source) : Buffer.from(String(source), 'utf8');
+  const flags = fs.constants.O_RDWR
+    | fs.constants.O_CREAT
+    | fs.constants.O_EXCL
+    | (fs.constants.O_NOFOLLOW ?? 0);
+  let descriptor;
+  try {
+    descriptor = fs.openSync(filePath, flags, mode);
+    let offset = 0;
+    while (offset < bytes.length) {
+      const count = fs.writeSync(descriptor, bytes, offset, bytes.length - offset, offset);
+      if (count === 0) throw new Error(`${label} could not be written completely.`);
+      offset += count;
+    }
+    fs.fchmodSync(descriptor, mode);
+    fs.fsyncSync(descriptor);
+    const opened = fs.fstatSync(descriptor);
+    const pathStat = fs.lstatSync(filePath);
+    if (!opened.isFile()
+      || pathStat.isSymbolicLink()
+      || !pathStat.isFile()
+      || opened.dev !== pathStat.dev
+      || opened.ino !== pathStat.ino) {
+      throw new Error(`${label} is not the exclusively created regular file.`);
+    }
+    const actualBytes = readDescriptorBytes(descriptor, opened.size, label);
+    const after = fs.fstatSync(descriptor);
+    if (!sameBoundRegularFileStat(boundRegularFileStat(opened), boundRegularFileStat(after))
+      || !actualBytes.equals(bytes)) {
+      throw new Error(`${label} changed while it was bound to its descriptor.`);
+    }
+    return {
+      path: filePath,
+      descriptor,
+      closed: false,
+      bytes,
+      sha256: sha256(bytes),
+      stat: boundRegularFileStat(after)
+    };
+  } catch (error) {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
+    try { removePathWithoutFollowingLinks(filePath); } catch {}
+    throw error;
+  }
+}
+
+function assertBoundRegularFileUnchanged(binding, label) {
+  if (!binding || binding.closed) throw new Error(`${label} descriptor is not available.`);
+  const pathStat = fs.lstatSync(binding.path);
+  const opened = fs.fstatSync(binding.descriptor);
+  if (pathStat.isSymbolicLink()
+    || !pathStat.isFile()
+    || !opened.isFile()
+    || !sameBoundRegularFileStat(binding.stat, boundRegularFileStat(pathStat))
+    || !sameBoundRegularFileStat(binding.stat, boundRegularFileStat(opened))) {
+    throw new Error(`${label} path or inode changed during verification.`);
+  }
+  const bytes = readDescriptorBytes(binding.descriptor, opened.size, label);
+  const after = fs.fstatSync(binding.descriptor);
+  const afterPath = fs.lstatSync(binding.path);
+  if (!sameBoundRegularFileStat(binding.stat, boundRegularFileStat(after))
+    || afterPath.isSymbolicLink()
+    || !afterPath.isFile()
+    || !sameBoundRegularFileStat(binding.stat, boundRegularFileStat(afterPath))
+    || !bytes.equals(binding.bytes)
+    || sha256(bytes) !== binding.sha256) {
+    throw new Error(`${label} metadata or bytes changed during verification.`);
+  }
 }
 
 function snapshotFromStat(stat, digest) {
@@ -630,7 +827,6 @@ export async function healSingleTest({
   heal = healTestSource,
   typecheck = typecheckCandidate,
   lint = lintCandidate,
-  chmod = fs.chmodSync,
   targetDirty = gitTargetDirty,
   collectEvidence = collectRuntimeEvidence,
   archiveFactory = createHealArchive,
@@ -786,8 +982,10 @@ export async function healSingleTest({
   // A crash must not leave an unreviewed candidate inside tests/ where normal
   // suite runs would execute it.
   let activeCandidate = null;
+  let activePromotion = null;
   const removeActiveCandidate = () => {
-    if (activeCandidate) fs.rmSync(activeCandidate, { force: true });
+    if (activeCandidate) removeBoundRegularFile(activeCandidate);
+    if (activePromotion) removeBoundRegularFile(activePromotion);
   };
   const onSignal = (signalName) => {
     removeActiveCandidate();
@@ -854,8 +1052,13 @@ export async function healSingleTest({
 
       const candidateAbsolute = healCandidatePath(absoluteTarget, `${runId}-a${attempt}`);
       const candidateRelative = normalizePortablePath(path.relative(webRoot, candidateAbsolute));
-      fs.writeFileSync(candidateAbsolute, healed.code, { flag: 'wx', mode: 0o600 });
-      activeCandidate = candidateAbsolute;
+      const candidateBinding = createBoundRegularFile(
+        candidateAbsolute,
+        healed.code,
+        0o600,
+        'Test-heal candidate'
+      );
+      activeCandidate = candidateBinding;
       try {
         const types = typecheck({ candidatePath: candidateAbsolute, targetPath: absoluteTarget, webRoot });
         checks.typecheck = types.passed ? 'passed' : 'rejected';
@@ -898,8 +1101,15 @@ export async function healSingleTest({
           ? 'passed'
           : execution.stage === 'runtime-environment' ? 'environment-failure' : 'failed';
         if (execution.passed) {
-          const candidateSha = sha256(Buffer.from(healed.code, 'utf8'));
-          const candidateStillMatches = () => sha256(fs.readFileSync(candidateAbsolute)) === candidateSha;
+          const candidateSha = candidateBinding.sha256;
+          const candidateStillMatches = () => {
+            try {
+              assertBoundRegularFileUnchanged(candidateBinding, 'Test-heal candidate');
+              return true;
+            } catch {
+              return false;
+            }
+          };
           if (!candidateStillMatches()) {
             checks.candidateIntegrity = 'rejected';
             recordAttempt('aborted-candidate-mutation');
@@ -928,7 +1138,7 @@ export async function healSingleTest({
               issues: ['The healed candidate changed while its proposal diff was produced; it was not proposed or promoted.']
             });
           }
-          const candidateArchivePath = archive.write('candidate.ts', healed.code);
+          const candidateArchivePath = archive.write('candidate.ts', candidateBinding.bytes);
           const diffPath = archive.write('candidate.diff', diff.diff);
 
           if (repositoryContext.manualChangeRequired) {
@@ -986,7 +1196,6 @@ export async function healSingleTest({
             });
           }
           checks.targetSnapshot = 'passed';
-          chmod(candidateAbsolute, startingTarget.mode);
           if (!candidateStillMatches()) {
             checks.candidateIntegrity = 'rejected';
             recordAttempt('aborted-candidate-mutation');
@@ -999,7 +1208,56 @@ export async function healSingleTest({
               issues: ['The healed candidate changed before atomic promotion; it was not promoted.']
             });
           }
-          fs.renameSync(candidateAbsolute, absoluteTarget);
+          const promotionPath = path.join(
+            path.dirname(absoluteTarget),
+            `.${path.basename(absoluteTarget)}.${runId}.${crypto.randomUUID()}.promotion`
+          );
+          activePromotion = createBoundRegularFile(
+            promotionPath,
+            candidateBinding.bytes,
+            startingTarget.mode,
+            'Test-heal promotion source'
+          );
+          if (activePromotion.sha256 !== candidateSha) {
+            throw new Error('Test-heal promotion source does not match the verified candidate bytes.');
+          }
+          if (!candidateStillMatches()) {
+            checks.candidateIntegrity = 'rejected';
+            recordAttempt('aborted-candidate-mutation');
+            return finish({
+              status: 'aborted-candidate-mutation',
+              attemptsUsed: attempt,
+              candidateSha256: candidateSha,
+              candidatePath: candidateArchivePath,
+              diffPath,
+              issues: ['The healed candidate changed while its promotion source was prepared; it was not promoted.']
+            });
+          }
+          assertBoundRegularFileUnchanged(activePromotion, 'Test-heal promotion source');
+          fs.unlinkSync(candidateAbsolute);
+          let finalTarget;
+          try {
+            finalTarget = captureTargetSnapshot(absoluteTarget).snapshot;
+          } catch {
+            finalTarget = null;
+          }
+          if (!finalTarget || !snapshotsEqual(finalTarget, startingTarget.snapshot)) {
+            checks.targetSnapshot = 'changed';
+            recordAttempt('aborted-concurrent-edit');
+            return finish({
+              status: 'aborted-concurrent-edit',
+              attemptsUsed: attempt,
+              candidateSha256: candidateSha,
+              candidatePath: candidateArchivePath,
+              diffPath,
+              issues: [`${target} changed immediately before promotion; the concurrent edit was preserved.`]
+            });
+          }
+          assertBoundRegularFileUnchanged(activePromotion, 'Test-heal promotion source');
+          fs.renameSync(activePromotion.path, absoluteTarget);
+          closeBoundRegularFile(activePromotion);
+          activePromotion = null;
+          closeBoundRegularFile(candidateBinding);
           activeCandidate = null;
           recordAttempt('healed');
           const healedResult = {
@@ -1064,6 +1322,7 @@ export async function healSingleTest({
       } finally {
         removeActiveCandidate();
         activeCandidate = null;
+        activePromotion = null;
       }
     }
 
