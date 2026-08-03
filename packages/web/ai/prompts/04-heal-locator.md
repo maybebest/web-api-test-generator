@@ -19,10 +19,16 @@ AI_AUTOHEAL_ENABLED=true npm run ai:test:heal -- --test tests/recorded/checkout-
 AI_AUTOHEAL_ENABLED=true npm run ai:test:heal -- --test tests/recorded/checkout-confirmation.spec.ts --apply --allow-dirty
 ```
 
-The default success status is `proposal-ready`: its candidate diff is evidence only and the target
-is unchanged. `--allow-dirty` is invalid unless `--apply` is also present. A supplied
-`--dom-snapshot` must be a verified selector-discovery artifact below `.ai-runs/dom-discovery/`;
-only its bounded context is supplied to the healer.
+The default success status is `proposal-ready` only when a repairable failing target produces a
+fully verified single-test candidate: its candidate diff is evidence only and the target is
+unchanged. A baseline-green target returns `already-green` with no proposal. Environment,
+non-repairable, and `manual-change-required` paths return their own statuses and might not create a
+candidate proposal. Page Object or Component source is context-only, returns
+`manual-change-required`, and is never auto-promoted. `--allow-dirty` is invalid unless `--apply`
+is also present. `--apply` promotes a fully verified target, clean unless `--allow-dirty` is
+explicit; integrity and concurrency checks always remain. A supplied `--dom-snapshot` must be a
+verified selector-discovery artifact below `.ai-runs/dom-discovery/`; only its bounded context is
+supplied to the healer.
 
 Only `locator-drift` and `synchronization` runtime failures are repairable. Product, auth,
 network, data, assertion-mismatch, and unclassified failures require human action and are

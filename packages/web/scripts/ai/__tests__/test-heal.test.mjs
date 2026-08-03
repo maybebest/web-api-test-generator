@@ -1473,7 +1473,9 @@ test('CLI help and exit-status policy distinguish proposals from failures', asyn
 test('CLI help documents the safe healing contract', () => {
   for (const required of [
     '--apply', '--allow-dirty', '--dom-snapshot', 'proposal-ready',
-    'locator-drift', 'synchronization', 'recorded reviewer'
+    'locator-drift', 'synchronization', 'recorded reviewer',
+    'all verification lanes', '--workers=1', 'exact consecutive repetitions',
+    'already-green', 'manual-change-required', 'context-only'
   ]) assert.match(helpText(), new RegExp(required.replaceAll('-', '\\-'), 'i'));
 });
 

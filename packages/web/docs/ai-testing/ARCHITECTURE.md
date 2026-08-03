@@ -80,14 +80,19 @@ Generate a suite only when the spec declares `Generation Mode | suite` or a suit
 
 `scripts/ai/heal-test.mjs` repairs verified `locator-drift` or `synchronization` runtime failures
 only. It runs a baseline, applies deterministic candidate policy/typecheck/lint/reviewer checks,
-then requires `AI_AUTOHEAL_VERIFY_RUNS` consecutive green runs with retries disabled. The safe
-default archives a `proposal-ready` candidate and leaves the target unchanged; only `--apply`
-atomically promotes a clean, fully verified target. `--allow-dirty` is accepted only with
-`--apply`. Product, auth, network, data, assertion-mismatch, and unclassified failures are not
-repairable. A `--dom-snapshot` is verified selector-discovery evidence below
-`.ai-runs/dom-discovery/`, bounded to a fixed 64 KiB before prompt construction. Recorded targets
-pass the recorded reviewer before runtime verification; spec-bound targets pass the generated-test
-reviewer. See `ai/prompts/04-heal-locator.md` for the exact operator commands.
+then requires `AI_AUTOHEAL_VERIFY_RUNS` exact consecutive green runs; every verification lane uses
+one worker and retries disabled. A baseline-green target returns `already-green` without a proposal.
+For a repairable failing target that produces a fully verified single-test candidate, the safe
+default archives `proposal-ready` and leaves the target unchanged. Environment, non-repairable, and
+`manual-change-required` paths return their own statuses and might not create a candidate proposal.
+Page Object or Component source is context-only: it returns `manual-change-required` and is never
+auto-promoted. Only `--apply` atomically promotes a fully verified target, clean unless
+`--allow-dirty` is explicit; integrity and concurrency checks always remain. Product, auth,
+network, data, assertion-mismatch, and unclassified failures are not repairable. A
+`--dom-snapshot` is verified selector-discovery evidence below `.ai-runs/dom-discovery/`, bounded
+to a fixed 64 KiB before prompt construction. Recorded targets pass the recorded reviewer before
+runtime verification; spec-bound targets pass the generated-test reviewer. See
+`ai/prompts/04-heal-locator.md` for the exact operator commands.
 
 ## Contract Extensions
 

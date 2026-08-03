@@ -85,10 +85,11 @@ You are working on an AI-assisted Playwright AQA framework.
 
 ## Safe Test Healing
 
-- The default `AI_AUTOHEAL_ENABLED=true npm run ai:test:heal -- --test <file>` produces a fully verified `proposal-ready` archive and must not mutate the target. Only `--apply` may promote a candidate; `--allow-dirty` requires `--apply`.
+- A baseline-green target returns `already-green` with no proposal. The default command produces `proposal-ready` only after a repairable failing target yields a fully verified single-test candidate, and it must not mutate the target. Non-repairable, environment, and `manual-change-required` paths return their own statuses and might not create a proposal.
+- Only `--apply` may promote a fully verified target, clean unless `--allow-dirty` is explicit; integrity and concurrency checks always remain. `--allow-dirty` requires `--apply`.
 - Repair only `locator-drift` and `synchronization` runtime failures. Product, auth, network, data, assertion-mismatch, and unclassified failures are not repairable.
 - Pass `--dom-snapshot` only a verified selector-discovery artifact under `.ai-runs/dom-discovery/`; the framework supplies a fixed, non-configurable 64 KiB context.
-- Recorded targets must pass the recorded reviewer before runtime verification. For intentional functionality changes, update the Markdown spec/version/AC/data cases before changing test expectations.
+- Recorded targets must pass the recorded reviewer before runtime verification. Page Object/Component source is context-only, returns `manual-change-required`, and is never auto-promoted. For intentional functionality changes, update the Markdown spec/version/AC/data cases before changing test expectations.
 
 ## AI Brain for Generation
 

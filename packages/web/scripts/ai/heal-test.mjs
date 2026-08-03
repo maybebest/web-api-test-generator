@@ -1089,13 +1089,17 @@ Runs each target test first (baseline). A test that already passes the required 
 runs is reported as already-green and never modified. For a runtime failure the healer asks the
 heal brain (stage 'heal', see AI_HEAL_* env) for a repaired file, rejects candidates that violate
 the AST-level anti-masking policy (no removed/downgraded/conditional assertions, no skip family,
-no sleeps or XPath) or fail typechecking/linting, and verifies survivors with consecutive green runs
-(retries=0, flaky = fail; standalone lanes run --workers=1 so the runs are literally serial).
+no sleeps or XPath) or fail typechecking/linting, and verifies survivors with exact consecutive repetitions
+(all verification lanes use --workers=1 and --retries=0; flaky = fail).
 Only locator-drift and synchronization runtime failures are repairable. Product, auth, network,
-data, assertion-mismatch, and unclassified failures are reported as not-repairable. By default a
-verified candidate is archived as proposal-ready and the target remains unchanged. Only --apply
-can atomically promote it over the original. Every attempt and the original file are archived under
-.ai-runs/heal/<run-id>/.
+data, assertion-mismatch, and unclassified failures are reported as not-repairable. A baseline-green
+target returns already-green without a proposal. For a repairable failing target that produces a
+fully verified single-test candidate, default mode archives proposal-ready and leaves the target
+unchanged. Environment, non-repairable, and manual-change-required paths return their own statuses
+and might not create a candidate proposal. Page Object or Component source is context-only and
+returns manual-change-required; it is never auto-promoted. Only --apply can atomically promote a
+fully verified target (clean unless --allow-dirty is explicit); integrity and concurrency checks
+always remain. Every attempt and the original file are archived under .ai-runs/heal/<run-id>/.
 
 Settings:
   AI_AUTOHEAL_ENABLED       must be true to generate a repair proposal (default false)
