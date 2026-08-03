@@ -102,6 +102,8 @@ function containsSensitiveArtifactStructure(value, location = 'artifact') {
   }
   if (!isPlainObject(value)) return undefined;
   for (const [key, entry] of Object.entries(value)) {
+    const supportedScreenshotMetadata = location === 'artifact' && key === 'screenshotPath';
+    if (supportedScreenshotMetadata) continue;
     const canonical = key.toLowerCase().replace(/[^a-z0-9]/g, '');
     if (SENSITIVE_ARTIFACT_KEYS.has(canonical)
       || canonical.startsWith('auth')
@@ -158,7 +160,7 @@ function projectSelectorDiscoveryArtifact(artifactValue, secretValues) {
   }
   requireOnlyKeys(artifact, new Set([
     'specPath', 'specSha256', 'flowId', 'specVersion', 'url', 'capturedAt', 'source',
-    'sourceCommands', 'selectorOwnership', 'locatorAudit', 'elements'
+    'sourceCommands', 'selectorOwnership', 'locatorAudit', 'screenshotPath', 'elements'
   ]), 'Heal DOM selector discovery artifact');
   if (artifact.source !== 'agent-browser' || artifact.selectorOwnership !== 'framework') {
     throw new Error('Heal DOM selector discovery artifact has invalid source or selector ownership.');
@@ -184,6 +186,19 @@ function projectSelectorDiscoveryArtifact(artifactValue, secretValues) {
     || artifact.sourceCommands.length === 0
     || artifact.sourceCommands.some((command) => typeof command !== 'string' || !command.trim())) {
     throw new Error('Heal DOM selector discovery artifact.sourceCommands must contain command provenance.');
+  }
+  if (artifact.screenshotPath !== undefined) {
+    const screenshotPath = requireString(
+      artifact.screenshotPath,
+      'Heal DOM selector discovery artifact.screenshotPath',
+      { maxChars: 1_024 }
+    );
+    if (/[\u0000-\u001f\u007f]/.test(screenshotPath)
+      || !/\.(?:png|jpe?g|webp)$/i.test(screenshotPath)
+      || /^data:/i.test(screenshotPath)
+      || /;base64,/i.test(screenshotPath)) {
+      throw new Error('Heal DOM selector discovery artifact.screenshotPath must be image-file metadata only.');
+    }
   }
   const locatorAudit = normalizeLocatorAudit(artifact.locatorAudit, 'Heal DOM selector discovery artifact.locatorAudit');
   if (!Array.isArray(artifact.elements)) {
@@ -313,10 +328,13 @@ function normalizeProjectedSelectorContext(value, secretValues) {
   return { source: 'agent-browser', selectorOwnership: 'framework', locatorAudit, elements };
 }
 
-function validContextPath(value, pattern, label) {
+function validContextPath(value, pattern, label, secretValues) {
   const candidate = requireString(value, label, { maxChars: MAX_CONTEXT_PATH_CHARS });
   if (candidate.includes('\\') || candidate.includes('\0') || path.posix.normalize(candidate) !== candidate || !pattern.test(candidate)) {
     throw new Error(`${label} is outside the allowed repository context path.`);
+  }
+  if (sanitizedContextString(candidate, secretValues) !== candidate) {
+    throw new Error(`${label} contains known or secret-like material.`);
   }
   return candidate;
 }
@@ -335,7 +353,12 @@ export function normalizeHealRepositoryContext(repositoryContext, { secretValues
     const label = `Heal repository context.importedSources[${index}]`;
     const imported = requireObject(sourceValue, label);
     requireOnlyKeys(imported, new Set(['path', 'sha256', 'excerpt']), label);
-    const sourcePath = validContextPath(imported.path, /^(?:pages|components)\/(?!.*(?:^|\/)\.\.?(?:\/|$)).+\.ts$/, `${label}.path`);
+    const sourcePath = validContextPath(
+      imported.path,
+      /^(?:pages|components)\/(?!.*(?:^|\/)\.\.?(?:\/|$)).+\.ts$/,
+      `${label}.path`,
+      secretValues
+    );
     if (!SHA256_PATTERN.test(imported.sha256)) throw new Error(`${label}.sha256 must be a lowercase SHA-256 digest.`);
     const excerpt = requireString(imported.excerpt, `${label}.excerpt`);
     if (Buffer.byteLength(excerpt, 'utf8') > MAX_IMPORTED_FILE_BYTES) {
@@ -369,7 +392,8 @@ export function normalizeHealRepositoryContext(repositoryContext, { secretValues
     const domPath = validContextPath(
       dom.path,
       /^\.ai-runs\/dom-discovery\/.+\.json$/,
-      'Heal repository context.domSnapshot.path'
+      'Heal repository context.domSnapshot.path',
+      secretValues
     );
     if (!SHA256_PATTERN.test(dom.sha256)) {
       throw new Error('Heal repository context.domSnapshot.sha256 must be a lowercase SHA-256 digest.');

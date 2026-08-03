@@ -214,6 +214,48 @@ test('collectHealContext rejects imported sources containing a runner-known secr
   );
 });
 
+test('collectHealContext rejects known secret values in imported and DOM artifact paths', () => {
+  const importedWorkspace = makeWorkspace();
+  const secretPageDirectory = path.join(importedWorkspace.webRoot, 'pages', 'ordinary-pass');
+  fs.mkdirSync(secretPageDirectory, { recursive: true });
+  fs.writeFileSync(
+    path.join(secretPageDirectory, 'SecretPathPage.ts'),
+    `export class SecretPathPage { constructor(private readonly page: Page) {} }\n`
+  );
+  assert.throws(
+    () => collectHealContext({
+      testPath: importedWorkspace.testPath,
+      source: `import { SecretPathPage } from '../../pages/ordinary-pass/SecretPathPage';\n`,
+      evidence: [],
+      webRoot: importedWorkspace.webRoot,
+      secretValues: ['ordinary-pass']
+    }),
+    /path|secret/i
+  );
+
+  const domWorkspace = makeWorkspace();
+  const secretDomDirectory = path.join(
+    domWorkspace.webRoot,
+    '.ai-runs',
+    'dom-discovery',
+    'ordinary-pass'
+  );
+  fs.mkdirSync(secretDomDirectory, { recursive: true });
+  const domSnapshotPath = path.join(secretDomDirectory, 'selector-candidates.json');
+  fs.writeFileSync(domSnapshotPath, JSON.stringify(selectorDiscoveryArtifact()));
+  assert.throws(
+    () => collectHealContext({
+      testPath: domWorkspace.testPath,
+      source: '',
+      evidence: [],
+      webRoot: domWorkspace.webRoot,
+      domSnapshotPath,
+      secretValues: ['ordinary-pass']
+    }),
+    /path|secret/i
+  );
+});
+
 test('collectHealContext caps imported files and truncates only at method boundaries', () => {
   const { webRoot, testPath } = makeWorkspace();
   const imports = [];
@@ -274,7 +316,8 @@ test('collectHealContext rejects storage, cookie, header, auth, and trace-shaped
     { elements: [{ ...nestedHeaderElement, attributes: { requestHeaders: { 'x-user': 'ordinary-header-value' } } }] },
     { storageState: { origins: [{ origin: 'https://example.test', localStorage: [] }] } },
     { authState: { user: 'person@example.test' } },
-    { trace: { events: [] } }
+    { trace: { events: [] } },
+    { screenshotData: 'data:image/png;base64,iVBORw0KGgo=' }
   ];
   for (const [index, artifact] of scenarios.entries()) {
     const { webRoot, testPath } = makeWorkspace();
@@ -291,6 +334,19 @@ test('collectHealContext rejects storage, cookie, header, auth, and trace-shaped
       /selector discovery|cookie|header|storage|auth|trace|sensitive/i
     );
   }
+});
+
+test('collectHealContext accepts genuine screenshotPath metadata but never projects it', () => {
+  const { webRoot, testPath } = makeWorkspace();
+  const artifact = selectorDiscoveryArtifact();
+  artifact.screenshotPath = '.ai-runs/dom-discovery/run/page.png';
+  const domSnapshotPath = path.join(webRoot, '.ai-runs', 'dom-discovery', 'run', 'with-screenshot.json');
+  fs.writeFileSync(domSnapshotPath, JSON.stringify(artifact));
+
+  const context = collectHealContext({ testPath, source: '', evidence: [], webRoot, domSnapshotPath });
+
+  assert.doesNotMatch(context.domSnapshot.content, /screenshot|page\.png/i);
+  assert.equal(JSON.parse(context.domSnapshot.content).source, 'agent-browser');
 });
 
 test('collectHealContext rejects artifacts without genuine discovery identity or with forbidden locators', () => {

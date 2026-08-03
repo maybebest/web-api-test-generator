@@ -333,6 +333,30 @@ test('heal prompt enforces repository context bounds again after known-value red
   );
 });
 
+test('heal prompt rejects known and shaped secrets in repository context paths', () => {
+  const knownImportedPath = validRepositoryContext();
+  knownImportedPath.importedSources[0].path = 'pages/tiny/SavePage.ts';
+  const knownDomPath = validRepositoryContext();
+  knownDomPath.domSnapshot.path = '.ai-runs/dom-discovery/tiny/selector-candidates.json';
+  const shapedImportedPath = validRepositoryContext();
+  shapedImportedPath.importedSources[0].path = 'pages/ghp_abcdefghijklmnopqrstuvwxyz123456/SavePage.ts';
+
+  for (const repositoryContext of [knownImportedPath, knownDomPath, shapedImportedPath]) {
+    assert.throws(
+      () => buildTestHealPrompt({
+        testPath: 'tests/regression/flow.spec.ts',
+        source: CLEAN_SOURCE,
+        evidence: ['locator timeout'],
+        attempt: 1,
+        maxAttempts: 3,
+        repositoryContext,
+        env: { E2E_USER_PASSWORD: 'tiny' }
+      }),
+      /repository context.*path|path.*secret/i
+    );
+  }
+});
+
 test('healTestSource requires the opt-in flag and routes through the heal stage', async () => {
   await assert.rejects(
     healTestSource({ testPath: 't.spec.ts', source: CLEAN_SOURCE, evidence: ['e'], attempt: 1, maxAttempts: 3, env: {} }),
