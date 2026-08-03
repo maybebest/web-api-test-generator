@@ -156,7 +156,29 @@ Then provide the normal auth setup variables or a valid non-committed storage st
 
 ## Flaky Locator
 
-Use `ai/prompts/04-heal-locator.md`. Capture a Playwright CLI snapshot, identify the equivalent accessible element, update the locator minimally, and rerun the affected test.
+Use `ai/prompts/04-heal-locator.md`. Capture a Playwright CLI snapshot, identify the equivalent accessible element, update the locator minimally, and rerun the affected test. For a verified automated proposal, run:
+
+```bash
+# Safe default: verified proposal, target unchanged
+AI_AUTOHEAL_ENABLED=true npm run ai:test:heal -- --test tests/recorded/checkout-confirmation.spec.ts
+
+# Explicit promotion of a clean target
+AI_AUTOHEAL_ENABLED=true npm run ai:test:heal -- --test tests/recorded/checkout-confirmation.spec.ts --apply
+
+# Explicitly accept an already-dirty starting target
+AI_AUTOHEAL_ENABLED=true npm run ai:test:heal -- --test tests/recorded/checkout-confirmation.spec.ts --apply --allow-dirty
+```
+
+`proposal-ready` means the candidate was fully verified and archived, while the target remains
+unchanged. `--allow-dirty` requires `--apply`; it does not relax post-candidate integrity checks.
+Only `locator-drift` and `synchronization` runtime failures are eligible. Product, auth, network,
+data, assertion-mismatch, and unclassified failures are not repairable. A `--dom-snapshot` must be
+a verified selector-discovery artifact under `.ai-runs/dom-discovery/`; the healer accepts at most
+the fixed 64 KiB context. Recorded tests go through the recorded reviewer before runtime
+verification.
+
+For an intentional functionality change, begin by updating the Markdown spec, its version, the
+affected acceptance criteria, and data cases. Do not heal an expectation to match a product change.
 
 ## Visual Snapshot Mismatch
 

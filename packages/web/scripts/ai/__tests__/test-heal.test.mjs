@@ -21,7 +21,7 @@ import {
   redactKnownSecretValues,
   verifyHealedSourcePolicy
 } from '../lib/test-heal.mjs';
-import { healCandidatePath, healSingleTest, inferStandaloneProject, lintCandidate, parseArgs } from '../heal-test.mjs';
+import { healCandidatePath, healSingleTest, helpText, inferStandaloneProject, lintCandidate, parseArgs } from '../heal-test.mjs';
 
 const PASSING_TYPECHECK = () => ({ passed: true, issues: [] });
 const PASSING_LINT = () => ({ passed: true, issues: [] });
@@ -1468,6 +1468,13 @@ test('CLI help and exit-status policy distinguish proposals from failures', asyn
   assert.match(help.stdout, /--apply/);
   assert.match(help.stdout, /--allow-dirty/);
   assert.match(help.stdout, /proposal-ready/);
+});
+
+test('CLI help documents the safe healing contract', () => {
+  for (const required of [
+    '--apply', '--allow-dirty', '--dom-snapshot', 'proposal-ready',
+    'locator-drift', 'synchronization', 'recorded reviewer'
+  ]) assert.match(helpText(), new RegExp(required.replaceAll('-', '\\-'), 'i'));
 });
 
 test('healSingleTest heals on a later attempt, promotes atomically, and archives evidence', async () => {

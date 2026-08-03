@@ -76,6 +76,19 @@ Prompts are guidance. Templates, scripts, gates, and CI are controls.
 
 Generate a suite only when the spec declares `Generation Mode | suite` or a suite is explicitly requested.
 
+## Safe Test Healing Contract
+
+`scripts/ai/heal-test.mjs` repairs verified `locator-drift` or `synchronization` runtime failures
+only. It runs a baseline, applies deterministic candidate policy/typecheck/lint/reviewer checks,
+then requires `AI_AUTOHEAL_VERIFY_RUNS` consecutive green runs with retries disabled. The safe
+default archives a `proposal-ready` candidate and leaves the target unchanged; only `--apply`
+atomically promotes a clean, fully verified target. `--allow-dirty` is accepted only with
+`--apply`. Product, auth, network, data, assertion-mismatch, and unclassified failures are not
+repairable. A `--dom-snapshot` is verified selector-discovery evidence below
+`.ai-runs/dom-discovery/`, bounded to a fixed 64 KiB before prompt construction. Recorded targets
+pass the recorded reviewer before runtime verification; spec-bound targets pass the generated-test
+reviewer. See `ai/prompts/04-heal-locator.md` for the exact operator commands.
+
 ## Contract Extensions
 
 - `Business Rules` captures calculation, validation, and blocking behavior that should be asserted directly.
@@ -101,6 +114,10 @@ Generated tests must use Page Objects or Component Objects for locator ownership
 ## Test Ownership
 
 QA engineers own the behavior, assertions, test data, and merge decisions. AI may draft and repair code, but every test must remain understandable and reviewable by humans.
+
+Intentional functionality changes are contract changes, not healer input: update the Markdown spec,
+spec version, affected acceptance criteria, and data cases first. Then regenerate or update the
+test and run its review, gate, and drift checks.
 
 ## Recording-Driven Generation
 

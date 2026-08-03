@@ -4,6 +4,31 @@
 
 Repair locator drift without masking product regressions.
 
+## Safe Healer Operator Contract
+
+Run the healer only for repairable runtime failures:
+
+```bash
+# Safe default: verified proposal, target unchanged
+AI_AUTOHEAL_ENABLED=true npm run ai:test:heal -- --test tests/recorded/checkout-confirmation.spec.ts
+
+# Explicit promotion of a clean target
+AI_AUTOHEAL_ENABLED=true npm run ai:test:heal -- --test tests/recorded/checkout-confirmation.spec.ts --apply
+
+# Explicitly accept an already-dirty starting target
+AI_AUTOHEAL_ENABLED=true npm run ai:test:heal -- --test tests/recorded/checkout-confirmation.spec.ts --apply --allow-dirty
+```
+
+The default success status is `proposal-ready`: its candidate diff is evidence only and the target
+is unchanged. `--allow-dirty` is invalid unless `--apply` is also present. A supplied
+`--dom-snapshot` must be a verified selector-discovery artifact below `.ai-runs/dom-discovery/`;
+only its bounded context is supplied to the healer.
+
+Only `locator-drift` and `synchronization` runtime failures are repairable. Product, auth,
+network, data, assertion-mismatch, and unclassified failures require human action and are
+reported as not repairable. Recorded targets use the recorded reviewer before runtime verification;
+other spec-bound targets use the generated-test reviewer.
+
 ## Workflow
 
 1. Use Playwright CLI snapshot first:
@@ -34,6 +59,13 @@ npm run ai:recording:gate -- --recording <recording.json> --test <test-file>
 ```
 
 9. Document the before locator, after locator, reason, evidence, gate results, and rerun result.
+
+## Intentional Functionality Changes
+
+Do not heal an expectation for an intentional product change. Update the Markdown spec, increment
+its version, and update the affected acceptance criteria and data cases first. Regenerate or
+manually update the test from that revised contract, then run the appropriate review, gate, and
+drift checks.
 
 ## Forbidden Fixes
 

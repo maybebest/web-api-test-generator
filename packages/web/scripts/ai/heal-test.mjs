@@ -1078,8 +1078,8 @@ export async function healSingleTest({
   }
 }
 
-function printHelp() {
-  console.log(`Usage:
+export function helpText() {
+  return `Usage:
   AI_AUTOHEAL_ENABLED=true node scripts/ai/heal-test.mjs --test <path/to/file.spec.ts> [--test <another.spec.ts> ...]
     [--spec <specs/flow.md>] [--dir specs] [--project <playwright-project>]
     [--max-attempts N] [--verify-runs N] [--dom-snapshot <.ai-runs/dom-discovery/...>]
@@ -1091,24 +1091,31 @@ heal brain (stage 'heal', see AI_HEAL_* env) for a repaired file, rejects candid
 the AST-level anti-masking policy (no removed/downgraded/conditional assertions, no skip family,
 no sleeps or XPath) or fail typechecking/linting, and verifies survivors with consecutive green runs
 (retries=0, flaky = fail; standalone lanes run --workers=1 so the runs are literally serial).
-By default a verified candidate is archived as proposal-ready and the target remains unchanged.
-Only --apply can atomically promote it over the original. Every attempt and the original file are
-archived under .ai-runs/heal/<run-id>/.
+Only locator-drift and synchronization runtime failures are repairable. Product, auth, network,
+data, assertion-mismatch, and unclassified failures are reported as not-repairable. By default a
+verified candidate is archived as proposal-ready and the target remains unchanged. Only --apply
+can atomically promote it over the original. Every attempt and the original file are archived under
+.ai-runs/heal/<run-id>/.
 
 Settings:
   AI_AUTOHEAL_ENABLED       must be true to generate a repair proposal (default false)
   AI_AUTOHEAL_MAX_ATTEMPTS  heal attempts per test, 1..${MAX_AUTOHEAL_MAX_ATTEMPTS} (default 3); --max-attempts overrides.
                             Policy/typecheck/lint/review rejections consume attempts too.
   AI_AUTOHEAL_VERIFY_RUNS   consecutive green runs required, 2 or 3 (default 2); --verify-runs overrides
-  --dom-snapshot            optional verified DOM artifact below .ai-runs/dom-discovery
+  --dom-snapshot            optional verified selector-discovery artifact below .ai-runs/dom-discovery
   --apply                   promote a fully verified single-file candidate
   --allow-dirty             permit --apply over a target already dirty at start; requires --apply
 
 Environment failures (missing browser, broken config, unreadable report) abort healing instead of
 masking infrastructure problems. Spec-bound targets are additionally re-checked by the static
-reviewer, so a heal can never weaken the locator policy or drop the traceability header.
+reviewer, so a heal can never weaken the locator policy or drop the traceability header. Recorded
+targets use the recorded reviewer before runtime verification.
 Recorded/smoke/accessibility/visual targets run under local-chromium automatically; use
---project to override the inferred project for other layouts.`);
+--project to override the inferred project for other layouts.`;
+}
+
+function printHelp() {
+  console.log(helpText());
 }
 
 async function runCli() {

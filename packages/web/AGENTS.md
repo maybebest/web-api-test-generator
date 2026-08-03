@@ -83,6 +83,13 @@ You are working on an AI-assisted Playwright AQA framework.
 - Never emit Puppeteer/replay code, hard waits, XPath, focused tests, or secret-like literals into recorded tests.
 - Recorded-test review enforces the same safety rules as the generated path: `test.skip`/`test.fixme`/`test.fail` are forbidden in every form including runtime calls, selector arguments that do not fold to a static string fail closed, and positional picks (`.first()`/`.last()`/`.nth(<n>)`) require `// locator-policy:exception <reason>` on the previous line.
 
+## Safe Test Healing
+
+- The default `AI_AUTOHEAL_ENABLED=true npm run ai:test:heal -- --test <file>` produces a fully verified `proposal-ready` archive and must not mutate the target. Only `--apply` may promote a candidate; `--allow-dirty` requires `--apply`.
+- Repair only `locator-drift` and `synchronization` runtime failures. Product, auth, network, data, assertion-mismatch, and unclassified failures are not repairable.
+- Pass `--dom-snapshot` only a verified selector-discovery artifact under `.ai-runs/dom-discovery/`; the framework supplies a fixed, non-configurable 64 KiB context.
+- Recorded targets must pass the recorded reviewer before runtime verification. For intentional functionality changes, update the Markdown spec/version/AC/data cases before changing test expectations.
+
 ## AI Brain for Generation
 
 - `npm run ai:brain:doctor` reports which brain will run AI generation and where each key came from (environment vs `<repo>/.env` — the real environment always wins; key material is never printed). Selection order: `ANTHROPIC_API_KEY` (env or .env) -> Anthropic Messages API (default model `claude-opus-4-8`), else `OPENAI_API_KEY` -> OpenAI Chat Completions (default `gpt-4o-2024-11-20`), else a local `claude` CLI, else `codex` CLI. `AI_BRAIN` forces a choice (`anthropic|openai|claude-cli|codex-cli`; `claude`/`codex` aliases) and errors clearly if the forced brain is unavailable. Knobs: `ANTHROPIC_MAX_TOKENS`/`OPENAI_MAX_TOKENS` (default 16000), `AI_BRAIN_TIMEOUT_MS` (default 120000).
