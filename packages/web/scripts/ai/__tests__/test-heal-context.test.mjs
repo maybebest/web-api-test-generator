@@ -18,6 +18,60 @@ function makeWorkspace() {
   };
 }
 
+function selectorDiscoveryArtifact() {
+  return {
+    specPath: 'specs/save.md',
+    specSha256: 'a'.repeat(64),
+    flowId: 'FLOW-SAVE-1',
+    specVersion: '1.0.0',
+    url: 'https://example.test/save?token=must-not-project',
+    capturedAt: '2026-08-03T10:00:00.000Z',
+    source: 'agent-browser',
+    sourceCommands: ['agent-browser snapshot -i --json'],
+    selectorOwnership: 'framework',
+    locatorAudit: {
+      method: 'playwright-locator-count',
+      snapshotDiagnostics: 'accessibility-snapshot-candidate-equivalence',
+      requiredMatchCount: 1
+    },
+    elements: [{
+      elementId: 'el-save',
+      role: 'button',
+      accessibleName: 'Save ordinary-pass',
+      label: 'Bearer abcdefghijklmnop',
+      placeholder: null,
+      text: 'raw text must not project',
+      href: '/private',
+      testId: 'save-button',
+      attributes: { 'data-debug': 'ordinary-pass' },
+      snapshotOccurrences: 1,
+      candidateLocators: [{
+        type: 'role',
+        locator: 'page.getByRole("button", { name: "Save ordinary-pass" })',
+        score: 90,
+        reason: 'role evidence',
+        preferred: true,
+        matchCount: 1,
+        unique: true,
+        snapshotMatchCount: 1,
+        snapshotUnique: true,
+        matchEvidence: 'playwright-live'
+      }, {
+        type: 'label',
+        locator: 'page.getByLabel("Bearer abcdefghijklmnop")',
+        score: 80,
+        reason: 'label evidence',
+        preferred: false,
+        matchCount: 1,
+        unique: true,
+        snapshotMatchCount: 1,
+        snapshotUnique: true,
+        matchEvidence: 'playwright-live'
+      }]
+    }]
+  };
+}
+
 test('collectHealContext includes locator-bearing page object members and a redacted DOM snapshot', () => {
   const { webRoot, testPath } = makeWorkspace();
   fs.writeFileSync(path.join(webRoot, 'pages', 'SavePage.ts'), `
@@ -38,7 +92,7 @@ export class SavePage {
   const domSnapshotPath = path.join(webRoot, domSnapshotRelativePath);
   fs.writeFileSync(
     domSnapshotPath,
-    '{"button":"Save","authorization":"Bearer abcdefghijklmnop","note":"ordinary-pass"}'
+    JSON.stringify(selectorDiscoveryArtifact())
   );
   const source = `
 import { test } from '@playwright/test';
@@ -63,7 +117,15 @@ import { SavePage } from '../../pages/SavePage';
   assert.doesNotMatch(context.importedSources[0].excerpt, /not provider context/);
   assert.equal(context.domSnapshot.path, '.ai-runs/dom-discovery/run/selector-candidates.json');
   assert.match(context.domSnapshot.sha256, /^[a-f0-9]{64}$/);
-  assert.match(context.domSnapshot.content, /Save/);
+  const projectedDom = JSON.parse(context.domSnapshot.content);
+  assert.deepEqual(Object.keys(projectedDom).sort(), ['elements', 'locatorAudit', 'selectorOwnership', 'source']);
+  assert.deepEqual(Object.keys(projectedDom.elements[0]).sort(), [
+    'accessibleName', 'candidateLocators', 'elementId', 'label', 'placeholder', 'role'
+  ]);
+  assert.deepEqual(Object.keys(projectedDom.elements[0].candidateLocators[0]).sort(), [
+    'locator', 'matchCount', 'matchEvidence', 'preferred', 'type'
+  ]);
+  assert.doesNotMatch(context.domSnapshot.content, /raw text|data-debug|must-not-project|sourceCommands/);
   assert.doesNotMatch(context.domSnapshot.content, /abcdefghijklmnop|ordinary-pass/);
   assert.equal(context.manualChangeRequired, true);
 });
@@ -134,6 +196,24 @@ test('collectHealContext rejects outside, symlinked, oversized, and secret-beari
   }
 });
 
+test('collectHealContext rejects imported sources containing a runner-known secret value', () => {
+  const { webRoot, testPath } = makeWorkspace();
+  fs.writeFileSync(
+    path.join(webRoot, 'pages', 'KnownSecretPage.ts'),
+    `export class KnownSecretPage { label = 'ordinary-pass'; }\n`
+  );
+  assert.throws(
+    () => collectHealContext({
+      testPath,
+      source: `import { KnownSecretPage } from '../../pages/KnownSecretPage';\n`,
+      evidence: [],
+      webRoot,
+      secretValues: ['ordinary-pass']
+    }),
+    /secret/i
+  );
+});
+
 test('collectHealContext caps imported files and truncates only at method boundaries', () => {
   const { webRoot, testPath } = makeWorkspace();
   const imports = [];
@@ -184,4 +264,56 @@ test('collectHealContext rejects DOM snapshots outside the discovery root or abo
     () => collectHealContext({ testPath, source: '', evidence: [], webRoot, domSnapshotPath: screenshot }),
     /DOM snapshot|JSON|text artifact/i
   );
+});
+
+test('collectHealContext rejects storage, cookie, header, auth, and trace-shaped JSON artifacts', () => {
+  const nestedHeaderElement = selectorDiscoveryArtifact().elements[0];
+  const scenarios = [
+    { cookies: [{ name: 'sid', value: 'ordinary-cookie-value', domain: 'example.test', path: '/' }] },
+    { headers: { 'x-user': 'ordinary-header-value' } },
+    { elements: [{ ...nestedHeaderElement, attributes: { requestHeaders: { 'x-user': 'ordinary-header-value' } } }] },
+    { storageState: { origins: [{ origin: 'https://example.test', localStorage: [] }] } },
+    { authState: { user: 'person@example.test' } },
+    { trace: { events: [] } }
+  ];
+  for (const [index, artifact] of scenarios.entries()) {
+    const { webRoot, testPath } = makeWorkspace();
+    const domSnapshotPath = path.join(
+      webRoot,
+      '.ai-runs',
+      'dom-discovery',
+      'run',
+      `selector-candidates-${index}.json`
+    );
+    fs.writeFileSync(domSnapshotPath, JSON.stringify({ ...selectorDiscoveryArtifact(), ...artifact }));
+    assert.throws(
+      () => collectHealContext({ testPath, source: '', evidence: [], webRoot, domSnapshotPath }),
+      /selector discovery|cookie|header|storage|auth|trace|sensitive/i
+    );
+  }
+});
+
+test('collectHealContext rejects artifacts without genuine discovery identity or with forbidden locators', () => {
+  const scenarios = [
+    (artifact) => {
+      delete artifact.specSha256;
+    },
+    (artifact) => {
+      artifact.elements[0].candidateLocators[0].locator = 'page.getByRole("button", { name: "@e1" })';
+    },
+    (artifact) => {
+      artifact.elements[0].candidateLocators[0].locator = 'page.getByRole("button").locator("xpath=//button")';
+    }
+  ];
+  for (const [index, mutate] of scenarios.entries()) {
+    const { webRoot, testPath } = makeWorkspace();
+    const artifact = selectorDiscoveryArtifact();
+    mutate(artifact);
+    const domSnapshotPath = path.join(webRoot, '.ai-runs', 'dom-discovery', 'run', `invalid-${index}.json`);
+    fs.writeFileSync(domSnapshotPath, JSON.stringify(artifact));
+    assert.throws(
+      () => collectHealContext({ testPath, source: '', evidence: [], webRoot, domSnapshotPath }),
+      /selector discovery|specSha256|forbidden|locator/i
+    );
+  }
 });
