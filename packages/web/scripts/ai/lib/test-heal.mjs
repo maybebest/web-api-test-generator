@@ -8,6 +8,7 @@ import {
   hasKnownSecretShape,
   redactSecretMaterial
 } from './secret-safety.mjs';
+import { knownSecretEnvValues } from './gate-environment.mjs';
 
 export const TEST_HEAL_SCHEMA = 'playwright-test-heal/v1';
 export const DEFAULT_AUTOHEAL_MAX_ATTEMPTS = 3;
@@ -134,10 +135,13 @@ export function extractRuntimeFailureEvidence(report, targetTestFile, { secretVa
   const evidence = [];
   const pushEvidence = (title, message) => {
     if (evidence.length >= MAX_HEAL_EVIDENCE_ITEMS) return;
-    const text = sanitizedEvidence(redactKnownSecretValues(message, secretValues));
-    if (!text.trim()) return;
+    const text = redactKnownSecretValues(message, secretValues);
+    if (!String(text).trim()) return;
     evidence.push(sanitizedEvidence(`${title}: ${text}`));
   };
+  const errorEvidence = (error) => [error?.message ?? error?.value ?? '', error?.stack ?? '']
+    .filter((value) => String(value).trim())
+    .join('\n');
 
   const visitSuite = (suite, inheritedFile) => {
     if (!suite || typeof suite !== 'object') return;
@@ -159,7 +163,7 @@ export function extractRuntimeFailureEvidence(report, targetTestFile, { secretVa
             pushEvidence(title, `test finished with status "${result.status}" and no error payload`);
           }
           for (const error of errors) {
-            pushEvidence(title, error?.message ?? error?.value ?? '');
+            pushEvidence(title, errorEvidence(error));
           }
         }
       }
@@ -173,7 +177,7 @@ export function extractRuntimeFailureEvidence(report, targetTestFile, { secretVa
     visitSuite(suite, undefined);
   }
   for (const error of Array.isArray(report?.errors) ? report.errors : []) {
-    pushEvidence('top-level report error', error?.message ?? '');
+    pushEvidence('top-level report error', errorEvidence(error));
   }
   return evidence;
 }
@@ -723,6 +727,7 @@ export function buildTestHealPrompt({
   notes = [],
   attempt,
   maxAttempts,
+  repositoryContext = {},
   env = process.env
 }) {
   assertHealSourceSendable(source, env);
@@ -732,6 +737,17 @@ export function buildTestHealPrompt({
   if (!Array.isArray(evidence) || evidence.length === 0) {
     throw new Error('Test heal requires runtime failure evidence.');
   }
+  const secretValues = knownSecretEnvValues(env);
+  const sanitizeContext = (value) => {
+    if (typeof value === 'string') {
+      return redactSecretMaterial(redactKnownSecretValues(value, secretValues));
+    }
+    if (Array.isArray(value)) return value.map(sanitizeContext);
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, sanitizeContext(entry)]));
+    }
+    return value;
+  };
   return JSON.stringify({
     schemaVersion: TEST_HEAL_SCHEMA,
     testPath: String(testPath ?? ''),
@@ -739,6 +755,7 @@ export function buildTestHealPrompt({
     maxAttempts,
     runtimeFailureEvidence: evidence.slice(0, MAX_HEAL_EVIDENCE_ITEMS).map(sanitizedEvidence).filter(Boolean),
     reviewerNotes: (Array.isArray(notes) ? notes : []).slice(0, MAX_HEAL_NOTES).map(sanitizedEvidence).filter(Boolean),
+    repositoryContext: sanitizeContext(repositoryContext),
     currentTypeScriptSource: source
   });
 }
@@ -750,6 +767,7 @@ export async function healTestSource({
   notes,
   attempt,
   maxAttempts,
+  repositoryContext = {},
   env = process.env,
   signal,
   onAttempt,
@@ -758,7 +776,16 @@ export async function healTestSource({
   if (!autoHealEnabled(env)) {
     throw new Error('Auto-heal is disabled; set AI_AUTOHEAL_ENABLED=true to opt in.');
   }
-  const prompt = buildTestHealPrompt({ testPath, source, evidence, notes, attempt, maxAttempts, env });
+  const prompt = buildTestHealPrompt({
+    testPath,
+    source,
+    evidence,
+    notes,
+    attempt,
+    maxAttempts,
+    repositoryContext,
+    env
+  });
   const result = await runBrainImpl(prompt, {
     // Compaction is designed for generation IR. It must never rewrite the
     // prior TypeScript source that a heal needs to preserve byte-for-byte.

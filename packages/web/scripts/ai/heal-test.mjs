@@ -30,6 +30,7 @@ import { executeGeneratedPair } from './lib/generated-gate-runner.mjs';
 import { readVerifiedJsonFile } from './lib/verified-file-read.mjs';
 import { buildGateEnvironment, knownSecretEnvValues } from './lib/gate-environment.mjs';
 import { resolveHealContract, reviewHealContract } from './lib/test-heal-contract.mjs';
+import { collectHealContext } from './lib/test-heal-context.mjs';
 import {
   MAX_AUTOHEAL_MAX_ATTEMPTS,
   MAX_HEAL_EVIDENCE_ITEMS,
@@ -54,6 +55,7 @@ export function parseArgs(argv) {
     project: undefined,
     maxAttempts: undefined,
     verifyRuns: undefined,
+    domSnapshot: undefined,
     help: false
   };
   for (let index = 0; index < argv.length; index += 1) {
@@ -73,6 +75,7 @@ export function parseArgs(argv) {
     else if (flag === '--project') args.project = consumeValue();
     else if (flag === '--max-attempts') args.maxAttempts = consumeValue();
     else if (flag === '--verify-runs') args.verifyRuns = consumeValue();
+    else if (flag === '--dom-snapshot') args.domSnapshot = consumeValue();
     else throw new Error(`Unknown flag: ${flag}`);
   }
   if (args.spec !== undefined && args.tests.length !== 1) {
@@ -361,7 +364,9 @@ export async function healSingleTest({
   typecheck = typecheckCandidate,
   collectEvidence = collectRuntimeEvidence,
   archiveFactory = createHealArchive,
-  validateDirectory = validateSpecDirectory
+  validateDirectory = validateSpecDirectory,
+  domSnapshotPath,
+  collectContext = collectHealContext
 }) {
   if (!autoHealEnabled(env)) {
     throw new Error('Auto-heal is disabled; set AI_AUTOHEAL_ENABLED=true to allow the healer to modify test files.');
@@ -432,6 +437,14 @@ export async function healSingleTest({
   let evidence = collectEvidence(execution, target, { secretValues });
   cleanupFailedRunDir(execution, runRoot);
   if (evidence.length === 0) evidence = ['The test failed but produced no readable error evidence.'];
+  const repositoryContext = collectContext({
+    testPath: target,
+    source: originalSource,
+    evidence,
+    webRoot,
+    domSnapshotPath,
+    secretValues
+  });
   let notes = [];
   const attemptTrail = [];
   const finish = (result) => {
@@ -473,6 +486,7 @@ export async function healSingleTest({
           notes,
           attempt,
           maxAttempts: attemptsBudget,
+          repositoryContext,
           env,
           signal
         });
@@ -595,7 +609,7 @@ function printHelp() {
   console.log(`Usage:
   AI_AUTOHEAL_ENABLED=true node scripts/ai/heal-test.mjs --test <path/to/file.spec.ts> [--test <another.spec.ts> ...]
     [--spec <specs/flow.md>] [--dir specs] [--project <playwright-project>]
-    [--max-attempts N] [--verify-runs N]
+    [--max-attempts N] [--verify-runs N] [--dom-snapshot <.ai-runs/dom-discovery/...>]
 
 Runs each target test first (baseline). A test that already passes the required consecutive
 runs is reported as already-green and never modified. For a runtime failure the healer asks the
@@ -611,6 +625,7 @@ Settings:
   AI_AUTOHEAL_MAX_ATTEMPTS  heal attempts per test, 1..${MAX_AUTOHEAL_MAX_ATTEMPTS} (default 3); --max-attempts overrides.
                             Policy/typecheck/review rejections consume attempts too.
   AI_AUTOHEAL_VERIFY_RUNS   consecutive green runs required, 2 or 3 (default 2); --verify-runs overrides
+  --dom-snapshot            optional verified DOM artifact below .ai-runs/dom-discovery
 
 Environment failures (missing browser, broken config, unreadable report) abort healing instead of
 masking infrastructure problems. Spec-bound targets are additionally re-checked by the static
@@ -678,6 +693,7 @@ async function runCli() {
         env,
         maxAttempts,
         verifyRuns,
+        domSnapshotPath: args.domSnapshot,
         webRoot: process.cwd()
       });
       results.push(result);

@@ -32,7 +32,7 @@ test('flow works', async ({ page }) => {
 });
 `;
 
-function syntheticReport({ message = 'locator timeout', status = 'failed' } = {}) {
+function syntheticReport({ message = 'locator timeout', stack, status = 'failed' } = {}) {
   return {
     suites: [
       {
@@ -46,7 +46,7 @@ function syntheticReport({ message = 'locator timeout', status = 'failed' } = {}
                 projectName: 'chromium',
                 status: 'unexpected',
                 results: [
-                  { status, retry: 0, error: { message } },
+                  { status, retry: 0, error: { message, ...(stack ? { stack } : {}) } },
                   { status: 'passed', retry: 0 }
                 ]
               }
@@ -107,6 +107,22 @@ test('evidence extraction keeps failing results only, strips ANSI, redacts secre
   );
 });
 
+test('evidence extraction appends sanitized error stacks before applying the item limit', () => {
+  const marker = 'pages/SavePage.ts:42:9';
+  const report = syntheticReport({
+    message: 'locator timeout',
+    stack: `Error: hunter2-pass\n    at SavePage.save (${marker})\n${'x'.repeat(3_000)}`
+  });
+  const evidence = extractRuntimeFailureEvidence(report, 'tests/regression/flow.spec.ts', {
+    secretValues: ['hunter2-pass']
+  });
+  assert.equal(evidence.length, 1);
+  assert.match(evidence[0], new RegExp(marker.replaceAll('.', '\\.')));
+  assert.match(evidence[0], /<redacted>/);
+  assert.doesNotMatch(evidence[0], /hunter2-pass/);
+  assert.ok(evidence[0].length <= 2_000);
+});
+
 test('policy guard accepts a clean locator heal', () => {
   const healed = CLEAN_SOURCE.replace("getByRole('button', { name: 'Save' })", "getByTestId('save-button')");
   const verdict = verifyHealedSourcePolicy({ previousSource: CLEAN_SOURCE, healedSource: healed });
@@ -154,13 +170,21 @@ test('heal prompt is bounded, redacted, and refuses unusable input', () => {
     notes: ['attempt 1 still failed'],
     attempt: 2,
     maxAttempts: 3,
-    env: {}
+    env: {},
+    repositoryContext: {
+      importedSources: [{ path: 'pages/SavePage.ts', sha256: 'a'.repeat(64), excerpt: 'constructor(page) {}' }],
+      domSnapshot: { path: '.ai-runs/dom-discovery/run/dom.json', sha256: 'b'.repeat(64), content: 'token=sk-abcdefghijklmnop' },
+      manualChangeRequired: true
+    }
   });
   const parsed = JSON.parse(prompt);
   assert.equal(parsed.schemaVersion, 'playwright-test-heal/v1');
   assert.equal(parsed.currentTypeScriptSource, CLEAN_SOURCE);
   assert.equal(parsed.attempt, 2);
+  assert.equal(parsed.repositoryContext.importedSources[0].path, 'pages/SavePage.ts');
+  assert.equal(parsed.repositoryContext.manualChangeRequired, true);
   assert.doesNotMatch(prompt, /super-secret-value/);
+  assert.doesNotMatch(prompt, /sk-abcdefghijklmnop/);
 
   assert.throws(
     () => buildTestHealPrompt({ source: CLEAN_SOURCE, evidence: [], attempt: 1, maxAttempts: 3, env: {} }),
@@ -199,12 +223,14 @@ test('healTestSource requires the opt-in flag and routes through the heal stage'
   );
 
   const calls = [];
+  const repositoryContext = { importedSources: [], manualChangeRequired: false };
   const healed = await healTestSource({
     testPath: 'tests/regression/flow.spec.ts',
     source: CLEAN_SOURCE,
     evidence: ['flow works: locator timeout'],
     attempt: 1,
     maxAttempts: 3,
+    repositoryContext,
     env: { AI_AUTOHEAL_ENABLED: 'true' },
     runBrainImpl: async (prompt, options) => {
       calls.push({ prompt, options });
@@ -216,12 +242,19 @@ test('healTestSource requires the opt-in flag and routes through the heal stage'
   assert.equal(calls[0].options.stage, 'heal');
   assert.equal(calls[0].options.outputKind, 'playwright-typescript');
   assert.equal(calls[0].options.env.AI_COMPACT_REST_PROMPT, 'false');
+  assert.deepEqual(JSON.parse(calls[0].prompt).repositoryContext, repositoryContext);
 });
 
 test('CLI arg parsing and standalone project inference', () => {
-  const args = parseArgs(['--test', 'tests/a.spec.ts', '--test', 'tests/b.spec.ts', '--max-attempts', '4']);
+  const args = parseArgs([
+    '--test', 'tests/a.spec.ts',
+    '--test', 'tests/b.spec.ts',
+    '--max-attempts', '4',
+    '--dom-snapshot', '.ai-runs/dom-discovery/run/dom.json'
+  ]);
   assert.deepEqual(args.tests, ['tests/a.spec.ts', 'tests/b.spec.ts']);
   assert.equal(args.maxAttempts, '4');
+  assert.equal(args.domSnapshot, '.ai-runs/dom-discovery/run/dom.json');
   assert.throws(() => parseArgs(['--spec', 's.md']), /exactly one --test/);
   assert.throws(() => parseArgs(['--bogus']), /Unknown flag/);
   assert.throws(() => parseArgs(['--test']), /requires a value/);
@@ -333,6 +366,8 @@ test('healSingleTest heals on a later attempt, promotes atomically, and archives
   // baseline fails, attempt 1 candidate fails, attempt 2 candidate passes twice.
   const { run, calls } = executionSequence([FAILED_EXECUTION, FAILED_EXECUTION, PASSED_EXECUTION]);
   const healInputs = [];
+  const contextCalls = [];
+  const repositoryContext = { importedSources: [], manualChangeRequired: false };
   const result = await healSingleTest({
     testPath: target,
     env: { AI_AUTOHEAL_ENABLED: 'true' },
@@ -341,6 +376,11 @@ test('healSingleTest heals on a later attempt, promotes atomically, and archives
     discoverSpec: () => null,
     typecheck: PASSING_TYPECHECK,
     executeStandalone: run,
+    domSnapshotPath: '.ai-runs/dom-discovery/run/dom.json',
+    collectContext: (input) => {
+      contextCalls.push(input);
+      return repositoryContext;
+    },
     heal: async (input) => {
       healInputs.push(input);
       return { code: input.attempt === 1 ? healedSource : secondHealedSource };
@@ -358,6 +398,12 @@ test('healSingleTest heals on a later attempt, promotes atomically, and archives
   assert.equal(healInputs[0].source, CLEAN_SOURCE);
   assert.equal(healInputs[1].source, healedSource);
   assert.match(healInputs[1].notes.join(' '), /still failed/);
+  assert.equal(contextCalls.length, 1);
+  assert.equal(contextCalls[0].source, CLEAN_SOURCE);
+  assert.deepEqual(contextCalls[0].evidence, [FAILED_EXECUTION.issues[0]]);
+  assert.equal(contextCalls[0].domSnapshotPath, '.ai-runs/dom-discovery/run/dom.json');
+  assert.equal(healInputs[0].repositoryContext, repositoryContext);
+  assert.equal(healInputs[1].repositoryContext, repositoryContext);
 
   // Candidate runs used hidden candidate paths; no candidate remains on disk.
   assert.equal(calls.length, 3);
