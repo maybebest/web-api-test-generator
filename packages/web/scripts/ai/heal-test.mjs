@@ -32,7 +32,7 @@ import { buildGateEnvironment, knownSecretEnvValues } from './lib/gate-environme
 import { resolveHealContract, reviewHealContract } from './lib/test-heal-contract.mjs';
 import { collectHealContext } from './lib/test-heal-context.mjs';
 import { triageRuntimeFailure } from './lib/test-heal-triage.mjs';
-import { redactSecretMaterial } from './lib/secret-safety.mjs';
+import { containsSecretLikeValue, hasKnownSecretShape, redactSecretMaterial } from './lib/secret-safety.mjs';
 import {
   MAX_AUTOHEAL_MAX_ATTEMPTS,
   MAX_HEAL_EVIDENCE_ITEMS,
@@ -472,11 +472,17 @@ function createHealArchive(webRoot, runId) {
 
 function auditText(value, secretValues) {
   const knownRedacted = redactKnownSecretValues(String(value ?? ''), secretValues);
-  return redactSecretMaterial(knownRedacted).slice(0, 2_000);
+  const shapedRedacted = redactSecretMaterial(knownRedacted);
+  const fragmentRedacted = shapedRedacted.replace(/[A-Za-z0-9._~+\/-]{20,}={0,2}/g, (candidate) => (
+    containsSecretLikeValue(candidate) ? '<redacted>' : candidate
+  ));
+  return fragmentRedacted.replace(/\S{20,}/g, (candidate) => (
+    containsSecretLikeValue(candidate) ? '<redacted>' : candidate
+  )).slice(0, 2_000);
 }
 
 function auditAttemptTrail(attemptTrail, secretValues) {
-  return attemptTrail.map((entry) => ({
+  return attemptTrail.slice(0, MAX_AUTOHEAL_MAX_ATTEMPTS).map((entry) => ({
     attempt: entry.attempt,
     outcome: entry.outcome,
     ...(entry.checks ? { checks: { ...entry.checks } } : {}),
@@ -492,14 +498,157 @@ function sanitizedEvidenceList(value, secretValues) {
     .filter(Boolean);
 }
 
+function sanitizePublicResult(result, secretValues) {
+  const sanitized = { ...result };
+  if (Array.isArray(result.issues)) {
+    sanitized.issues = sanitizedEvidenceList(result.issues, secretValues);
+  }
+  if (Object.hasOwn(result, 'detail')) {
+    sanitized.detail = auditText(result.detail, secretValues);
+  }
+  if (Array.isArray(result.attemptTrail)) {
+    sanitized.attemptTrail = auditAttemptTrail(result.attemptTrail, secretValues);
+  }
+  if (Array.isArray(result.auditIssues)) {
+    sanitized.auditIssues = sanitizedEvidenceList(result.auditIssues, secretValues);
+  }
+  return sanitized;
+}
+
+function containsSecretLikeFragment(value) {
+  const text = String(value ?? '');
+  if (containsSecretLikeValue(text)) return true;
+  return [...text.matchAll(/[A-Za-z0-9._~+\/-]{20,}={0,2}/g)]
+    .some((match) => containsSecretLikeValue(match[0]));
+}
+
+function urlComponentContainsSecret(value) {
+  const text = String(value ?? '');
+  if (containsSecretLikeFragment(text)) return true;
+  try {
+    const decoded = decodeURIComponent(text);
+    return decoded !== text && containsSecretLikeFragment(decoded);
+  } catch {
+    return false;
+  }
+}
+
+function sourceUrlSecretVerdict(value) {
+  const sourceValue = String(value ?? '');
+  let parsed;
+  try {
+    parsed = new URL(sourceValue);
+  } catch {
+    return undefined;
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return undefined;
+  if (parsed.username || parsed.password) return true;
+
+  const secretName = /(?:password|passwd|pwd|api[_-]?(?:key|token)|authorization|auth|secret|session|csrf|token)/i;
+  for (const [name, item] of parsed.searchParams) {
+    if (urlComponentContainsSecret(name)
+      || (secretName.test(name) && item)
+      || urlComponentContainsSecret(item)) return true;
+  }
+  const originalQuery = /^[^?#]*\?([^#]*)/.exec(sourceValue)?.[1] ?? '';
+  for (const pair of originalQuery.split('&')) {
+    const separator = pair.indexOf('=');
+    const name = separator === -1 ? pair : pair.slice(0, separator);
+    const item = separator === -1 ? '' : pair.slice(separator + 1);
+    if (urlComponentContainsSecret(name) || urlComponentContainsSecret(item)) return true;
+  }
+  const originalAuthority = /^https?:\/\/([^/?#]*)/i.exec(sourceValue)?.[1] ?? '';
+  const originalHost = originalAuthority.split('@').at(-1)?.replace(/:\d+$/, '') ?? '';
+  const originalHostnameValues = originalHost.startsWith('[')
+    ? []
+    : originalHost.split('.').filter(Boolean);
+  if (originalHostnameValues.some((item) => urlComponentContainsSecret(item))) return true;
+  const hostnameValues = parsed.hostname.split('.').filter(Boolean);
+  if (hostnameValues.some((item) => urlComponentContainsSecret(item))) return true;
+  const pathValues = parsed.pathname.split('/').filter(Boolean);
+  if (pathValues.some((item) => urlComponentContainsSecret(item))) return true;
+  const fragment = parsed.hash.slice(1);
+  if (fragment && (secretName.test(fragment) || urlComponentContainsSecret(fragment))) return true;
+  return false;
+}
+
 function sourceSafetyIssue(source, secretValues, label) {
   const normalizedSource = String(source ?? '');
   if (redactKnownSecretValues(normalizedSource, secretValues) !== normalizedSource) {
     return `${label} contains a known secret value and cannot be healed or archived.`;
   }
-  const selfPolicy = verifyHealedSourcePolicy({ previousSource: normalizedSource, healedSource: normalizedSource });
-  const secretIssue = selfPolicy.issues.find((issue) => /secret/i.test(issue));
-  return secretIssue ? `${label} ${secretIssue}` : null;
+  if (hasKnownSecretShape(normalizedSource)) {
+    return `${label} contains secret-like material and cannot be healed or archived.`;
+  }
+
+  // The TypeScript scanner is lexical rather than syntactic: it continues
+  // through parse errors while limiting entropy checks to places that can
+  // plausibly carry a value. This avoids classifying ordinary identifiers and
+  // call expressions as credentials.
+  const scanner = ts.createScanner(
+    ts.ScriptTarget.Latest,
+    false,
+    ts.LanguageVariant.Standard,
+    normalizedSource
+  );
+  const valueKinds = new Set([
+    ts.SyntaxKind.StringLiteral,
+    ts.SyntaxKind.NoSubstitutionTemplateLiteral,
+    ts.SyntaxKind.TemplateHead,
+    ts.SyntaxKind.TemplateMiddle,
+    ts.SyntaxKind.TemplateTail
+  ]);
+  const commentKinds = new Set([
+    ts.SyntaxKind.SingleLineCommentTrivia,
+    ts.SyntaxKind.MultiLineCommentTrivia
+  ]);
+  const templateBraceDepths = [];
+  for (let kind = scanner.scan(); kind !== ts.SyntaxKind.EndOfFileToken; kind = scanner.scan()) {
+    if (kind === ts.SyntaxKind.CloseBraceToken
+      && templateBraceDepths.length > 0
+      && templateBraceDepths.at(-1) === 0) {
+      kind = scanner.reScanTemplateToken(false);
+    }
+
+    if (valueKinds.has(kind) || commentKinds.has(kind)) {
+      const tokenText = valueKinds.has(kind) ? scanner.getTokenValue() : scanner.getTokenText();
+      const urlSecretVerdict = valueKinds.has(kind) ? sourceUrlSecretVerdict(tokenText) : undefined;
+      if (urlSecretVerdict === true
+        || (urlSecretVerdict === undefined && containsSecretLikeValue(tokenText))) {
+        return `${label} contains secret-like material and cannot be healed or archived.`;
+      }
+      if (urlSecretVerdict !== false) {
+        for (const match of tokenText.matchAll(/[A-Za-z0-9._~+\/-]{20,}={0,2}/g)) {
+          const candidate = match[0];
+          const prefix = tokenText.slice(0, match.index);
+          const traceabilityDigest = commentKinds.has(kind) && /^[a-f0-9]{64}$/.test(candidate) && (
+            /^\/\*\s*spec:\s+\S+\.md\s+version:\d+\.\d+\.\d+\s+sha256:\s*$/.test(prefix)
+            || /^\/\*\s*recording:\s+\S+\.json\s+title:.+\s+sha256:\s*$/.test(prefix)
+          );
+          const sourceSyntaxReference = commentKinds.has(kind)
+            && /^process\.env\.[A-Z0-9_]+$/.test(candidate);
+          if (!traceabilityDigest && !sourceSyntaxReference && containsSecretLikeValue(candidate)) {
+            return `${label} contains secret-like material and cannot be healed or archived.`;
+          }
+        }
+      }
+    }
+
+    if (kind === ts.SyntaxKind.TemplateHead) {
+      templateBraceDepths.push(0);
+    } else if (kind === ts.SyntaxKind.TemplateTail) {
+      templateBraceDepths.pop();
+    }
+
+    if (templateBraceDepths.length > 0) {
+      if (kind === ts.SyntaxKind.OpenBraceToken) {
+        templateBraceDepths[templateBraceDepths.length - 1] += 1;
+      } else if (kind === ts.SyntaxKind.CloseBraceToken && templateBraceDepths.at(-1) > 0) {
+        templateBraceDepths[templateBraceDepths.length - 1] -= 1;
+      }
+    }
+  }
+  return null;
 }
 
 function structuredProviderAudit(healed, attempt, secretValues) {
@@ -634,12 +783,12 @@ export async function healSingleTest({
   // starting target before running browsers or invoking a provider unless the
   // caller explicitly accepted that starting condition.
   if (apply && !allowDirty && targetDirty(target, webRoot)) {
-    return {
+    return sanitizePublicResult({
       status: 'dirty-target',
       target,
       attemptsUsed: 0,
       issues: [`${target} has uncommitted Git changes; rerun with --allow-dirty only if applying over them is intentional.`]
-    };
+    }, secretValues);
   }
 
   const resolvedProject = project ?? inferStandaloneProject(target);
@@ -661,17 +810,17 @@ export async function healSingleTest({
   let execution = runVerification(target);
   if (execution.passed) {
     cleanupFailedRunDir(execution, runRoot);
-    return { status: 'already-green', target, attemptsUsed: 0 };
+    return sanitizePublicResult({ status: 'already-green', target, attemptsUsed: 0 }, secretValues);
   }
   if (execution.stage === 'runtime-environment') {
     cleanupFailedRunDir(execution, runRoot);
-    return {
+    return sanitizePublicResult({
       status: 'environment-failure',
       target,
       attemptsUsed: 0,
       issues: execution.issues,
       detail: 'Baseline run failed for environment reasons; healing would mask an infrastructure problem.'
-    };
+    }, secretValues);
   }
 
   let currentSource = originalSource;
@@ -704,12 +853,12 @@ export async function healSingleTest({
       mode: { apply, allowDirty },
       attemptTrail: auditAttemptTrail(attemptTrail, secretValues)
     }, null, 2)}\n`);
-    return {
+    return sanitizePublicResult({
       ...result,
       target,
       archiveDir: archive.directory,
-      attemptTrail: auditAttemptTrail(attemptTrail, secretValues)
-    };
+      attemptTrail
+    }, secretValues);
   };
   const evidenceAudit = () => `${JSON.stringify({
     schema: 'test-heal-evidence/v1',
@@ -963,13 +1112,13 @@ export async function healSingleTest({
           try {
             return finish(healedResult);
           } catch (error) {
-            return {
+            return sanitizePublicResult({
               ...healedResult,
               target,
               archiveDir: archive.directory,
-              attemptTrail: auditAttemptTrail(attemptTrail, secretValues),
-              auditIssues: [auditText(error.message, secretValues)]
-            };
+              attemptTrail,
+              auditIssues: [error.message]
+            }, secretValues);
           }
         }
 
@@ -1128,7 +1277,10 @@ async function runCli() {
       });
       results.push(result);
     } catch (error) {
-      results.push({ status: 'error', target: testPath, attemptsUsed: 0, issues: [error.message] });
+      results.push(sanitizePublicResult(
+        { status: 'error', target: testPath, attemptsUsed: 0, issues: [error.message] },
+        knownSecretEnvValues(env)
+      ));
     }
   }
 

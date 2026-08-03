@@ -8,6 +8,7 @@ import test from 'node:test';
 import {
   DEFAULT_AUTOHEAL_MAX_ATTEMPTS,
   DEFAULT_AUTOHEAL_VERIFY_RUNS,
+  MAX_AUTOHEAL_MAX_ATTEMPTS,
   MAX_HEAL_EVIDENCE_ITEMS,
   analyzeHealSource,
   autoHealEnabled,
@@ -535,6 +536,56 @@ test('known low-entropy secrets in the original source fail before execution, pr
   assert.equal(fs.existsSync(path.join(webRoot, '.ai-runs')), false);
 });
 
+test('realistic traceability sha256 headers are not mistaken for secret material', async () => {
+  const { webRoot, target, targetPath } = makeHealWorkspace();
+  const traceabilityHash = '1eb2468715d547fd92573232b3f1f0872fc1fef7767bdfbacce43ebb7e4b08ff';
+  fs.writeFileSync(targetPath, CLEAN_SOURCE.replace('sha256:abc123', `sha256:${traceabilityHash}`));
+  let executionCalls = 0;
+  const result = await healSingleTest({
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true' },
+    webRoot,
+    log: () => {},
+    resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+    executeStandalone: () => {
+      executionCalls += 1;
+      return PASSED_EXECUTION;
+    },
+    heal: async () => assert.fail('an already-green traceable source must not invoke the provider')
+  });
+  assert.equal(result.status, 'already-green');
+  assert.equal(executionCalls, 1);
+});
+
+test('ordinary high-entropy-looking TypeScript syntax is not treated as secret material', async () => {
+  const { webRoot, target, targetPath } = makeHealWorkspace();
+  const syntaxHeavySource = CLEAN_SOURCE.replace(
+    "test('flow works', async ({ page }) => {",
+    `test('flow works', async ({ page }) => {
+  const channel = process.env.E2E_MP_ONSITE_CHANNEL;
+  const issuer = 'https://tenant.b2clogin.com/tenant-id/B2C_1_signin/oauth2/v2.0/token';
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(page).toHaveURL(new RegExp(issuer));
+  await expect(page.getByTestId(channel ?? 'fallback-channel')).toBeVisible();`
+  );
+  fs.writeFileSync(targetPath, syntaxHeavySource);
+  let executionCalls = 0;
+  const result = await healSingleTest({
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true' },
+    webRoot,
+    log: () => {},
+    resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+    executeStandalone: () => {
+      executionCalls += 1;
+      return PASSED_EXECUTION;
+    },
+    heal: async () => assert.fail('an already-green source must not invoke the provider')
+  });
+  assert.equal(result.status, 'already-green');
+  assert.equal(executionCalls, 1);
+});
+
 test('healSingleTest reports already-green without invoking the brain', async () => {
   const { webRoot, target, targetPath } = makeHealWorkspace();
   const { run } = executionSequence([PASSED_EXECUTION]);
@@ -838,6 +889,77 @@ test('known low-entropy secrets in candidate source are never archived or sent t
   }
 });
 
+test('malformed candidate source with a shaped secret is rejected without archiving the source', async () => {
+  const { webRoot, target, targetPath } = makeHealWorkspace();
+  const shapedSecret = 'AbCdEf1234+GhIjKlMnOp/=';
+  const lowEntropyPrefix = 'a'.repeat(64);
+  const malformedCandidate = `${CLEAN_SOURCE}\nconst broken = ;\nconst ${lowEntropyPrefix}='${shapedSecret}';\n`;
+  const { run, calls } = executionSequence([FAILED_EXECUTION]);
+  const result = await healSingleTest({
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true' },
+    webRoot,
+    maxAttempts: 1,
+    log: () => {},
+    resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+    reviewContract: () => ({ passed: true, issues: [] }),
+    typecheck: PASSING_TYPECHECK,
+    lint: PASSING_LINT,
+    targetDirty: () => false,
+    executeStandalone: run,
+    heal: async () => ({ code: malformedCandidate })
+  });
+  const archiveFiles = fs.readdirSync(result.archiveDir);
+  assert.equal(archiveFiles.some((fileName) => fileName.startsWith('attempt-1.rejected-policy')), false);
+  for (const fileName of archiveFiles) {
+    assert.equal(fs.readFileSync(path.join(result.archiveDir, fileName), 'utf8').includes(shapedSecret), false);
+  }
+  assert.equal(result.status, 'brain-error');
+  assert.equal(calls.length, 1);
+  assert.equal(fs.readFileSync(targetPath, 'utf8'), CLEAN_SOURCE);
+  assert.equal(JSON.stringify(result).includes(shapedSecret), false);
+});
+
+test('malformed candidate URLs cannot hide secret-like query keys or hostname labels', async () => {
+  const unsafeCases = [
+    {
+      shapedSecret: 'abcde12345fghij67890klmnop',
+      unsafeUrl: 'https://example.test/?abcde12345fghij67890klmnop='
+    },
+    {
+      shapedSecret: 'AbCdEfGhIjKlMnOpQrStUvWx1',
+      unsafeUrl: 'https://AbCdEfGhIjKlMnOpQrStUvWx1.example.test/'
+    },
+    {
+      shapedSecret: 'AbCdEf1234GhIjKlMnOp_xY',
+      unsafeUrl: `https://example.test/?value=${'a'.repeat(64)}='AbCdEf1234GhIjKlMnOp_xY';`
+    }
+  ];
+  for (const { shapedSecret, unsafeUrl } of unsafeCases) {
+    const { webRoot, target } = makeHealWorkspace();
+    const malformedCandidate = `${CLEAN_SOURCE}\nconst broken = ;\nconst value = ${JSON.stringify(unsafeUrl)};\n`;
+    const { run } = executionSequence([FAILED_EXECUTION]);
+    const result = await healSingleTest({
+      testPath: target,
+      env: { AI_AUTOHEAL_ENABLED: 'true' },
+      webRoot,
+      maxAttempts: 1,
+      log: () => {},
+      resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+      reviewContract: () => ({ passed: true, issues: [] }),
+      typecheck: PASSING_TYPECHECK,
+      lint: PASSING_LINT,
+      executeStandalone: run,
+      heal: async () => ({ code: malformedCandidate })
+    });
+    assert.equal(result.status, 'brain-error');
+    for (const fileName of fs.readdirSync(result.archiveDir)) {
+      const auditContents = fs.readFileSync(path.join(result.archiveDir, fileName), 'utf8');
+      assert.equal(auditContents.includes(shapedSecret), false);
+    }
+  }
+});
+
 test('--apply rejects a dirty target without --allow-dirty before verification or provider work', async () => {
   const { webRoot, target } = makeHealWorkspace();
   const baseOptions = {
@@ -1132,6 +1254,46 @@ test('candidate environment runDir is cleaned before a fallible audit write', as
   assert.equal(fs.existsSync(runDir), false);
 });
 
+test('candidate environment diagnostics are sanitized in every public CLI-facing field', async () => {
+  const { webRoot, target } = makeHealWorkspace();
+  const healedSource = CLEAN_SOURCE.replace(
+    "getByRole('button', { name: 'Save' })",
+    "getByTestId('save-button')"
+  );
+  const shapedSecret = 'AbCdEf1234+GhIjKlMnOp/=';
+  const lowEntropyPrefix = 'a'.repeat(64);
+  const { run } = executionSequence([
+    FAILED_EXECUTION,
+    {
+      ...ENV_EXECUTION,
+      issues: [`Browser launch failed for pin7 while processing ${lowEntropyPrefix}='${shapedSecret}';`]
+    }
+  ]);
+  const result = await healSingleTest({
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true', API_TOKEN: 'pin7' },
+    webRoot,
+    log: () => {},
+    resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+    reviewContract: () => ({ passed: true, issues: [] }),
+    typecheck: PASSING_TYPECHECK,
+    lint: PASSING_LINT,
+    executeStandalone: run,
+    heal: async () => ({ code: healedSource })
+  });
+  assert.equal(result.status, 'environment-failure');
+  assert.match(result.issues.join(' '), /Browser launch failed/);
+  assert.match(result.issues.join(' '), /<redacted>/);
+  const cliFacingFields = JSON.stringify({
+    issues: result.issues,
+    detail: result.detail,
+    attemptTrail: result.attemptTrail,
+    auditIssues: result.auditIssues
+  });
+  assert.doesNotMatch(cliFacingFields, /pin7/);
+  assert.equal(cliFacingFields.includes(shapedSecret), false);
+});
+
 test('still-failing candidate runDir is cleaned before a fallible evidence audit write', async () => {
   const { webRoot, target } = makeHealWorkspace();
   const healedSource = CLEAN_SOURCE.replace(
@@ -1322,6 +1484,31 @@ test('healSingleTest compares the complete target snapshot before apply', async 
   });
   assert.equal(result.status, 'aborted-concurrent-edit');
   assert.equal(fs.readFileSync(targetPath, 'utf8'), CLEAN_SOURCE);
+});
+
+test('public and archived attempt trails remain bounded for explicit library attempt budgets', async () => {
+  const { webRoot, target } = makeHealWorkspace();
+  const healedSource = CLEAN_SOURCE.replace(
+    "getByRole('button', { name: 'Save' })",
+    "getByTestId('save-button')"
+  );
+  const { run } = executionSequence([FAILED_EXECUTION]);
+  const result = await healSingleTest({
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true' },
+    webRoot,
+    maxAttempts: MAX_AUTOHEAL_MAX_ATTEMPTS + 2,
+    log: () => {},
+    resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+    typecheck: () => ({ passed: false, issues: ['synthetic typecheck rejection'] }),
+    executeStandalone: run,
+    heal: async () => ({ code: healedSource })
+  });
+  assert.equal(result.status, 'exhausted');
+  assert.equal(result.attemptsUsed, MAX_AUTOHEAL_MAX_ATTEMPTS + 2);
+  assert.equal(result.attemptTrail.length, MAX_AUTOHEAL_MAX_ATTEMPTS);
+  const summary = JSON.parse(fs.readFileSync(path.join(result.archiveDir, 'heal-summary.json'), 'utf8'));
+  assert.equal(summary.attemptTrail.length, MAX_AUTOHEAL_MAX_ATTEMPTS);
 });
 
 test('healSingleTest aborts when a verified candidate changes on disk', async () => {
