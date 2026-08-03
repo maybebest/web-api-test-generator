@@ -4,8 +4,11 @@ import path from 'node:path';
 import { isPendingGenerationSpec, validateSpecDirectory } from '../validate-flow-spec.mjs';
 
 const RECORDING_HEADER = /\/\*\s*recording:\s+([^\s]+)\s+title:(.*?)\s+sha256:([a-f0-9]{64})\s*\*\//i;
+const RECORDING_MARKER = /\/\*\s*recording\s*:/gi;
+const SPEC_MARKER = /\/\*\s*spec\s*:/gi;
 const ALLOWLIST_PATH = path.join('tests', '.no-header-allowlist');
 const SPEC_BOUND_DIRS = ['tests/regression', 'tests/smoke', 'tests/accessibility', 'tests/visual'];
+const RECORDED_TEST_DIR = 'tests/recorded';
 
 function normalizePortablePath(value) {
   return String(value ?? '').replace(/\\/g, '/');
@@ -30,7 +33,11 @@ function resolveExplicitOrDiscoveredSpec({
   discoverSpec,
   validateDirectory = validateSpecDirectory
 }) {
-  if (explicitSpecPath === undefined) return discoverSpec(testPath, specDir);
+  if (explicitSpecPath === undefined) {
+    const binding = discoverSpec(testPath, specDir);
+    if (!binding) return null;
+    return { ...binding, specPath: assertPortableRepoPath(binding.specPath, 'Spec path') };
+  }
 
   const directoryResult = validateDirectory(specDir);
   const explicitPath = assertPortableRepoPath(explicitSpecPath, '--spec path');
@@ -49,7 +56,7 @@ function resolveExplicitOrDiscoveredSpec({
       `--spec ${explicitSpecPath} declares Target Test File ${declaredTarget}, which does not match --test ${testPath}.`
     );
   }
-  return { specPath: match.specPath, validation: match.result };
+  return { specPath: assertPortableRepoPath(match.specPath, 'Spec path'), validation: match.result };
 }
 
 function isSpecBoundDirectory(testPath) {
@@ -68,6 +75,9 @@ function readAllowlist(webRoot) {
 }
 
 function assertHandwrittenTargetAllowed(testPath, webRoot) {
+  if (testPath.startsWith(`${RECORDED_TEST_DIR}/`)) {
+    throw new Error(`${testPath} requires a recording contract and cannot be treated as handwritten.`);
+  }
   if (!isSpecBoundDirectory(testPath)) return;
   if (readAllowlist(webRoot).has(testPath)) return;
   throw new Error(
@@ -77,7 +87,15 @@ function assertHandwrittenTargetAllowed(testPath, webRoot) {
 
 export function resolveHealContract(options) {
   const testPath = assertPortableRepoPath(options.testPath, 'Test path');
-  const recording = String(options.source ?? '').match(RECORDING_HEADER);
+  const source = String(options.source ?? '');
+  const recordingMarkers = [...source.matchAll(RECORDING_MARKER)];
+  const specMarkers = [...source.matchAll(SPEC_MARKER)];
+  if (recordingMarkers.length > 1) throw new Error('Heal target declares ambiguous recording headers.');
+  if (recordingMarkers.length > 0 && specMarkers.length > 0) {
+    throw new Error('Heal target declares both recording and spec contracts.');
+  }
+  const recording = source.match(RECORDING_HEADER);
+  if (recordingMarkers.length > 0 && !recording) throw new Error('Heal target declares a malformed recording header.');
   const specBinding = resolveExplicitOrDiscoveredSpec({ ...options, testPath });
   if (recording && specBinding) throw new Error('Heal target declares both recording and spec contracts.');
   if (recording) {

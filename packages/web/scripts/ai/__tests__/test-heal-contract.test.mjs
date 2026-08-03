@@ -87,3 +87,42 @@ test('recording paths must already be portable and normalized', () => {
     }), /portable repository-relative path|normalized portable repository-relative path/i);
   }
 });
+
+test('recording markers fail closed when malformed, ambiguous, or missing under the recorded layout', () => {
+  const webRoot = makeWebRoot();
+  const recordingHeader = `/* recording: recordings/save.json title:Save sha256:${'a'.repeat(64)} */`;
+  for (const source of [
+    `/* recording: recordings/save.json title:Save sha256:not-a-hash */`,
+    `${recordingHeader}\n${recordingHeader}`,
+    'import { test } from "@playwright/test";'
+  ]) {
+    assert.throws(() => resolveHealContract({
+      testPath: 'tests/recorded/save.spec.ts',
+      source,
+      webRoot,
+      discoverSpec: () => null
+    }), /recording (?:contract|header)|malformed|ambiguous/i);
+  }
+});
+
+test('source spec and recording markers conflict even when no spec can be discovered', () => {
+  const webRoot = makeWebRoot();
+  assert.throws(() => resolveHealContract({
+    testPath: 'tests/recorded/save.spec.ts',
+    source: `/* spec: specs/save.md version:1.0.0 sha256:${'b'.repeat(64)} */\n/* recording: recordings/save.json title:Save sha256:${'a'.repeat(64)} */`,
+    webRoot,
+    discoverSpec: () => null
+  }), /both recording and spec contracts/i);
+});
+
+test('discovered spec paths must already be portable and normalized', () => {
+  const webRoot = makeWebRoot();
+  for (const specPath of ['/tmp/save.md', 'specs/../save.md']) {
+    assert.throws(() => resolveHealContract({
+      testPath: 'tests/regression/save.spec.ts',
+      source: 'import { test } from "@playwright/test";',
+      webRoot,
+      discoverSpec: () => ({ specPath, validation: {} })
+    }), /Spec path.*portable repository-relative path|Spec path.*normalized portable repository-relative path/i);
+  }
+});
