@@ -169,8 +169,15 @@ AI_AUTOHEAL_ENABLED=true npm run ai:test:heal -- --test tests/recorded/checkout-
 AI_AUTOHEAL_ENABLED=true npm run ai:test:heal -- --test tests/recorded/checkout-confirmation.spec.ts --apply --allow-dirty
 ```
 
-`proposal-ready` means the candidate was fully verified and archived, while the target remains
-unchanged. `--allow-dirty` requires `--apply`; it does not relax post-candidate integrity checks.
+Status meanings are precise: `already-green` means the baseline passed, so there is no provider
+invocation or proposal archive. `proposal-ready` occurs only in default non-mutating mode after a
+repairable failing target produces a fully verified single-test candidate. `not-repairable` ends
+without a healing proposal or provider invocation; an environment failure aborts healing rather
+than continuing to the provider. `manual-change-required` means evidence points to Page Object or
+Component ownership: imported Page Object/Component source is context-only and never
+auto-promoted. `healed` occurs only after explicit `--apply`, full verification, and every
+integrity/concurrency rule; a dirty-at-start target is allowed only with explicit `--allow-dirty`.
+
 Only `locator-drift` and `synchronization` runtime failures are eligible. Product, auth, network,
 data, assertion-mismatch, and unclassified failures are not repairable. A `--dom-snapshot` must be
 a verified selector-discovery artifact under `.ai-runs/dom-discovery/`; the healer accepts at most
