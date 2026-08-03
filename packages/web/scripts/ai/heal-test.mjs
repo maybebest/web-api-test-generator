@@ -431,19 +431,40 @@ function createHealArchive(webRoot, runId) {
   const directory = path.join(webRoot, '.ai-runs', 'heal', runId);
   ensureVerifiedDirectory(directory, 'Test-heal audit directory', 0o700);
   fs.chmodSync(directory, 0o700);
+  const archiveBytes = (fileName, contents) => {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(fileName)) {
+      throw new Error(`Invalid test-heal audit file name: ${fileName}`);
+    }
+    const bytes = Buffer.isBuffer(contents) ? contents : Buffer.from(String(contents), 'utf8');
+    if (bytes.length > MAX_HEAL_ARCHIVE_FILE_BYTES) {
+      throw new Error(`Test-heal audit file exceeds ${MAX_HEAL_ARCHIVE_FILE_BYTES} bytes: ${fileName}`);
+    }
+    return bytes;
+  };
   return {
     directory,
     write(fileName, contents) {
-      if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(fileName)) {
-        throw new Error(`Invalid test-heal audit file name: ${fileName}`);
-      }
-      const bytes = Buffer.isBuffer(contents) ? contents : Buffer.from(String(contents), 'utf8');
-      if (bytes.length > MAX_HEAL_ARCHIVE_FILE_BYTES) {
-        throw new Error(`Test-heal audit file exceeds ${MAX_HEAL_ARCHIVE_FILE_BYTES} bytes: ${fileName}`);
-      }
+      const bytes = archiveBytes(fileName, contents);
       const archivePath = path.join(directory, fileName);
       fs.writeFileSync(archivePath, bytes, { flag: 'wx', mode: 0o600 });
       fs.chmodSync(archivePath, 0o600);
+      return archivePath;
+    },
+    replace(fileName, contents) {
+      const bytes = archiveBytes(fileName, contents);
+      const archivePath = path.join(directory, fileName);
+      const current = fs.lstatSync(archivePath);
+      if (current.isSymbolicLink() || !current.isFile()) {
+        throw new Error(`Test-heal audit replacement must target a regular file: ${fileName}`);
+      }
+      const temporaryPath = path.join(directory, `.${fileName}.${crypto.randomUUID()}.tmp`);
+      try {
+        fs.writeFileSync(temporaryPath, bytes, { flag: 'wx', mode: 0o600 });
+        fs.chmodSync(temporaryPath, 0o600);
+        fs.renameSync(temporaryPath, archivePath);
+      } finally {
+        fs.rmSync(temporaryPath, { force: true });
+      }
       return archivePath;
     }
   };
@@ -469,6 +490,16 @@ function sanitizedEvidenceList(value, secretValues) {
     .slice(0, MAX_HEAL_EVIDENCE_ITEMS)
     .map((item) => auditText(item, secretValues).trim())
     .filter(Boolean);
+}
+
+function sourceSafetyIssue(source, secretValues, label) {
+  const normalizedSource = String(source ?? '');
+  if (redactKnownSecretValues(normalizedSource, secretValues) !== normalizedSource) {
+    return `${label} contains a known secret value and cannot be healed or archived.`;
+  }
+  const selfPolicy = verifyHealedSourcePolicy({ previousSource: normalizedSource, healedSource: normalizedSource });
+  const secretIssue = selfPolicy.issues.find((issue) => /secret/i.test(issue));
+  return secretIssue ? `${label} ${secretIssue}` : null;
 }
 
 function structuredProviderAudit(healed, attempt, secretValues) {
@@ -550,6 +581,7 @@ export async function healSingleTest({
   heal = healTestSource,
   typecheck = typecheckCandidate,
   lint = lintCandidate,
+  chmod = fs.chmodSync,
   targetDirty = gitTargetDirty,
   collectEvidence = collectRuntimeEvidence,
   archiveFactory = createHealArchive,
@@ -585,6 +617,8 @@ export async function healSingleTest({
   const runRoot = path.join(webRoot, '.ai-runs');
   const runId = `${Date.now()}-${process.pid}-${crypto.randomUUID()}`;
   const secretValues = knownSecretEnvValues(env);
+  const originalSafetyIssue = sourceSafetyIssue(originalSource, secretValues, 'Heal target source');
+  if (originalSafetyIssue) throw new Error(originalSafetyIssue);
 
   const contract = resolveContract({
     testPath: target,
@@ -614,7 +648,7 @@ export async function healSingleTest({
   const runVerification = (pathToRun) => (contract.kind === 'spec'
     ? executePair(
         { specPath: contract.specPath, testPath: pathToRun, validation: contract.validation },
-        { repeatEach, env, runRoot }
+        { repeatEach, workers: 1, env, runRoot }
       )
     : executeStandalone({ testPath: pathToRun, project: resolvedProject, repeatEach, env, webRoot, runRoot }));
 
@@ -640,12 +674,16 @@ export async function healSingleTest({
     };
   }
 
+  let currentSource = originalSource;
+  let evidence;
+  try {
+    evidence = sanitizedEvidenceList(collectEvidence(execution, target, { secretValues }), secretValues);
+  } finally {
+    cleanupFailedRunDir(execution, runRoot);
+  }
   const archive = archiveFactory(webRoot, runId);
   const archiveOriginalPath = archive.write('original.ts', originalBytes);
-  let currentSource = originalSource;
-  let evidence = sanitizedEvidenceList(collectEvidence(execution, target, { secretValues }), secretValues);
-  cleanupFailedRunDir(execution, runRoot);
-  const triage = triageRuntimeFailure({ evidence, stage: execution.stage });
+  let triage = triageRuntimeFailure({ evidence, stage: execution.stage });
   const attemptTrail = [];
   const providerAttempts = [];
   let promptSchema;
@@ -666,13 +704,19 @@ export async function healSingleTest({
       mode: { apply, allowDirty },
       attemptTrail: auditAttemptTrail(attemptTrail, secretValues)
     }, null, 2)}\n`);
-    return { ...result, target, archiveDir: archive.directory, attemptTrail };
+    return {
+      ...result,
+      target,
+      archiveDir: archive.directory,
+      attemptTrail: auditAttemptTrail(attemptTrail, secretValues)
+    };
   };
-  archive.write('evidence.json', `${JSON.stringify({
+  const evidenceAudit = () => `${JSON.stringify({
     schema: 'test-heal-evidence/v1',
     evidence,
     triage
-  }, null, 2)}\n`);
+  }, null, 2)}\n`;
+  archive.write('evidence.json', evidenceAudit());
   if (!triage.repairable) {
     return finish({ status: 'not-repairable', attemptsUsed: 0, issues: triage.reasonCodes, triage });
   }
@@ -728,6 +772,12 @@ export async function healSingleTest({
       } catch (error) {
         recordAttempt('brain-error', error.message);
         return finish({ status: 'brain-error', attemptsUsed: attempt, issues: [error.message] });
+      }
+      const candidateSafetyIssue = sourceSafetyIssue(healed?.code, secretValues, 'Heal candidate source');
+      if (candidateSafetyIssue) {
+        checks.policy = 'rejected';
+        recordAttempt('brain-error', candidateSafetyIssue);
+        return finish({ status: 'brain-error', attemptsUsed: attempt, issues: [candidateSafetyIssue] });
       }
       const providerAudit = structuredProviderAudit(healed, attempt, secretValues);
       if (providerAudit) providerAttempts.push(providerAudit);
@@ -886,6 +936,7 @@ export async function healSingleTest({
             });
           }
           checks.targetSnapshot = 'passed';
+          chmod(candidateAbsolute, startingTarget.mode);
           if (!candidateStillMatches()) {
             checks.candidateIntegrity = 'rejected';
             recordAttempt('aborted-candidate-mutation');
@@ -900,35 +951,65 @@ export async function healSingleTest({
           }
           fs.renameSync(candidateAbsolute, absoluteTarget);
           activeCandidate = null;
-          fs.chmodSync(absoluteTarget, startingTarget.mode);
           recordAttempt('healed');
-          return {
-            ...finish({
-              status: 'healed',
-              attemptsUsed: attempt,
-              candidateSha256: candidateSha,
-              candidatePath: candidateArchivePath,
-              diffPath
-            }),
+          const healedResult = {
+            status: 'healed',
+            attemptsUsed: attempt,
+            candidateSha256: candidateSha,
+            candidatePath: candidateArchivePath,
+            diffPath,
             backupPath: archiveOriginalPath
           };
+          try {
+            return finish(healedResult);
+          } catch (error) {
+            return {
+              ...healedResult,
+              target,
+              archiveDir: archive.directory,
+              attemptTrail: auditAttemptTrail(attemptTrail, secretValues),
+              auditIssues: [auditText(error.message, secretValues)]
+            };
+          }
         }
 
-        if (execution.stage === 'runtime-environment') {
-          archive.write(`attempt-${attempt}.env-failure.ts`, healed.code);
-          recordAttempt('environment-failure', (execution.issues ?? []).join(' '));
+        let freshEvidence;
+        try {
+          freshEvidence = collectEvidence(execution, candidateRelative, { secretValues });
+        } finally {
           cleanupFailedRunDir(execution, runRoot);
-          return finish({ status: 'environment-failure', attemptsUsed: attempt, issues: execution.issues });
         }
-
-        archive.write(`attempt-${attempt}.still-failing.ts`, healed.code);
-        recordAttempt('still-failing', (execution.issues ?? []).slice(0, 2).join(' '));
-        const freshEvidence = collectEvidence(execution, candidateRelative, { secretValues });
-        cleanupFailedRunDir(execution, runRoot);
         evidence = sanitizedEvidenceList(
           Array.isArray(freshEvidence) && freshEvidence.length > 0 ? freshEvidence : (execution.issues ?? []),
           secretValues
         );
+        triage = triageRuntimeFailure({ evidence, stage: execution.stage });
+        archive.replace('evidence.json', evidenceAudit());
+
+        if (execution.stage === 'runtime-environment') {
+          archive.write(`attempt-${attempt}.env-failure.ts`, healed.code);
+          recordAttempt('environment-failure', (execution.issues ?? []).join(' '));
+          return finish({
+            status: 'environment-failure',
+            attemptsUsed: attempt,
+            issues: execution.issues,
+            triage
+          });
+        }
+
+        if (!triage.repairable) {
+          archive.write(`attempt-${attempt}.not-repairable.ts`, healed.code);
+          recordAttempt('not-repairable', triage.reasonCodes.join(' '));
+          return finish({
+            status: 'not-repairable',
+            attemptsUsed: attempt,
+            issues: triage.reasonCodes,
+            triage
+          });
+        }
+
+        archive.write(`attempt-${attempt}.still-failing.ts`, healed.code);
+        recordAttempt('still-failing', (execution.issues ?? []).slice(0, 2).join(' '));
         notes = [`Attempt ${attempt} candidate still failed; the source below contains that prior candidate.`];
         currentSource = healed.code;
       } finally {

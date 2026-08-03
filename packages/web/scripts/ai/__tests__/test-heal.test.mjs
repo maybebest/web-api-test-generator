@@ -461,6 +461,27 @@ function executionSequence(results) {
   return { run, calls };
 }
 
+function makeRawRunDir(webRoot, label) {
+  const runDir = path.join(webRoot, '.ai-runs', label);
+  fs.mkdirSync(runDir, { recursive: true });
+  fs.writeFileSync(path.join(runDir, 'raw-browser-artifact.txt'), 'raw browser output');
+  return runDir;
+}
+
+function writableArchiveFactory({ failOn = () => false } = {}) {
+  return (webRoot, runId) => {
+    const directory = path.join(webRoot, '.ai-runs', 'heal', runId);
+    fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+    const store = (fileName, contents) => {
+      if (failOn(fileName)) throw new Error(`audit write failed for ${fileName}`);
+      const archivePath = path.join(directory, fileName);
+      fs.writeFileSync(archivePath, contents, { mode: 0o600 });
+      return archivePath;
+    };
+    return { directory, write: store, replace: store };
+  };
+}
+
 const PASSED_EXECUTION = { passed: true, attempted: true, stage: 'accepted', issues: [], artifacts: [] };
 const FAILED_EXECUTION = {
   passed: false,
@@ -483,6 +504,35 @@ test('healSingleTest refuses to run without the opt-in flag', async () => {
     healSingleTest({ testPath: target, env: {}, webRoot, discoverSpec: () => null }),
     /AI_AUTOHEAL_ENABLED=true/
   );
+});
+
+test('known low-entropy secrets in the original source fail before execution, provider, or archive work', async () => {
+  const { webRoot, target, targetPath } = makeHealWorkspace();
+  fs.writeFileSync(targetPath, `${CLEAN_SOURCE}\n// temporary credential: pin7\n`);
+  let archiveCalls = 0;
+  let providerCalls = 0;
+  await assert.rejects(
+    healSingleTest({
+      testPath: target,
+      env: { AI_AUTOHEAL_ENABLED: 'true', API_TOKEN: 'pin7' },
+      webRoot,
+      log: () => {},
+      resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+      executeStandalone: () => assert.fail('secret-bearing originals must stop before browser execution'),
+      archiveFactory: () => {
+        archiveCalls += 1;
+        throw new Error('archive must not be created');
+      },
+      heal: async () => {
+        providerCalls += 1;
+        return { code: CLEAN_SOURCE };
+      }
+    }),
+    /known secret/i
+  );
+  assert.equal(archiveCalls, 0);
+  assert.equal(providerCalls, 0);
+  assert.equal(fs.existsSync(path.join(webRoot, '.ai-runs')), false);
 });
 
 test('healSingleTest reports already-green without invoking the brain', async () => {
@@ -587,6 +637,88 @@ test('empty failure evidence remains unclassified and never invokes the provider
   assert.equal(calls, 0);
 });
 
+test('a later assertion mismatch stops before a second provider call and replaces audit triage', async () => {
+  const { webRoot, target } = makeHealWorkspace();
+  const healedSource = CLEAN_SOURCE.replace(
+    "getByRole('button', { name: 'Save' })",
+    "getByTestId('save-button')"
+  );
+  const { run } = executionSequence([FAILED_EXECUTION, FAILED_EXECUTION]);
+  let providerCalls = 0;
+  let contextCalls = 0;
+  const result = await healSingleTest({
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true' },
+    webRoot,
+    maxAttempts: 3,
+    log: () => {},
+    resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+    reviewContract: () => ({ passed: true, issues: [] }),
+    typecheck: PASSING_TYPECHECK,
+    lint: PASSING_LINT,
+    targetDirty: () => false,
+    executeStandalone: run,
+    collectEvidence: (_execution, testPath) => testPath.includes('.candidate.')
+      ? ['Expected string: "Saved" Received string: "Save failed"']
+      : ['locator.click: Timeout 30000ms exceeded while waiting for getByRole("button")'],
+    collectContext: () => {
+      contextCalls += 1;
+      return { importedSources: [], manualChangeRequired: false };
+    },
+    heal: async () => {
+      providerCalls += 1;
+      if (providerCalls > 1) assert.fail('non-repairable fresh evidence must stop before another provider call');
+      return { code: healedSource };
+    }
+  });
+  assert.equal(result.status, 'not-repairable');
+  assert.equal(providerCalls, 1);
+  assert.equal(contextCalls, 1);
+  assert.equal(result.triage.classification, 'product-or-contract');
+  const evidenceAudit = JSON.parse(fs.readFileSync(path.join(result.archiveDir, 'evidence.json'), 'utf8'));
+  assert.deepEqual(evidenceAudit.evidence, ['Expected string: "Saved" Received string: "Save failed"']);
+  assert.equal(evidenceAudit.triage.classification, 'product-or-contract');
+  const summary = JSON.parse(fs.readFileSync(path.join(result.archiveDir, 'heal-summary.json'), 'utf8'));
+  assert.equal(summary.triage.classification, 'product-or-contract');
+});
+
+test('a later auth failure stops before a second provider call and replaces audit triage', async () => {
+  const { webRoot, target } = makeHealWorkspace();
+  const healedSource = CLEAN_SOURCE.replace(
+    "getByRole('button', { name: 'Save' })",
+    "getByTestId('save-button')"
+  );
+  const { run } = executionSequence([FAILED_EXECUTION, FAILED_EXECUTION]);
+  let providerCalls = 0;
+  const result = await healSingleTest({
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true' },
+    webRoot,
+    maxAttempts: 3,
+    log: () => {},
+    resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+    reviewContract: () => ({ passed: true, issues: [] }),
+    typecheck: PASSING_TYPECHECK,
+    lint: PASSING_LINT,
+    targetDirty: () => false,
+    executeStandalone: run,
+    collectEvidence: (_execution, testPath) => testPath.includes('.candidate.')
+      ? ['401 Unauthorized while loading account']
+      : ['locator.click: Timeout 30000ms exceeded while waiting for getByRole("button")'],
+    heal: async () => {
+      providerCalls += 1;
+      if (providerCalls > 1) assert.fail('auth failures must stop before another provider call');
+      return { code: healedSource };
+    }
+  });
+  assert.equal(result.status, 'not-repairable');
+  assert.equal(providerCalls, 1);
+  assert.equal(result.triage.classification, 'environment');
+  const summary = JSON.parse(fs.readFileSync(path.join(result.archiveDir, 'heal-summary.json'), 'utf8'));
+  assert.equal(summary.triage.classification, 'environment');
+  assert.deepEqual(summary.triage.reasonCodes, ['AUTH_NETWORK_OR_BROWSER_FAILURE']);
+});
+
 test('verified healing is proposal-only by default', async () => {
   const { webRoot, target, targetPath } = makeHealWorkspace();
   const healedSource = CLEAN_SOURCE.replace(
@@ -674,6 +806,38 @@ test('verified healing is proposal-only by default', async () => {
   }
 });
 
+test('known low-entropy secrets in candidate source are never archived or sent to a later provider call', async () => {
+  const { webRoot, target, targetPath } = makeHealWorkspace();
+  const secretCandidate = `${CLEAN_SOURCE}\n// temporary credential: pin7\n`;
+  const { run, calls } = executionSequence([FAILED_EXECUTION]);
+  let providerCalls = 0;
+  const result = await healSingleTest({
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true', API_TOKEN: 'pin7' },
+    webRoot,
+    maxAttempts: 3,
+    log: () => {},
+    resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+    reviewContract: () => ({ passed: true, issues: [] }),
+    typecheck: PASSING_TYPECHECK,
+    lint: PASSING_LINT,
+    targetDirty: () => false,
+    executeStandalone: run,
+    heal: async () => {
+      providerCalls += 1;
+      if (providerCalls > 1) assert.fail('known-secret candidates must stop before another provider call');
+      return { code: secretCandidate };
+    }
+  });
+  assert.equal(result.status, 'brain-error');
+  assert.equal(providerCalls, 1);
+  assert.equal(calls.length, 1);
+  assert.equal(fs.readFileSync(targetPath, 'utf8'), CLEAN_SOURCE);
+  for (const fileName of fs.readdirSync(result.archiveDir)) {
+    assert.doesNotMatch(fs.readFileSync(path.join(result.archiveDir, fileName), 'utf8'), /pin7/);
+  }
+});
+
 test('--apply rejects a dirty target without --allow-dirty before verification or provider work', async () => {
   const { webRoot, target } = makeHealWorkspace();
   const baseOptions = {
@@ -752,6 +916,47 @@ test('--allow-dirty permits an explicit apply while retaining concurrent-edit ch
   });
   assert.equal(result.status, 'healed');
   assert.equal(fs.readFileSync(targetPath, 'utf8'), healedSource);
+});
+
+test('post-rename audit failure still reports the committed healed mutation accurately', async () => {
+  const { webRoot, target, targetPath } = makeHealWorkspace();
+  const healedSource = CLEAN_SOURCE.replace(
+    "getByRole('button', { name: 'Save' })",
+    "getByTestId('save-button')"
+  );
+  const secretBearingFailure = {
+    ...FAILED_EXECUTION,
+    issues: ['locator.click: Timeout 30000ms exceeded while using credential pin7']
+  };
+  const { run } = executionSequence([FAILED_EXECUTION, secretBearingFailure, PASSED_EXECUTION]);
+  const chmodPaths = [];
+  const result = await healSingleTest({
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true', API_TOKEN: 'pin7' },
+    webRoot,
+    log: () => {},
+    apply: true,
+    resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+    reviewContract: () => ({ passed: true, issues: [] }),
+    typecheck: PASSING_TYPECHECK,
+    lint: PASSING_LINT,
+    targetDirty: () => false,
+    executeStandalone: run,
+    archiveFactory: writableArchiveFactory({ failOn: (fileName) => fileName === 'heal-summary.json' }),
+    chmod: (filePath, mode) => {
+      chmodPaths.push(filePath);
+      fs.chmodSync(filePath, mode);
+    },
+    heal: async () => ({ code: healedSource })
+  });
+  assert.equal(result.status, 'healed');
+  assert.equal(fs.readFileSync(targetPath, 'utf8'), healedSource);
+  assert.equal(chmodPaths.length, 1);
+  assert.match(chmodPaths[0], /\.candidate(?:\.authenticated)?\.spec\.ts$/);
+  assert.notEqual(chmodPaths[0], targetPath);
+  assert.match(result.auditIssues.join(' '), /heal-summary\.json/);
+  assert.doesNotMatch(JSON.stringify(result.attemptTrail), /pin7/);
+  assert.match(JSON.stringify(result.attemptTrail), /<redacted>/);
 });
 
 test('Page Object or component ownership always requires a manual change', async () => {
@@ -854,6 +1059,109 @@ test('archive creation rejects a symlinked audit root', async () => {
     }),
     /symbolic links/
   );
+});
+
+test('baseline runDir is cleaned when evidence collection throws', async () => {
+  const { webRoot, target } = makeHealWorkspace();
+  const runDir = makeRawRunDir(webRoot, 'baseline-evidence-throws');
+  await assert.rejects(
+    healSingleTest({
+      testPath: target,
+      env: { AI_AUTOHEAL_ENABLED: 'true' },
+      webRoot,
+      log: () => {},
+      resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+      executeStandalone: () => ({ ...FAILED_EXECUTION, runDir }),
+      collectEvidence: () => {
+        throw new Error('evidence hook failed');
+      }
+    }),
+    /evidence hook failed/
+  );
+  assert.equal(fs.existsSync(runDir), false);
+});
+
+test('baseline runDir is cleaned before archive creation failure', async () => {
+  const { webRoot, target } = makeHealWorkspace();
+  const runDir = makeRawRunDir(webRoot, 'baseline-archive-throws');
+  await assert.rejects(
+    healSingleTest({
+      testPath: target,
+      env: { AI_AUTOHEAL_ENABLED: 'true' },
+      webRoot,
+      log: () => {},
+      resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+      executeStandalone: () => ({ ...FAILED_EXECUTION, runDir }),
+      collectEvidence: () => ['locator.click: Timeout 30000ms exceeded'],
+      archiveFactory: () => {
+        throw new Error('archive creation failed');
+      }
+    }),
+    /archive creation failed/
+  );
+  assert.equal(fs.existsSync(runDir), false);
+});
+
+test('candidate environment runDir is cleaned before a fallible audit write', async () => {
+  const { webRoot, target } = makeHealWorkspace();
+  const healedSource = CLEAN_SOURCE.replace(
+    "getByRole('button', { name: 'Save' })",
+    "getByTestId('save-button')"
+  );
+  const runDir = makeRawRunDir(webRoot, 'candidate-environment-archive-throws');
+  const { run } = executionSequence([
+    FAILED_EXECUTION,
+    { ...ENV_EXECUTION, runDir }
+  ]);
+  await assert.rejects(
+    healSingleTest({
+      testPath: target,
+      env: { AI_AUTOHEAL_ENABLED: 'true' },
+      webRoot,
+      log: () => {},
+      resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+      reviewContract: () => ({ passed: true, issues: [] }),
+      typecheck: PASSING_TYPECHECK,
+      lint: PASSING_LINT,
+      executeStandalone: run,
+      archiveFactory: writableArchiveFactory({ failOn: (fileName) => fileName.includes('env-failure') }),
+      heal: async () => ({ code: healedSource })
+    }),
+    /audit write failed/
+  );
+  assert.equal(fs.existsSync(runDir), false);
+});
+
+test('still-failing candidate runDir is cleaned before a fallible evidence audit write', async () => {
+  const { webRoot, target } = makeHealWorkspace();
+  const healedSource = CLEAN_SOURCE.replace(
+    "getByRole('button', { name: 'Save' })",
+    "getByTestId('save-button')"
+  );
+  const runDir = makeRawRunDir(webRoot, 'candidate-still-failing-archive-throws');
+  const { run } = executionSequence([
+    FAILED_EXECUTION,
+    { ...FAILED_EXECUTION, runDir }
+  ]);
+  await assert.rejects(
+    healSingleTest({
+      testPath: target,
+      env: { AI_AUTOHEAL_ENABLED: 'true' },
+      webRoot,
+      maxAttempts: 1,
+      log: () => {},
+      resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+      reviewContract: () => ({ passed: true, issues: [] }),
+      typecheck: PASSING_TYPECHECK,
+      lint: PASSING_LINT,
+      executeStandalone: run,
+      archiveFactory: writableArchiveFactory({ failOn: (fileName) => fileName.includes('still-failing') }),
+      collectEvidence: () => ['locator.click: Timeout 30000ms exceeded'],
+      heal: async () => ({ code: healedSource })
+    }),
+    /audit write failed/
+  );
+  assert.equal(fs.existsSync(runDir), false);
 });
 
 test('CLI help and exit-status policy distinguish proposals from failures', async () => {
@@ -1062,6 +1370,7 @@ test('healSingleTest runs spec-bound static review before spending a verificatio
     executePair: (pair, options) => {
       assert.equal(pair.specPath, 'specs/flow.md');
       assert.equal(options.repeatEach, 2);
+      assert.equal(options.workers, 1);
       return run(pair);
     },
     reviewer: (input) => {
