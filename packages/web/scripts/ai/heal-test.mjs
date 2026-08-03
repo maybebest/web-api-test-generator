@@ -381,32 +381,31 @@ export function gitTargetDirty(target, webRoot = process.cwd()) {
 export function lintCandidate({
   candidatePath,
   webRoot = process.cwd(),
+  env = process.env,
   commandRunner = spawnSync,
   packageManager = detectPackageManager(webRoot)
 }) {
-  const packageArgs = packageManager === 'npm'
-    ? ['exec', '--', 'eslint']
-    : ['exec', 'eslint'];
-  const result = commandRunner(packageManager, [
-    ...packageArgs,
-    '--no-ignore',
-    '--max-warnings=0',
-    candidatePath
-  ], {
-    cwd: webRoot,
-    encoding: 'utf8',
-    maxBuffer: MAX_HEAL_ARCHIVE_FILE_BYTES,
-    shell: false
-  });
-  if (result.status === 0) return { passed: true, issues: [] };
-  const output = [result.stdout, result.stderr, result.error?.message]
-    .filter(Boolean)
-    .join('\n')
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .slice(0, MAX_HEAL_EVIDENCE_ITEMS);
-  return { passed: false, issues: output.length > 0 ? output : ['ESLint did not accept the heal candidate.'] };
+  const [command, args] = packageManager === 'pnpm'
+    ? ['pnpm', ['exec', 'eslint', candidatePath, '--max-warnings=0']]
+    : packageManager === 'yarn'
+      ? ['yarn', ['eslint', candidatePath, '--max-warnings=0']]
+      : ['npx', ['eslint', candidatePath, '--max-warnings=0']];
+  try {
+    const result = commandRunner(command, args, {
+      cwd: webRoot,
+      encoding: 'utf8',
+      env: buildGateEnvironment(env, { profile: 'static' }),
+      maxBuffer: MAX_HEAL_ARCHIVE_FILE_BYTES,
+      shell: false
+    });
+    if (result?.status === 0 && !result.signal && !result.error) {
+      return { passed: true, issues: [] };
+    }
+  } catch {
+    // A thrown runner is an abnormal lint exit and receives the same bounded,
+    // non-provider-controlled diagnostic as a nonzero process status.
+  }
+  return { passed: false, issues: ['ESLint did not accept the heal candidate.'] };
 }
 
 function assertHealableTarget(absoluteTarget, webRoot) {
@@ -868,7 +867,7 @@ export async function healSingleTest({
           continue;
         }
 
-        const lintResult = lint({ candidatePath: candidateAbsolute, targetPath: absoluteTarget, webRoot });
+        const lintResult = lint({ candidatePath: candidateAbsolute, targetPath: absoluteTarget, webRoot, env });
         checks.lint = lintResult.passed ? 'passed' : 'rejected';
         if (!lintResult.passed) {
           archiveRejectedAttempt(attempt, 'rejected-lint');

@@ -422,23 +422,42 @@ test('CLI arg parsing and standalone project inference', () => {
   assert.equal(authCandidate, '/web/tests/regression/.foo.heal-run-a1.candidate.authenticated.spec.ts');
 });
 
-test('default candidate lint resolves the repository-installed ESLint through the package manager', () => {
-  const calls = [];
-  const result = lintCandidate({
-    candidatePath: '/web/tests/.flow.candidate.spec.ts',
+test('default candidate lint uses each package manager with the static gate environment', () => {
+  const candidatePath = '/web/tests/.flow.candidate.spec.ts';
+  for (const [packageManager, expectedCommand, expectedArgs] of [
+    ['npm', 'npx', ['eslint', candidatePath, '--max-warnings=0']],
+    ['pnpm', 'pnpm', ['exec', 'eslint', candidatePath, '--max-warnings=0']],
+    ['yarn', 'yarn', ['eslint', candidatePath, '--max-warnings=0']]
+  ]) {
+    const calls = [];
+    const result = lintCandidate({
+      candidatePath,
+      webRoot: '/web',
+      packageManager,
+      env: { PATH: '/tools', API_TOKEN: 'private-token', UNRELATED_CANARY: 'must-not-pass' },
+      commandRunner: (command, args, options) => {
+        calls.push({ command, args, options });
+        return { status: 0, stdout: '', stderr: '' };
+      }
+    });
+    assert.deepEqual(result, { passed: true, issues: [] });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].command, expectedCommand);
+    assert.deepEqual(calls[0].args, expectedArgs);
+    assert.equal(calls[0].options.cwd, '/web');
+    assert.equal(calls[0].options.env.PATH, '/tools');
+    assert.equal(calls[0].options.env.API_TOKEN, '');
+    assert.equal(calls[0].options.env.UNRELATED_CANARY, undefined);
+    assert.equal(calls[0].options.env.AI_GATE_SANITIZED_ENV, 'true');
+  }
+
+  const rejected = lintCandidate({
+    candidatePath,
     webRoot: '/web',
-    commandRunner: (command, args, options) => {
-      calls.push({ command, args, options });
-      return { status: 0, stdout: '', stderr: '' };
-    }
+    packageManager: 'npm',
+    commandRunner: () => ({ status: null, signal: 'SIGTERM', stderr: 'PRIVATE_LINT_CANARY' })
   });
-  assert.deepEqual(result, { passed: true, issues: [] });
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].command, 'npm');
-  assert.deepEqual(calls[0].args, [
-    'exec', '--', 'eslint', '--no-ignore', '--max-warnings=0', '/web/tests/.flow.candidate.spec.ts'
-  ]);
-  assert.equal(calls[0].options.cwd, '/web');
+  assert.deepEqual(rejected, { passed: false, issues: ['ESLint did not accept the heal candidate.'] });
 });
 
 function makeHealWorkspace() {
@@ -1172,6 +1191,7 @@ test('lint rejection prevents both proposal and promotion', async () => {
     "getByTestId('save-button')"
   );
   const { run, calls } = executionSequence([FAILED_EXECUTION]);
+  let reviewCalls = 0;
   const result = await healSingleTest({
     testPath: target,
     env: { AI_AUTOHEAL_ENABLED: 'true' },
@@ -1180,7 +1200,10 @@ test('lint rejection prevents both proposal and promotion', async () => {
     log: () => {},
     apply: true,
     resolveContract: () => ({ kind: 'handwritten', testPath: target }),
-    reviewContract: () => ({ passed: true, issues: [] }),
+    reviewContract: () => {
+      reviewCalls += 1;
+      return { passed: true, issues: [] };
+    },
     typecheck: PASSING_TYPECHECK,
     lint: () => ({ passed: false, issues: ['candidate lint failed'] }),
     targetDirty: () => false,
@@ -1189,6 +1212,7 @@ test('lint rejection prevents both proposal and promotion', async () => {
   });
   assert.equal(result.status, 'exhausted');
   assert.deepEqual(result.attemptTrail.map((entry) => entry.outcome), ['lint-rejected']);
+  assert.equal(reviewCalls, 0);
   assert.equal(calls.length, 1);
   assert.equal(fs.readFileSync(targetPath, 'utf8'), CLEAN_SOURCE);
 });
