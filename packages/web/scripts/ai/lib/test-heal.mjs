@@ -351,6 +351,7 @@ function isTestOrDescribePath(path) {
   return path === 'test'
     || path === 'it'
     || path === 'describe'
+    || /^(?:test|it|describe)\.(?:skip|fixme|fail|only)$/.test(path ?? '')
     || /^(?:test|describe)\.describe(?:\.|$)/.test(path ?? '');
 }
 
@@ -382,6 +383,19 @@ function containsSemanticLocatorCall(node) {
   };
   visit(node);
   return found;
+}
+
+function isLocatorChainExpression(node) {
+  if (ts.isParenthesizedExpression(node) || ts.isNonNullExpression(node)) {
+    return isLocatorChainExpression(node.expression);
+  }
+  if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+    return isLocatorChainExpression(node.expression);
+  }
+  if (ts.isCallExpression(node)) {
+    return isSemanticLocatorCall(node) || isLocatorChainExpression(node.expression);
+  }
+  return false;
 }
 
 function freezeFacts(value) {
@@ -490,6 +504,9 @@ export function collectAnnotationFacts(sourceFile) {
 
 function assertionFact(expectCall, sourceFile) {
   const modifiers = [];
+  const expectArguments = expectCall.arguments
+    .filter((argument) => !isLocatorChainExpression(argument))
+    .map((argument) => argument.getText(sourceFile));
   let cursor = expectCall;
   while (cursor.parent) {
     const parent = cursor.parent;
@@ -503,6 +520,7 @@ function assertionFact(expectCall, sourceFile) {
         return {
           matcherPath: parent.name.text,
           modifiers,
+          expectArguments,
           arguments: matcherCall.arguments.map((argument) => argument.getText(sourceFile))
         };
       }
@@ -512,7 +530,7 @@ function assertionFact(expectCall, sourceFile) {
     }
     break;
   }
-  return { matcherPath: '<no-matcher>', modifiers, arguments: [] };
+  return { matcherPath: '<no-matcher>', modifiers, expectArguments, arguments: [] };
 }
 
 export function collectAssertionArgumentFacts(sourceFile) {
@@ -540,8 +558,7 @@ function actionMethodName(node) {
   if (!ts.isPropertyAccessExpression(node.expression)) return undefined;
   const method = node.expression.name.text;
   if (ACTION_METHOD_NAMES.has(method)) return method;
-  const path = callPath(node.expression);
-  if (REQUEST_MUTATION_METHOD_NAMES.has(method) && /(?:^|\.)request\./.test(path ?? '')) return method;
+  if (REQUEST_MUTATION_METHOD_NAMES.has(method)) return method;
   return undefined;
 }
 
