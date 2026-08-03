@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 
 import {
@@ -19,9 +20,10 @@ import {
   redactKnownSecretValues,
   verifyHealedSourcePolicy
 } from '../lib/test-heal.mjs';
-import { healCandidatePath, healSingleTest, inferStandaloneProject, parseArgs } from '../heal-test.mjs';
+import { healCandidatePath, healSingleTest, inferStandaloneProject, lintCandidate, parseArgs } from '../heal-test.mjs';
 
 const PASSING_TYPECHECK = () => ({ passed: true, issues: [] });
+const PASSING_LINT = () => ({ passed: true, issues: [] });
 
 const CLEAN_SOURCE = `/* spec: specs/flow.md version:1.0.0 sha256:abc123 */
 import { test, expect } from '../../fixtures/test';
@@ -393,12 +395,17 @@ test('CLI arg parsing and standalone project inference', () => {
   const args = parseArgs([
     '--test', 'tests/a.spec.ts',
     '--test', 'tests/b.spec.ts',
+    '--apply',
+    '--allow-dirty',
     '--max-attempts', '4',
     '--dom-snapshot', '.ai-runs/dom-discovery/run/dom.json'
   ]);
   assert.deepEqual(args.tests, ['tests/a.spec.ts', 'tests/b.spec.ts']);
+  assert.equal(args.apply, true);
+  assert.equal(args.allowDirty, true);
   assert.equal(args.maxAttempts, '4');
   assert.equal(args.domSnapshot, '.ai-runs/dom-discovery/run/dom.json');
+  assert.throws(() => parseArgs(['--allow-dirty', '--test', 'x']), /requires --apply/);
   assert.throws(() => parseArgs(['--spec', 's.md']), /exactly one --test/);
   assert.throws(() => parseArgs(['--bogus']), /Unknown flag/);
   assert.throws(() => parseArgs(['--test']), /requires a value/);
@@ -412,6 +419,25 @@ test('CLI arg parsing and standalone project inference', () => {
   assert.equal(candidate, '/web/tests/regression/.foo.heal-run-a1.candidate.spec.ts');
   const authCandidate = healCandidatePath('/web/tests/regression/foo.authenticated.spec.ts', 'run-a1');
   assert.equal(authCandidate, '/web/tests/regression/.foo.heal-run-a1.candidate.authenticated.spec.ts');
+});
+
+test('default candidate lint resolves the repository-installed ESLint through the package manager', () => {
+  const calls = [];
+  const result = lintCandidate({
+    candidatePath: '/web/tests/.flow.candidate.spec.ts',
+    webRoot: '/web',
+    commandRunner: (command, args, options) => {
+      calls.push({ command, args, options });
+      return { status: 0, stdout: '', stderr: '' };
+    }
+  });
+  assert.deepEqual(result, { passed: true, issues: [] });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].command, 'npm');
+  assert.deepEqual(calls[0].args, [
+    'exec', '--', 'eslint', '--no-ignore', '--max-warnings=0', '/web/tests/.flow.candidate.spec.ts'
+  ]);
+  assert.equal(calls[0].options.cwd, '/web');
 });
 
 function makeHealWorkspace() {
@@ -440,7 +466,7 @@ const FAILED_EXECUTION = {
   passed: false,
   attempted: true,
   stage: 'runtime-test',
-  issues: ['Playwright JSON report shows 1 unexpected (failed) test(s).'],
+  issues: ['locator.click: Timeout 30000ms exceeded while waiting for getByRole("button")'],
   artifacts: []
 };
 const ENV_EXECUTION = {
@@ -503,6 +529,349 @@ test('healSingleTest aborts on baseline environment failures instead of masking 
   assert.equal(healCalls, 0);
 });
 
+test('non-repairable failures never invoke the provider', async () => {
+  const { webRoot, target } = makeHealWorkspace();
+  const healedSource = CLEAN_SOURCE.replace(
+    "getByRole('button', { name: 'Save' })",
+    "getByTestId('save-button')"
+  );
+  const baseOptions = {
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true' },
+    webRoot,
+    log: () => {},
+    resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+    reviewContract: () => ({ passed: true, issues: [] }),
+    typecheck: PASSING_TYPECHECK,
+    lint: PASSING_LINT,
+    targetDirty: () => false
+  };
+  let calls = 0;
+  let contextCalls = 0;
+  const { run } = executionSequence([FAILED_EXECUTION]);
+  const result = await healSingleTest({
+    ...baseOptions,
+    executeStandalone: run,
+    collectEvidence: () => ['Expected string: "Saved" Received string: "Save failed"'],
+    collectContext: () => (contextCalls += 1, { importedSources: [], manualChangeRequired: false }),
+    heal: async () => (calls += 1, { code: healedSource })
+  });
+  assert.equal(result.status, 'not-repairable');
+  assert.equal(calls, 0);
+  assert.equal(contextCalls, 0);
+  const evidence = JSON.parse(fs.readFileSync(path.join(result.archiveDir, 'evidence.json'), 'utf8'));
+  assert.equal(evidence.schema, 'test-heal-evidence/v1');
+  assert.equal(evidence.triage.classification, 'product-or-contract');
+});
+
+test('empty failure evidence remains unclassified and never invokes the provider', async () => {
+  const { webRoot, target } = makeHealWorkspace();
+  let calls = 0;
+  const { run } = executionSequence([FAILED_EXECUTION]);
+  const result = await healSingleTest({
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true' },
+    webRoot,
+    log: () => {},
+    resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+    reviewContract: () => ({ passed: true, issues: [] }),
+    typecheck: PASSING_TYPECHECK,
+    lint: PASSING_LINT,
+    targetDirty: () => false,
+    executeStandalone: run,
+    collectEvidence: () => [],
+    heal: async () => (calls += 1, { code: CLEAN_SOURCE })
+  });
+  assert.equal(result.status, 'not-repairable');
+  assert.equal(result.triage.classification, 'unclassified');
+  assert.equal(calls, 0);
+});
+
+test('verified healing is proposal-only by default', async () => {
+  const { webRoot, target, targetPath } = makeHealWorkspace();
+  const healedSource = CLEAN_SOURCE.replace(
+    "getByRole('button', { name: 'Save' })",
+    "getByTestId('save-button')"
+  );
+  let resolveCalls = 0;
+  let reviewCalls = 0;
+  const baseOptions = {
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true', API_TOKEN: 'runner-known-secret' },
+    webRoot,
+    log: () => {},
+    resolveContract: (input) => {
+      resolveCalls += 1;
+      assert.equal(input.testPath, target);
+      return { kind: 'handwritten', testPath: target };
+    },
+    reviewContract: () => (reviewCalls += 1, { passed: true, issues: [] }),
+    typecheck: PASSING_TYPECHECK,
+    lint: PASSING_LINT,
+    targetDirty: () => false
+  };
+  const { run } = executionSequence([FAILED_EXECUTION, PASSED_EXECUTION]);
+  const result = await healSingleTest({
+    ...baseOptions,
+    apply: false,
+    executeStandalone: run,
+    collectEvidence: () => ['locator.click: Timeout 30000ms exceeded while waiting for getByRole("button") runner-known-secret'],
+    heal: async () => ({
+      code: healedSource,
+      promptSchema: 'playwright-test-heal/v1',
+      brain: { kind: 'unstructured-decoy', model: 'must-not-be-recorded' },
+      result: {
+        brain: { kind: 'openai', model: 'model-x' },
+        usage: { inputTokens: 11, outputTokens: 7, totalTokens: 18, prompt: 'raw-prompt-must-not-be-recorded' }
+      }
+    })
+  });
+  assert.equal(result.status, 'proposal-ready');
+  assert.equal(fs.readFileSync(targetPath, 'utf8'), CLEAN_SOURCE);
+  assert.equal(fs.existsSync(path.join(result.archiveDir, 'candidate.diff')), true);
+  assert.equal(resolveCalls, 1);
+  assert.equal(reviewCalls, 1);
+
+  const archiveNames = fs.readdirSync(result.archiveDir).sort();
+  assert.deepEqual(archiveNames, ['candidate.diff', 'candidate.ts', 'evidence.json', 'heal-summary.json', 'original.ts']);
+  assert.equal(fs.statSync(result.archiveDir).mode & 0o777, 0o700);
+  for (const fileName of archiveNames) {
+    assert.equal(fs.statSync(path.join(result.archiveDir, fileName)).mode & 0o777, 0o600, fileName);
+  }
+  const diff = fs.readFileSync(path.join(result.archiveDir, 'candidate.diff'), 'utf8');
+  assert.match(diff, /^diff --git/m);
+  assert.match(diff, /getByTestId\('save-button'\)/);
+  assert.ok(Buffer.byteLength(diff, 'utf8') <= 1024 * 1024);
+  const summaryText = fs.readFileSync(path.join(result.archiveDir, 'heal-summary.json'), 'utf8');
+  const summary = JSON.parse(summaryText);
+  assert.equal(summary.status, 'proposal-ready');
+  assert.equal(summary.mode.apply, false);
+  assert.equal(summary.contractKind, 'handwritten');
+  assert.equal(summary.triage.classification, 'synchronization');
+  assert.equal(summary.promptSchema, 'playwright-test-heal/v1');
+  assert.deepEqual(summary.providerAttempts, [{
+    attempt: 1,
+    kind: 'openai',
+    model: 'model-x',
+    usage: { inputTokens: 11, outputTokens: 7, totalTokens: 18 }
+  }]);
+  assert.deepEqual(summary.attemptTrail, [{
+    attempt: 1,
+    outcome: 'proposal-ready',
+    checks: {
+      policy: 'passed',
+      typecheck: 'passed',
+      lint: 'passed',
+      review: 'passed',
+      runtime: 'passed',
+      candidateIntegrity: 'passed',
+      diff: 'passed'
+    }
+  }]);
+  assert.doesNotMatch(summaryText, /raw-prompt-must-not-be-recorded|unstructured-decoy|must-not-be-recorded/);
+  for (const fileName of archiveNames) {
+    assert.doesNotMatch(fs.readFileSync(path.join(result.archiveDir, fileName), 'utf8'), /runner-known-secret/);
+  }
+});
+
+test('--apply rejects a dirty target without --allow-dirty before verification or provider work', async () => {
+  const { webRoot, target } = makeHealWorkspace();
+  const baseOptions = {
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true' },
+    webRoot,
+    log: () => {},
+    resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+    reviewContract: () => ({ passed: true, issues: [] }),
+    typecheck: PASSING_TYPECHECK,
+    lint: PASSING_LINT,
+    targetDirty: () => true
+  };
+  const result = await healSingleTest({
+    ...baseOptions,
+    apply: true,
+    allowDirty: false,
+    executeStandalone: () => assert.fail('dirty targets must stop before baseline verification'),
+    heal: async () => assert.fail('dirty targets must stop before provider work')
+  });
+  assert.equal(result.status, 'dirty-target');
+});
+
+test('--apply rechecks target Git dirtiness immediately before promotion', async () => {
+  const { webRoot, target, targetPath } = makeHealWorkspace();
+  const healedSource = CLEAN_SOURCE.replace(
+    "getByRole('button', { name: 'Save' })",
+    "getByTestId('save-button')"
+  );
+  const { run } = executionSequence([FAILED_EXECUTION, PASSED_EXECUTION]);
+  const dirtyStates = [false, true];
+  let dirtyChecks = 0;
+  const result = await healSingleTest({
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true' },
+    webRoot,
+    log: () => {},
+    apply: true,
+    resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+    reviewContract: () => ({ passed: true, issues: [] }),
+    typecheck: PASSING_TYPECHECK,
+    lint: PASSING_LINT,
+    targetDirty: () => {
+      dirtyChecks += 1;
+      return dirtyStates.shift();
+    },
+    executeStandalone: run,
+    heal: async () => ({ code: healedSource })
+  });
+  assert.equal(result.status, 'dirty-target');
+  assert.equal(dirtyChecks, 2);
+  assert.equal(fs.readFileSync(targetPath, 'utf8'), CLEAN_SOURCE);
+});
+
+test('--allow-dirty permits an explicit apply while retaining concurrent-edit checks', async () => {
+  const { webRoot, target, targetPath } = makeHealWorkspace();
+  const healedSource = CLEAN_SOURCE.replace(
+    "getByRole('button', { name: 'Save' })",
+    "getByTestId('save-button')"
+  );
+  const { run } = executionSequence([FAILED_EXECUTION, PASSED_EXECUTION]);
+  const result = await healSingleTest({
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true' },
+    webRoot,
+    log: () => {},
+    apply: true,
+    allowDirty: true,
+    resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+    reviewContract: () => ({ passed: true, issues: [] }),
+    typecheck: PASSING_TYPECHECK,
+    lint: PASSING_LINT,
+    targetDirty: () => true,
+    executeStandalone: run,
+    heal: async () => ({ code: healedSource })
+  });
+  assert.equal(result.status, 'healed');
+  assert.equal(fs.readFileSync(targetPath, 'utf8'), healedSource);
+});
+
+test('Page Object or component ownership always requires a manual change', async () => {
+  const { webRoot, target, targetPath } = makeHealWorkspace();
+  const healedSource = CLEAN_SOURCE.replace(
+    "getByRole('button', { name: 'Save' })",
+    "getByTestId('save-button')"
+  );
+  const { run } = executionSequence([FAILED_EXECUTION, PASSED_EXECUTION]);
+  const result = await healSingleTest({
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true' },
+    webRoot,
+    log: () => {},
+    apply: true,
+    resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+    reviewContract: () => ({ passed: true, issues: [] }),
+    typecheck: PASSING_TYPECHECK,
+    lint: PASSING_LINT,
+    targetDirty: () => false,
+    executeStandalone: run,
+    collectContext: () => ({ importedSources: [], manualChangeRequired: true }),
+    heal: async () => ({ code: healedSource })
+  });
+  assert.equal(result.status, 'manual-change-required');
+  assert.equal(fs.readFileSync(targetPath, 'utf8'), CLEAN_SOURCE);
+  assert.equal(fs.existsSync(path.join(result.archiveDir, 'candidate.diff')), true);
+});
+
+test('lint rejection prevents both proposal and promotion', async () => {
+  const { webRoot, target, targetPath } = makeHealWorkspace();
+  const healedSource = CLEAN_SOURCE.replace(
+    "getByRole('button', { name: 'Save' })",
+    "getByTestId('save-button')"
+  );
+  const { run, calls } = executionSequence([FAILED_EXECUTION]);
+  const result = await healSingleTest({
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true' },
+    webRoot,
+    maxAttempts: 1,
+    log: () => {},
+    apply: true,
+    resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+    reviewContract: () => ({ passed: true, issues: [] }),
+    typecheck: PASSING_TYPECHECK,
+    lint: () => ({ passed: false, issues: ['candidate lint failed'] }),
+    targetDirty: () => false,
+    executeStandalone: run,
+    heal: async () => ({ code: healedSource })
+  });
+  assert.equal(result.status, 'exhausted');
+  assert.deepEqual(result.attemptTrail.map((entry) => entry.outcome), ['lint-rejected']);
+  assert.equal(calls.length, 1);
+  assert.equal(fs.readFileSync(targetPath, 'utf8'), CLEAN_SOURCE);
+});
+
+test('an identical verified candidate is rejected because it has no diff', async () => {
+  const { webRoot, target, targetPath } = makeHealWorkspace();
+  const { run } = executionSequence([FAILED_EXECUTION, PASSED_EXECUTION]);
+  const result = await healSingleTest({
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true' },
+    webRoot,
+    maxAttempts: 1,
+    log: () => {},
+    resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+    reviewContract: () => ({ passed: true, issues: [] }),
+    typecheck: PASSING_TYPECHECK,
+    lint: PASSING_LINT,
+    targetDirty: () => false,
+    executeStandalone: run,
+    heal: async () => ({ code: CLEAN_SOURCE })
+  });
+  assert.equal(result.status, 'exhausted');
+  assert.deepEqual(result.attemptTrail.map((entry) => entry.outcome), ['no-change']);
+  assert.equal(fs.readFileSync(targetPath, 'utf8'), CLEAN_SOURCE);
+  assert.equal(fs.existsSync(path.join(result.archiveDir, 'candidate.diff')), false);
+});
+
+test('archive creation rejects a symlinked audit root', async () => {
+  const { webRoot, target } = makeHealWorkspace();
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'heal-audit-outside-'));
+  fs.symlinkSync(outside, path.join(webRoot, '.ai-runs'), 'dir');
+  const { run } = executionSequence([FAILED_EXECUTION]);
+  await assert.rejects(
+    healSingleTest({
+      testPath: target,
+      env: { AI_AUTOHEAL_ENABLED: 'true' },
+      webRoot,
+      log: () => {},
+      resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+      reviewContract: () => ({ passed: true, issues: [] }),
+      typecheck: PASSING_TYPECHECK,
+      lint: PASSING_LINT,
+      targetDirty: () => false,
+      executeStandalone: run,
+      collectEvidence: () => ['Expected string: "Saved" Received string: "Save failed"'],
+      heal: async () => ({ code: CLEAN_SOURCE })
+    }),
+    /symbolic links/
+  );
+});
+
+test('CLI help and exit-status policy distinguish proposals from failures', async () => {
+  const module = await import('../heal-test.mjs');
+  assert.equal(module.isSuccessfulHealStatus('already-green'), true);
+  assert.equal(module.isSuccessfulHealStatus('proposal-ready'), true);
+  assert.equal(module.isSuccessfulHealStatus('healed'), true);
+  assert.equal(module.isSuccessfulHealStatus('manual-change-required'), false);
+  assert.equal(module.isSuccessfulHealStatus('not-repairable'), false);
+
+  const scriptPath = path.resolve(import.meta.dirname, '..', 'heal-test.mjs');
+  const help = spawnSync(process.execPath, [scriptPath, '--help'], { encoding: 'utf8', shell: false });
+  assert.equal(help.status, 0);
+  assert.match(help.stdout, /--apply/);
+  assert.match(help.stdout, /--allow-dirty/);
+  assert.match(help.stdout, /proposal-ready/);
+});
+
 test('healSingleTest heals on a later attempt, promotes atomically, and archives evidence', async () => {
   const { webRoot, target, targetPath } = makeHealWorkspace();
   const healedSource = CLEAN_SOURCE.replace("getByRole('button', { name: 'Save' })", "getByTestId('save-button')");
@@ -517,8 +886,11 @@ test('healSingleTest heals on a later attempt, promotes atomically, and archives
     env: { AI_AUTOHEAL_ENABLED: 'true' },
     webRoot,
     log: () => {},
+    apply: true,
+    targetDirty: () => false,
     discoverSpec: () => null,
     typecheck: PASSING_TYPECHECK,
+    lint: PASSING_LINT,
     executeStandalone: run,
     domSnapshotPath: '.ai-runs/dom-discovery/run/dom.json',
     collectContext: (input) => {
@@ -599,8 +971,11 @@ test('healSingleTest preserves a concurrent manual edit instead of overwriting i
     env: { AI_AUTOHEAL_ENABLED: 'true' },
     webRoot,
     log: () => {},
+    apply: true,
+    targetDirty: () => false,
     discoverSpec: () => null,
     typecheck: PASSING_TYPECHECK,
+    lint: PASSING_LINT,
     executeStandalone: (options) => {
       const outcome = run(options);
       if (outcome.passed) fs.writeFileSync(targetPath, manualEdit);
@@ -610,6 +985,63 @@ test('healSingleTest preserves a concurrent manual edit instead of overwriting i
   });
   assert.equal(result.status, 'aborted-concurrent-edit');
   assert.equal(fs.readFileSync(targetPath, 'utf8'), manualEdit);
+});
+
+test('healSingleTest compares the complete target snapshot before apply', async () => {
+  const { webRoot, target, targetPath } = makeHealWorkspace();
+  const healedSource = CLEAN_SOURCE.replace("getByRole('button', { name: 'Save' })", "getByTestId('save-button')");
+  const { run } = executionSequence([FAILED_EXECUTION, PASSED_EXECUTION]);
+  const result = await healSingleTest({
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true' },
+    webRoot,
+    log: () => {},
+    apply: true,
+    targetDirty: () => false,
+    resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+    reviewContract: () => ({ passed: true, issues: [] }),
+    typecheck: PASSING_TYPECHECK,
+    lint: PASSING_LINT,
+    executeStandalone: (options) => {
+      const outcome = run(options);
+      if (outcome.passed) {
+        const changedTime = new Date(Date.now() + 60_000);
+        fs.utimesSync(targetPath, changedTime, changedTime);
+      }
+      return outcome;
+    },
+    heal: async () => ({ code: healedSource })
+  });
+  assert.equal(result.status, 'aborted-concurrent-edit');
+  assert.equal(fs.readFileSync(targetPath, 'utf8'), CLEAN_SOURCE);
+});
+
+test('healSingleTest aborts when a verified candidate changes on disk', async () => {
+  const { webRoot, target, targetPath } = makeHealWorkspace();
+  const healedSource = CLEAN_SOURCE.replace("getByRole('button', { name: 'Save' })", "getByTestId('save-button')");
+  const { run } = executionSequence([FAILED_EXECUTION, PASSED_EXECUTION]);
+  const result = await healSingleTest({
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true' },
+    webRoot,
+    log: () => {},
+    apply: true,
+    targetDirty: () => false,
+    resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+    reviewContract: () => ({ passed: true, issues: [] }),
+    typecheck: PASSING_TYPECHECK,
+    lint: PASSING_LINT,
+    executeStandalone: (options) => {
+      const outcome = run(options);
+      if (outcome.passed) {
+        fs.writeFileSync(path.resolve(webRoot, options.testPath), `${healedSource}\n// concurrent candidate edit\n`);
+      }
+      return outcome;
+    },
+    heal: async () => ({ code: healedSource })
+  });
+  assert.equal(result.status, 'aborted-candidate-mutation');
+  assert.equal(fs.readFileSync(targetPath, 'utf8'), CLEAN_SOURCE);
 });
 
 test('healSingleTest runs spec-bound static review before spending a verification run', async () => {
@@ -622,8 +1054,11 @@ test('healSingleTest runs spec-bound static review before spending a verificatio
     env: { AI_AUTOHEAL_ENABLED: 'true' },
     webRoot,
     log: () => {},
+    apply: true,
+    targetDirty: () => false,
     discoverSpec: () => ({ specPath: 'specs/flow.md', validation: { metadata: { 'Target Test File': target } } }),
     typecheck: PASSING_TYPECHECK,
+    lint: PASSING_LINT,
     executePair: (pair, options) => {
       assert.equal(pair.specPath, 'specs/flow.md');
       assert.equal(options.repeatEach, 2);
@@ -659,8 +1094,11 @@ test('healSingleTest routes recorded candidates through the recorded reviewer be
     env: { AI_AUTOHEAL_ENABLED: 'true' },
     webRoot,
     log: () => {},
+    apply: true,
+    targetDirty: () => false,
     discoverSpec: () => null,
     typecheck: PASSING_TYPECHECK,
+    lint: PASSING_LINT,
     executeStandalone: run,
     recordedReviewer: (input) => {
       reviews.push(input);
@@ -869,6 +1307,7 @@ test('healSingleTest ratchets policy against the ORIGINAL source across attempts
     log: () => {},
     discoverSpec: () => null,
     typecheck: PASSING_TYPECHECK,
+    lint: PASSING_LINT,
     executeStandalone: run,
     heal: async (input) => ({ code: input.attempt === 1 ? justified : unjustified })
   });
