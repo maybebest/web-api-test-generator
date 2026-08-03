@@ -32,7 +32,7 @@ import { buildGateEnvironment, knownSecretEnvValues } from './lib/gate-environme
 import { resolveHealContract, reviewHealContract } from './lib/test-heal-contract.mjs';
 import { collectHealContext } from './lib/test-heal-context.mjs';
 import { triageRuntimeFailure } from './lib/test-heal-triage.mjs';
-import { containsSecretLikeValue, hasKnownSecretShape, redactSecretMaterial } from './lib/secret-safety.mjs';
+import { hasKnownSecretShape, redactSecretMaterial } from './lib/secret-safety.mjs';
 import {
   MAX_AUTOHEAL_MAX_ATTEMPTS,
   MAX_HEAL_EVIDENCE_ITEMS,
@@ -470,23 +470,23 @@ function createHealArchive(webRoot, runId) {
   };
 }
 
-function auditText(value, secretValues) {
+function sanitizedDiagnosticText(value, secretValues) {
   const knownRedacted = redactKnownSecretValues(String(value ?? ''), secretValues);
   const shapedRedacted = redactSecretMaterial(knownRedacted);
-  const fragmentRedacted = shapedRedacted.replace(/[A-Za-z0-9._~+\/-]{20,}={0,2}/g, (candidate) => (
-    containsSecretLikeValue(candidate) ? '<redacted>' : candidate
-  ));
-  return fragmentRedacted.replace(/\S{20,}/g, (candidate) => (
-    containsSecretLikeValue(candidate) ? '<redacted>' : candidate
-  )).slice(0, 2_000);
+  // Provider evidence is useful only if it is safe to forward. Redact long
+  // credential alphabets unconditionally so repetitive prefixes cannot dilute
+  // an embedded Base64 or token suffix.
+  return shapedRedacted
+    .replace(/[A-Za-z0-9._~+\/=-]{20,}/g, '<redacted>')
+    .replace(/\S{80,}/g, '<redacted>')
+    .slice(0, 2_000);
 }
 
-function auditAttemptTrail(attemptTrail, secretValues) {
-  return attemptTrail.slice(0, MAX_AUTOHEAL_MAX_ATTEMPTS).map((entry) => ({
+function auditAttemptTrail(attemptTrail) {
+  return attemptTrail.slice(-MAX_AUTOHEAL_MAX_ATTEMPTS).map((entry) => ({
     attempt: entry.attempt,
     outcome: entry.outcome,
-    ...(entry.checks ? { checks: { ...entry.checks } } : {}),
-    ...(entry.detail ? { detail: auditText(entry.detail, secretValues) } : {})
+    ...(entry.checks ? { checks: { ...entry.checks } } : {})
   }));
 }
 
@@ -494,161 +494,58 @@ function sanitizedEvidenceList(value, secretValues) {
   if (!Array.isArray(value)) return [];
   return value
     .slice(0, MAX_HEAL_EVIDENCE_ITEMS)
-    .map((item) => auditText(item, secretValues).trim())
+    .map((item) => sanitizedDiagnosticText(item, secretValues).trim())
     .filter(Boolean);
 }
 
-function sanitizePublicResult(result, secretValues) {
+function publicDiagnostic(status) {
+  const normalizedStatus = String(status ?? 'error')
+    .replace(/[^A-Za-z0-9]+/g, '_')
+    .slice(0, 64)
+    .toUpperCase();
+  const code = `HEAL_${normalizedStatus}`;
+  return `${code}: Diagnostic details were omitted.`;
+}
+
+function sanitizePublicResult(result) {
   const sanitized = { ...result };
   if (Array.isArray(result.issues)) {
-    sanitized.issues = sanitizedEvidenceList(result.issues, secretValues);
+    sanitized.issues = result.issues.length > 0 ? [publicDiagnostic(result.status)] : [];
   }
   if (Object.hasOwn(result, 'detail')) {
-    sanitized.detail = auditText(result.detail, secretValues);
+    sanitized.detail = publicDiagnostic(result.status);
   }
   if (Array.isArray(result.attemptTrail)) {
-    sanitized.attemptTrail = auditAttemptTrail(result.attemptTrail, secretValues);
+    sanitized.attemptTrail = auditAttemptTrail(result.attemptTrail);
   }
   if (Array.isArray(result.auditIssues)) {
-    sanitized.auditIssues = sanitizedEvidenceList(result.auditIssues, secretValues);
+    sanitized.auditIssues = result.auditIssues.length > 0
+      ? ['HEAL_AUDIT_FAILURE: Audit details were omitted.']
+      : [];
   }
   return sanitized;
 }
 
-function containsSecretLikeFragment(value) {
-  const text = String(value ?? '');
-  if (containsSecretLikeValue(text)) return true;
-  return [...text.matchAll(/[A-Za-z0-9._~+\/-]{20,}={0,2}/g)]
-    .some((match) => containsSecretLikeValue(match[0]));
-}
-
-function urlComponentContainsSecret(value) {
-  const text = String(value ?? '');
-  if (containsSecretLikeFragment(text)) return true;
-  try {
-    const decoded = decodeURIComponent(text);
-    return decoded !== text && containsSecretLikeFragment(decoded);
-  } catch {
-    return false;
-  }
-}
-
-function sourceUrlSecretVerdict(value) {
-  const sourceValue = String(value ?? '');
-  let parsed;
-  try {
-    parsed = new URL(sourceValue);
-  } catch {
-    return undefined;
-  }
-  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return undefined;
-  if (parsed.username || parsed.password) return true;
-
-  const secretName = /(?:password|passwd|pwd|api[_-]?(?:key|token)|authorization|auth|secret|session|csrf|token)/i;
-  for (const [name, item] of parsed.searchParams) {
-    if (urlComponentContainsSecret(name)
-      || (secretName.test(name) && item)
-      || urlComponentContainsSecret(item)) return true;
-  }
-  const originalQuery = /^[^?#]*\?([^#]*)/.exec(sourceValue)?.[1] ?? '';
-  for (const pair of originalQuery.split('&')) {
-    const separator = pair.indexOf('=');
-    const name = separator === -1 ? pair : pair.slice(0, separator);
-    const item = separator === -1 ? '' : pair.slice(separator + 1);
-    if (urlComponentContainsSecret(name) || urlComponentContainsSecret(item)) return true;
-  }
-  const originalAuthority = /^https?:\/\/([^/?#]*)/i.exec(sourceValue)?.[1] ?? '';
-  const originalHost = originalAuthority.split('@').at(-1)?.replace(/:\d+$/, '') ?? '';
-  const originalHostnameValues = originalHost.startsWith('[')
-    ? []
-    : originalHost.split('.').filter(Boolean);
-  if (originalHostnameValues.some((item) => urlComponentContainsSecret(item))) return true;
-  const hostnameValues = parsed.hostname.split('.').filter(Boolean);
-  if (hostnameValues.some((item) => urlComponentContainsSecret(item))) return true;
-  const pathValues = parsed.pathname.split('/').filter(Boolean);
-  if (pathValues.some((item) => urlComponentContainsSecret(item))) return true;
-  const fragment = parsed.hash.slice(1);
-  if (fragment && (secretName.test(fragment) || urlComponentContainsSecret(fragment))) return true;
-  return false;
-}
-
 function sourceSafetyIssue(source, secretValues, label) {
   const normalizedSource = String(source ?? '');
+  // Keep preflight checks deterministic. Generic candidate semantics belong to
+  // verifyHealedSourcePolicy; every rejection below that boundary records only
+  // a reason code, never candidate source.
   if (redactKnownSecretValues(normalizedSource, secretValues) !== normalizedSource) {
     return `${label} contains a known secret value and cannot be healed or archived.`;
   }
   if (hasKnownSecretShape(normalizedSource)) {
     return `${label} contains secret-like material and cannot be healed or archived.`;
   }
-
-  // The TypeScript scanner is lexical rather than syntactic: it continues
-  // through parse errors while limiting entropy checks to places that can
-  // plausibly carry a value. This avoids classifying ordinary identifiers and
-  // call expressions as credentials.
-  const scanner = ts.createScanner(
-    ts.ScriptTarget.Latest,
-    false,
-    ts.LanguageVariant.Standard,
-    normalizedSource
-  );
-  const valueKinds = new Set([
-    ts.SyntaxKind.StringLiteral,
-    ts.SyntaxKind.NoSubstitutionTemplateLiteral,
-    ts.SyntaxKind.TemplateHead,
-    ts.SyntaxKind.TemplateMiddle,
-    ts.SyntaxKind.TemplateTail
-  ]);
-  const commentKinds = new Set([
-    ts.SyntaxKind.SingleLineCommentTrivia,
-    ts.SyntaxKind.MultiLineCommentTrivia
-  ]);
-  const templateBraceDepths = [];
-  for (let kind = scanner.scan(); kind !== ts.SyntaxKind.EndOfFileToken; kind = scanner.scan()) {
-    if (kind === ts.SyntaxKind.CloseBraceToken
-      && templateBraceDepths.length > 0
-      && templateBraceDepths.at(-1) === 0) {
-      kind = scanner.reScanTemplateToken(false);
-    }
-
-    if (valueKinds.has(kind) || commentKinds.has(kind)) {
-      const tokenText = valueKinds.has(kind) ? scanner.getTokenValue() : scanner.getTokenText();
-      const urlSecretVerdict = valueKinds.has(kind) ? sourceUrlSecretVerdict(tokenText) : undefined;
-      if (urlSecretVerdict === true
-        || (urlSecretVerdict === undefined && containsSecretLikeValue(tokenText))) {
-        return `${label} contains secret-like material and cannot be healed or archived.`;
-      }
-      if (urlSecretVerdict !== false) {
-        for (const match of tokenText.matchAll(/[A-Za-z0-9._~+\/-]{20,}={0,2}/g)) {
-          const candidate = match[0];
-          const prefix = tokenText.slice(0, match.index);
-          const traceabilityDigest = commentKinds.has(kind) && /^[a-f0-9]{64}$/.test(candidate) && (
-            /^\/\*\s*spec:\s+\S+\.md\s+version:\d+\.\d+\.\d+\s+sha256:\s*$/.test(prefix)
-            || /^\/\*\s*recording:\s+\S+\.json\s+title:.+\s+sha256:\s*$/.test(prefix)
-          );
-          const sourceSyntaxReference = commentKinds.has(kind)
-            && /^process\.env\.[A-Z0-9_]+$/.test(candidate);
-          if (!traceabilityDigest && !sourceSyntaxReference && containsSecretLikeValue(candidate)) {
-            return `${label} contains secret-like material and cannot be healed or archived.`;
-          }
-        }
-      }
-    }
-
-    if (kind === ts.SyntaxKind.TemplateHead) {
-      templateBraceDepths.push(0);
-    } else if (kind === ts.SyntaxKind.TemplateTail) {
-      templateBraceDepths.pop();
-    }
-
-    if (templateBraceDepths.length > 0) {
-      if (kind === ts.SyntaxKind.OpenBraceToken) {
-        templateBraceDepths[templateBraceDepths.length - 1] += 1;
-      } else if (kind === ts.SyntaxKind.CloseBraceToken && templateBraceDepths.at(-1) > 0) {
-        templateBraceDepths[templateBraceDepths.length - 1] -= 1;
-      }
-    }
-  }
   return null;
+}
+
+function rejectedAttemptAudit(attempt, outcome) {
+  return `${JSON.stringify({
+    schema: 'test-heal-rejected-attempt/v1',
+    attempt,
+    outcome
+  }, null, 2)}\n`;
 }
 
 function structuredProviderAudit(healed, attempt, secretValues) {
@@ -657,8 +554,12 @@ function structuredProviderAudit(healed, attempt, secretValues) {
   const record = { attempt };
   const brain = result.brain;
   if (brain && typeof brain === 'object' && !Array.isArray(brain)) {
-    if (typeof brain.kind === 'string' && brain.kind.trim()) record.kind = auditText(brain.kind, secretValues);
-    if (typeof brain.model === 'string' && brain.model.trim()) record.model = auditText(brain.model, secretValues);
+    if (typeof brain.kind === 'string' && brain.kind.trim()) {
+      record.kind = sanitizedDiagnosticText(brain.kind, secretValues);
+    }
+    if (typeof brain.model === 'string' && brain.model.trim()) {
+      record.model = sanitizedDiagnosticText(brain.model, secretValues);
+    }
   }
   const usage = {};
   if (result.usage && typeof result.usage === 'object' && !Array.isArray(result.usage)) {
@@ -788,7 +689,7 @@ export async function healSingleTest({
       target,
       attemptsUsed: 0,
       issues: [`${target} has uncommitted Git changes; rerun with --allow-dirty only if applying over them is intentional.`]
-    }, secretValues);
+    });
   }
 
   const resolvedProject = project ?? inferStandaloneProject(target);
@@ -810,7 +711,7 @@ export async function healSingleTest({
   let execution = runVerification(target);
   if (execution.passed) {
     cleanupFailedRunDir(execution, runRoot);
-    return sanitizePublicResult({ status: 'already-green', target, attemptsUsed: 0 }, secretValues);
+    return sanitizePublicResult({ status: 'already-green', target, attemptsUsed: 0 });
   }
   if (execution.stage === 'runtime-environment') {
     cleanupFailedRunDir(execution, runRoot);
@@ -820,10 +721,9 @@ export async function healSingleTest({
       attemptsUsed: 0,
       issues: execution.issues,
       detail: 'Baseline run failed for environment reasons; healing would mask an infrastructure problem.'
-    }, secretValues);
+    });
   }
 
-  let currentSource = originalSource;
   let evidence;
   try {
     evidence = sanitizedEvidenceList(collectEvidence(execution, target, { secretValues }), secretValues);
@@ -851,18 +751,18 @@ export async function healSingleTest({
       ...(promptSchema ? { promptSchema } : {}),
       providerAttempts,
       mode: { apply, allowDirty },
-      attemptTrail: auditAttemptTrail(attemptTrail, secretValues)
+      attemptTrail: auditAttemptTrail(attemptTrail)
     }, null, 2)}\n`);
     return sanitizePublicResult({
       ...result,
       target,
       archiveDir: archive.directory,
       attemptTrail
-    }, secretValues);
+    });
   };
   const evidenceAudit = () => `${JSON.stringify({
     schema: 'test-heal-evidence/v1',
-    evidence,
+    evidence: triage.reasonCodes,
     triage
   }, null, 2)}\n`;
   archive.write('evidence.json', evidenceAudit());
@@ -879,6 +779,10 @@ export async function healSingleTest({
     secretValues
   });
   let notes = [];
+  const archiveRejectedAttempt = (attempt, outcome) => archive.write(
+    `attempt-${attempt}.${outcome}.json`,
+    rejectedAttemptAudit(attempt, outcome)
+  );
 
   // A crash must not leave an unreviewed candidate inside tests/ where normal
   // suite runs would execute it.
@@ -897,19 +801,18 @@ export async function healSingleTest({
     for (let attempt = 1; attempt <= attemptsBudget; attempt += 1) {
       log(`[heal] ${target}: attempt ${attempt}/${attemptsBudget}.`);
       const checks = {};
-      const recordAttempt = (outcome, detail) => {
+      const recordAttempt = (outcome) => {
         attemptTrail.push({
           attempt,
           outcome,
-          ...(Object.keys(checks).length > 0 ? { checks: { ...checks } } : {}),
-          ...(detail ? { detail } : {})
+          ...(Object.keys(checks).length > 0 ? { checks: { ...checks } } : {})
         });
       };
       let healed;
       try {
         healed = await heal({
           testPath: target,
-          source: currentSource,
+          source: originalSource,
           evidence,
           notes,
           attempt,
@@ -931,7 +834,10 @@ export async function healSingleTest({
       const providerAudit = structuredProviderAudit(healed, attempt, secretValues);
       if (providerAudit) providerAttempts.push(providerAudit);
       if (typeof healed.promptSchema === 'string' && healed.promptSchema.trim()) {
-        promptSchema = auditText(healed.promptSchema, secretValues);
+        const candidatePromptSchema = healed.promptSchema.trim();
+        promptSchema = /^[a-z][a-z0-9-]{0,63}\/v\d+$/.test(candidatePromptSchema)
+          ? candidatePromptSchema
+          : sanitizedDiagnosticText(candidatePromptSchema, secretValues);
       }
 
       // The ORIGINAL source is the immutable baseline for every attempt, so a
@@ -940,14 +846,10 @@ export async function healSingleTest({
       const policy = verifyHealedSourcePolicy({ previousSource: originalSource, healedSource: healed.code });
       checks.policy = policy.passed ? 'passed' : 'rejected';
       if (!policy.passed) {
-        const secretRelated = policy.issues.some((issue) => /secret/i.test(issue));
-        archive.write(
-          secretRelated ? `attempt-${attempt}.rejected-policy.txt` : `attempt-${attempt}.rejected-policy.ts`,
-          secretRelated ? policy.issues.join('\n') : healed.code
-        );
+        archiveRejectedAttempt(attempt, 'rejected-policy');
         recordAttempt('policy-rejected', policy.issues.join(' '));
-        log(`[heal] ${target}: attempt ${attempt} rejected by deterministic policy guard: ${policy.issues.join(' ')}`);
-        notes = policy.issues;
+        log(`[heal] ${target}: attempt ${attempt} rejected by deterministic policy guard.`);
+        notes = sanitizedEvidenceList(policy.issues, secretValues);
         continue;
       }
 
@@ -959,20 +861,20 @@ export async function healSingleTest({
         const types = typecheck({ candidatePath: candidateAbsolute, targetPath: absoluteTarget, webRoot });
         checks.typecheck = types.passed ? 'passed' : 'rejected';
         if (!types.passed) {
-          archive.write(`attempt-${attempt}.rejected-typecheck.ts`, healed.code);
+          archiveRejectedAttempt(attempt, 'rejected-typecheck');
           recordAttempt('typecheck-rejected', types.issues.join(' '));
           log(`[heal] ${target}: attempt ${attempt} rejected by typecheck.`);
-          notes = types.issues.slice(0, MAX_HEAL_EVIDENCE_ITEMS);
+          notes = sanitizedEvidenceList(types.issues, secretValues);
           continue;
         }
 
         const lintResult = lint({ candidatePath: candidateAbsolute, targetPath: absoluteTarget, webRoot });
         checks.lint = lintResult.passed ? 'passed' : 'rejected';
         if (!lintResult.passed) {
-          archive.write(`attempt-${attempt}.rejected-lint.ts`, healed.code);
+          archiveRejectedAttempt(attempt, 'rejected-lint');
           recordAttempt('lint-rejected', lintResult.issues.join(' '));
           log(`[heal] ${target}: attempt ${attempt} rejected by lint.`);
-          notes = lintResult.issues.slice(0, MAX_HEAL_EVIDENCE_ITEMS);
+          notes = sanitizedEvidenceList(lintResult.issues, secretValues);
           continue;
         }
 
@@ -984,10 +886,10 @@ export async function healSingleTest({
         });
         checks.review = review.passed ? 'passed' : 'rejected';
         if (!review.passed) {
-          archive.write(`attempt-${attempt}.rejected-review.ts`, healed.code);
+          archiveRejectedAttempt(attempt, 'rejected-review');
           recordAttempt('static-review-rejected', review.issues.join(' '));
           log(`[heal] ${target}: attempt ${attempt} rejected by static review.`);
-          notes = review.issues.slice(0, MAX_HEAL_EVIDENCE_ITEMS);
+          notes = sanitizedEvidenceList(review.issues, secretValues);
           continue;
         }
 
@@ -1013,9 +915,9 @@ export async function healSingleTest({
           const diff = candidateDiff({ archiveOriginalPath, candidateAbsolute, webRoot });
           checks.diff = diff.passed ? 'passed' : 'rejected';
           if (!diff.passed) {
-            archive.write(`attempt-${attempt}.rejected-${diff.outcome}.ts`, healed.code);
+            archiveRejectedAttempt(attempt, `rejected-${diff.outcome}`);
             recordAttempt(diff.outcome, diff.issues.join(' '));
-            notes = diff.issues;
+            notes = sanitizedEvidenceList(diff.issues, secretValues);
             continue;
           }
           if (!candidateStillMatches()) {
@@ -1118,7 +1020,7 @@ export async function healSingleTest({
               archiveDir: archive.directory,
               attemptTrail,
               auditIssues: [error.message]
-            }, secretValues);
+            });
           }
         }
 
@@ -1136,7 +1038,7 @@ export async function healSingleTest({
         archive.replace('evidence.json', evidenceAudit());
 
         if (execution.stage === 'runtime-environment') {
-          archive.write(`attempt-${attempt}.env-failure.ts`, healed.code);
+          archiveRejectedAttempt(attempt, 'env-failure');
           recordAttempt('environment-failure', (execution.issues ?? []).join(' '));
           return finish({
             status: 'environment-failure',
@@ -1147,7 +1049,7 @@ export async function healSingleTest({
         }
 
         if (!triage.repairable) {
-          archive.write(`attempt-${attempt}.not-repairable.ts`, healed.code);
+          archiveRejectedAttempt(attempt, 'not-repairable');
           recordAttempt('not-repairable', triage.reasonCodes.join(' '));
           return finish({
             status: 'not-repairable',
@@ -1157,10 +1059,9 @@ export async function healSingleTest({
           });
         }
 
-        archive.write(`attempt-${attempt}.still-failing.ts`, healed.code);
+        archiveRejectedAttempt(attempt, 'still-failing');
         recordAttempt('still-failing', (execution.issues ?? []).slice(0, 2).join(' '));
-        notes = [`Attempt ${attempt} candidate still failed; the source below contains that prior candidate.`];
-        currentSource = healed.code;
+        notes = [`Attempt ${attempt} candidate still failed runtime verification.`];
       } finally {
         removeActiveCandidate();
         activeCandidate = null;

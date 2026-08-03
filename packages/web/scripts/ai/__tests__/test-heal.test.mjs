@@ -727,7 +727,7 @@ test('a later assertion mismatch stops before a second provider call and replace
   assert.equal(contextCalls, 1);
   assert.equal(result.triage.classification, 'product-or-contract');
   const evidenceAudit = JSON.parse(fs.readFileSync(path.join(result.archiveDir, 'evidence.json'), 'utf8'));
-  assert.deepEqual(evidenceAudit.evidence, ['Expected string: "Saved" Received string: "Save failed"']);
+  assert.deepEqual(evidenceAudit.evidence, ['ASSERTION_OR_RESPONSE_MISMATCH']);
   assert.equal(evidenceAudit.triage.classification, 'product-or-contract');
   const summary = JSON.parse(fs.readFileSync(path.join(result.archiveDir, 'heal-summary.json'), 'utf8'));
   assert.equal(summary.triage.classification, 'product-or-contract');
@@ -889,11 +889,12 @@ test('known low-entropy secrets in candidate source are never archived or sent t
   }
 });
 
-test('malformed candidate source with a shaped secret is rejected without archiving the source', async () => {
+test('malformed candidate with a contiguous-prefix Base64 secret retains no rejected source', async () => {
   const { webRoot, target, targetPath } = makeHealWorkspace();
   const shapedSecret = 'AbCdEf1234+GhIjKlMnOp/=';
   const lowEntropyPrefix = 'a'.repeat(64);
-  const malformedCandidate = `${CLEAN_SOURCE}\nconst broken = ;\nconst ${lowEntropyPrefix}='${shapedSecret}';\n`;
+  const secretBearingToken = `${lowEntropyPrefix}${shapedSecret}`;
+  const malformedCandidate = `${CLEAN_SOURCE}\nconst broken = ;\nconst credential = '${secretBearingToken}';\n`;
   const { run, calls } = executionSequence([FAILED_EXECUTION]);
   const result = await healSingleTest({
     testPath: target,
@@ -910,17 +911,44 @@ test('malformed candidate source with a shaped secret is rejected without archiv
     heal: async () => ({ code: malformedCandidate })
   });
   const archiveFiles = fs.readdirSync(result.archiveDir);
-  assert.equal(archiveFiles.some((fileName) => fileName.startsWith('attempt-1.rejected-policy')), false);
+  assert.equal(archiveFiles.some((fileName) => /^attempt-.*\.ts$/.test(fileName)), false);
   for (const fileName of archiveFiles) {
     assert.equal(fs.readFileSync(path.join(result.archiveDir, fileName), 'utf8').includes(shapedSecret), false);
+    assert.equal(fs.readFileSync(path.join(result.archiveDir, fileName), 'utf8').includes(secretBearingToken), false);
   }
-  assert.equal(result.status, 'brain-error');
+  assert.equal(result.status, 'exhausted');
   assert.equal(calls.length, 1);
   assert.equal(fs.readFileSync(targetPath, 'utf8'), CLEAN_SOURCE);
   assert.equal(JSON.stringify(result).includes(shapedSecret), false);
 });
 
-test('malformed candidate URLs cannot hide secret-like query keys or hostname labels', async () => {
+test('malformed candidate with a generic secret-like regex retains no rejected source', async () => {
+  const { webRoot, target, targetPath } = makeHealWorkspace();
+  const shapedSecret = 'AbCdEf1234GhIjKlMnOp_xY';
+  const malformedCandidate = `${CLEAN_SOURCE}\nconst secretPattern = /${shapedSecret}/;\nconst broken = ;\n`;
+  const { run } = executionSequence([FAILED_EXECUTION]);
+  const result = await healSingleTest({
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true' },
+    webRoot,
+    maxAttempts: 1,
+    log: () => {},
+    resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+    reviewContract: () => ({ passed: true, issues: [] }),
+    typecheck: PASSING_TYPECHECK,
+    lint: PASSING_LINT,
+    executeStandalone: run,
+    heal: async () => ({ code: malformedCandidate })
+  });
+  assert.equal(result.status, 'exhausted');
+  assert.equal(fs.readFileSync(targetPath, 'utf8'), CLEAN_SOURCE);
+  for (const fileName of fs.readdirSync(result.archiveDir)) {
+    assert.equal(/^attempt-.*\.ts$/.test(fileName), false);
+    assert.equal(fs.readFileSync(path.join(result.archiveDir, fileName), 'utf8').includes(shapedSecret), false);
+  }
+});
+
+test('malformed candidate URLs are rejected without retaining candidate source', async () => {
   const unsafeCases = [
     {
       shapedSecret: 'abcde12345fghij67890klmnop',
@@ -952,12 +980,41 @@ test('malformed candidate URLs cannot hide secret-like query keys or hostname la
       executeStandalone: run,
       heal: async () => ({ code: malformedCandidate })
     });
-    assert.equal(result.status, 'brain-error');
+    assert.equal(result.status, 'exhausted');
     for (const fileName of fs.readdirSync(result.archiveDir)) {
       const auditContents = fs.readFileSync(path.join(result.archiveDir, fileName), 'utf8');
+      assert.equal(/^attempt-.*\.ts$/.test(fileName), false);
       assert.equal(auditContents.includes(shapedSecret), false);
     }
   }
+});
+
+test('ordinary auth-related URL words are accepted as low-entropy source text', async () => {
+  const { webRoot, target, targetPath } = makeHealWorkspace();
+  const urlSource = CLEAN_SOURCE.replace(
+    "test('flow works', async ({ page }) => {",
+    `test('flow works', async ({ page }) => {
+  const callback = 'https://example.test/callback?auth=disabled';
+  const documentation = 'https://example.test/#authentication';
+  await expect(page).toHaveURL(new RegExp(callback));
+  await expect(page.getByTestId(documentation)).toBeVisible();`
+  );
+  fs.writeFileSync(targetPath, urlSource);
+  let executionCalls = 0;
+  const result = await healSingleTest({
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true' },
+    webRoot,
+    log: () => {},
+    resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+    executeStandalone: () => {
+      executionCalls += 1;
+      return PASSED_EXECUTION;
+    },
+    heal: async () => assert.fail('an already-green low-entropy URL source must not invoke the provider')
+  });
+  assert.equal(result.status, 'already-green');
+  assert.equal(executionCalls, 1);
 });
 
 test('--apply rejects a dirty target without --allow-dirty before verification or provider work', async () => {
@@ -1076,9 +1133,9 @@ test('post-rename audit failure still reports the committed healed mutation accu
   assert.equal(chmodPaths.length, 1);
   assert.match(chmodPaths[0], /\.candidate(?:\.authenticated)?\.spec\.ts$/);
   assert.notEqual(chmodPaths[0], targetPath);
-  assert.match(result.auditIssues.join(' '), /heal-summary\.json/);
+  assert.deepEqual(result.auditIssues, ['HEAL_AUDIT_FAILURE: Audit details were omitted.']);
   assert.doesNotMatch(JSON.stringify(result.attemptTrail), /pin7/);
-  assert.match(JSON.stringify(result.attemptTrail), /<redacted>/);
+  assert.equal(result.attemptTrail.some((entry) => Object.hasOwn(entry, 'detail')), false);
 });
 
 test('Page Object or component ownership always requires a manual change', async () => {
@@ -1282,8 +1339,8 @@ test('candidate environment diagnostics are sanitized in every public CLI-facing
     heal: async () => ({ code: healedSource })
   });
   assert.equal(result.status, 'environment-failure');
-  assert.match(result.issues.join(' '), /Browser launch failed/);
-  assert.match(result.issues.join(' '), /<redacted>/);
+  assert.deepEqual(result.issues, ['HEAL_ENVIRONMENT_FAILURE: Diagnostic details were omitted.']);
+  assert.doesNotMatch(result.issues.join(' '), /Browser launch failed|<redacted>/);
   const cliFacingFields = JSON.stringify({
     issues: result.issues,
     detail: result.detail,
@@ -1292,6 +1349,53 @@ test('candidate environment diagnostics are sanitized in every public CLI-facing
   });
   assert.doesNotMatch(cliFacingFields, /pin7/);
   assert.equal(cliFacingFields.includes(shapedSecret), false);
+});
+
+test('contiguous-prefix Base64 diagnostics never cross public audit or provider boundaries', async () => {
+  const { webRoot, target } = makeHealWorkspace();
+  const healedSource = CLEAN_SOURCE.replace(
+    "getByRole('button', { name: 'Save' })",
+    "getByTestId('save-button')"
+  );
+  const policyRejectedSource = CLEAN_SOURCE.replace("test('flow works'", "test.skip('flow works'");
+  const shapedSecret = 'AbCdEf1234+GhIjKlMnOp/=';
+  const secretSuffix = shapedSecret.slice(-12);
+  const secretBearingDiagnostic = `locator.click: Timeout 30000ms exceeded for ${'a'.repeat(64)}${shapedSecret}`;
+  const { run } = executionSequence([
+    FAILED_EXECUTION,
+    { ...FAILED_EXECUTION, issues: [secretBearingDiagnostic] }
+  ]);
+  const providerInputs = [];
+  const result = await healSingleTest({
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true' },
+    webRoot,
+    maxAttempts: 2,
+    log: () => {},
+    resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+    reviewContract: () => ({ passed: true, issues: [] }),
+    typecheck: PASSING_TYPECHECK,
+    lint: PASSING_LINT,
+    executeStandalone: run,
+    collectEvidence: (_execution, testPath) => testPath.includes('.candidate.')
+      ? [secretBearingDiagnostic]
+      : FAILED_EXECUTION.issues,
+    heal: async (input) => {
+      providerInputs.push(input);
+      return { code: input.attempt === 1 ? healedSource : policyRejectedSource };
+    }
+  });
+  assert.equal(result.status, 'exhausted');
+  assert.equal(providerInputs.length, 2);
+  assert.match(providerInputs[1].evidence.join(' '), /<redacted>/);
+  const archived = fs.readdirSync(result.archiveDir).map((fileName) => (
+    fs.readFileSync(path.join(result.archiveDir, fileName), 'utf8')
+  )).join('\n');
+  const boundaryText = JSON.stringify({ result, providerInputs: providerInputs.slice(1), archived });
+  assert.equal(boundaryText.includes(shapedSecret), false);
+  assert.equal(boundaryText.includes(secretSuffix), false);
+  const evidenceAudit = JSON.parse(fs.readFileSync(path.join(result.archiveDir, 'evidence.json'), 'utf8'));
+  assert.deepEqual(evidenceAudit.evidence, ['ACTIONABILITY_TIMEOUT']);
 });
 
 test('still-failing candidate runDir is cleaned before a fallible evidence audit write', async () => {
@@ -1379,10 +1483,10 @@ test('healSingleTest heals on a later attempt, promotes atomically, and archives
   assert.equal(fs.readFileSync(result.backupPath, 'utf8'), CLEAN_SOURCE);
   assert.equal((fs.statSync(targetPath).mode & 0o777), 0o644);
 
-  // Attempt 2 healed from attempt 1's source with fresh notes.
+  // Attempt 2 receives fresh diagnostics but never receives rejected source.
   assert.equal(healInputs.length, 2);
   assert.equal(healInputs[0].source, CLEAN_SOURCE);
-  assert.equal(healInputs[1].source, healedSource);
+  assert.equal(healInputs[1].source, CLEAN_SOURCE);
   assert.match(healInputs[1].notes.join(' '), /still failed/);
   assert.equal(contextCalls.length, 1);
   assert.equal(contextCalls[0].source, CLEAN_SOURCE);
@@ -1507,8 +1611,16 @@ test('public and archived attempt trails remain bounded for explicit library att
   assert.equal(result.status, 'exhausted');
   assert.equal(result.attemptsUsed, MAX_AUTOHEAL_MAX_ATTEMPTS + 2);
   assert.equal(result.attemptTrail.length, MAX_AUTOHEAL_MAX_ATTEMPTS);
+  assert.deepEqual(
+    result.attemptTrail.map((entry) => entry.attempt),
+    [3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+  );
   const summary = JSON.parse(fs.readFileSync(path.join(result.archiveDir, 'heal-summary.json'), 'utf8'));
   assert.equal(summary.attemptTrail.length, MAX_AUTOHEAL_MAX_ATTEMPTS);
+  assert.deepEqual(
+    summary.attemptTrail.map((entry) => entry.attempt),
+    [3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+  );
 });
 
 test('healSingleTest aborts when a verified candidate changes on disk', async () => {
