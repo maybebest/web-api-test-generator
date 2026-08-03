@@ -241,6 +241,7 @@ function makeHealWorkspace() {
   const webRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'heal-test-'));
   const testDir = path.join(webRoot, 'tests', 'regression');
   fs.mkdirSync(testDir, { recursive: true });
+  fs.writeFileSync(path.join(webRoot, 'tests', '.no-header-allowlist'), 'tests/regression/flow.spec.ts\n');
   const targetPath = path.join(testDir, 'flow.spec.ts');
   fs.writeFileSync(targetPath, CLEAN_SOURCE, { mode: 0o644 });
   return { webRoot, targetPath, target: 'tests/regression/flow.spec.ts' };
@@ -449,6 +450,68 @@ test('healSingleTest runs spec-bound static review before spending a verificatio
   assert.equal(reviews.length, 1);
   assert.match(reviews[0].testPath, /\.candidate\.spec\.ts$/);
   assert.equal(calls.length, 2);
+});
+
+test('healSingleTest routes recorded candidates through the recorded reviewer before runtime verification', async () => {
+  const webRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'heal-recorded-test-'));
+  const testDir = path.join(webRoot, 'tests', 'recorded');
+  fs.mkdirSync(testDir, { recursive: true });
+  const target = 'tests/recorded/save.spec.ts';
+  const targetPath = path.join(webRoot, target);
+  const recordedSource = `/* recording: recordings/save.json title:Save sha256:${'a'.repeat(64)} */\n${CLEAN_SOURCE.split('\n').slice(1).join('\n')}`;
+  const healedSource = recordedSource.replace("getByRole('button', { name: 'Save' })", "getByTestId('save-button')");
+  fs.writeFileSync(targetPath, recordedSource, { mode: 0o644 });
+  const { run, calls } = executionSequence([FAILED_EXECUTION, PASSED_EXECUTION]);
+  const reviews = [];
+
+  const result = await healSingleTest({
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true' },
+    webRoot,
+    log: () => {},
+    discoverSpec: () => null,
+    typecheck: PASSING_TYPECHECK,
+    executeStandalone: run,
+    recordedReviewer: (input) => {
+      reviews.push(input);
+      return { passed: true, issues: [] };
+    },
+    heal: async () => ({ code: healedSource })
+  });
+
+  assert.equal(result.status, 'healed');
+  assert.equal(reviews.length, 1);
+  assert.equal(reviews[0].recordingPath, 'recordings/save.json');
+  assert.match(reviews[0].testPath, /\.candidate\.spec\.ts$/);
+  assert.equal(calls.length, 2);
+});
+
+test('healSingleTest rejects a removed recorded header before candidate runtime verification', async () => {
+  const webRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'heal-recorded-header-'));
+  const testDir = path.join(webRoot, 'tests', 'recorded');
+  fs.mkdirSync(testDir, { recursive: true });
+  const target = 'tests/recorded/save.spec.ts';
+  const targetPath = path.join(webRoot, target);
+  const recordedSource = `/* recording: recordings/save.json title:Save sha256:${'a'.repeat(64)} */\n${CLEAN_SOURCE.split('\n').slice(1).join('\n')}`;
+  fs.writeFileSync(targetPath, recordedSource, { mode: 0o644 });
+  const { run, calls } = executionSequence([FAILED_EXECUTION]);
+
+  const result = await healSingleTest({
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true' },
+    webRoot,
+    maxAttempts: 1,
+    log: () => {},
+    discoverSpec: () => null,
+    typecheck: PASSING_TYPECHECK,
+    executeStandalone: run,
+    heal: async () => ({ code: recordedSource.replace(/\/\* recording:[\s\S]*?\*\/\n/, '') })
+  });
+
+  assert.equal(result.status, 'exhausted');
+  assert.deepEqual(result.attemptTrail.map((entry) => entry.outcome), ['policy-rejected']);
+  assert.equal(calls.length, 1);
+  assert.equal(fs.readFileSync(targetPath, 'utf8'), recordedSource);
 });
 
 test('AST guard defeats comment/string smuggling and structural assertion masking', () => {
