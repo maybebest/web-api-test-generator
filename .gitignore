@@ -11,3 +11,4 @@ yarn-error.log*
 # Belt-and-braces: the perf reporter anchors its output under packages/web, but ignore a stray
 # root-level performance/ too (e.g. a custom PERF_OUTPUT_DIR or an old run).
 /performance/
+/.worktrees/
