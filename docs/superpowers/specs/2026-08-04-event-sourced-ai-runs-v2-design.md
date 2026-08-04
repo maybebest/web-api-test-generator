@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-04
 
-**Status:** User-approved design, pending written-spec review
+**Status:** Approved
 
 ## Decision Summary
 
@@ -261,7 +261,7 @@ Artifact references have this minimum shape:
   "schema": "ai-run-artifact-ref/v2",
   "kind": "candidate-source",
   "sha256": "<lowercase sha256>",
-  "bytes": 1234,
+  "bytes": 2048,
   "mediaType": "text/typescript",
   "relativePath": "artifacts/<sha256>.ts",
   "sanitization": "source-policy-passed"
