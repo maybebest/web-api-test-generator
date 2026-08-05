@@ -947,7 +947,7 @@ test('malformed candidate with a contiguous-prefix Base64 secret retains no reje
     assert.equal(fs.readFileSync(path.join(result.archiveDir, fileName), 'utf8').includes(shapedSecret), false);
     assert.equal(fs.readFileSync(path.join(result.archiveDir, fileName), 'utf8').includes(secretBearingToken), false);
   }
-  assert.equal(result.status, 'exhausted');
+  assert.equal(result.status, 'brain-error');
   assert.equal(calls.length, 1);
   assert.equal(fs.readFileSync(targetPath, 'utf8'), CLEAN_SOURCE);
   assert.equal(JSON.stringify(result).includes(shapedSecret), false);
@@ -971,7 +971,7 @@ test('malformed candidate with a generic secret-like regex retains no rejected s
     executeStandalone: run,
     heal: async () => ({ code: malformedCandidate })
   });
-  assert.equal(result.status, 'exhausted');
+  assert.equal(result.status, 'brain-error');
   assert.equal(fs.readFileSync(targetPath, 'utf8'), CLEAN_SOURCE);
   for (const fileName of fs.readdirSync(result.archiveDir)) {
     assert.equal(/^attempt-.*\.ts$/.test(fileName), false);
@@ -1011,7 +1011,7 @@ test('malformed candidate URLs are rejected without retaining candidate source',
       executeStandalone: run,
       heal: async () => ({ code: malformedCandidate })
     });
-    assert.equal(result.status, 'exhausted');
+    assert.equal(result.status, 'brain-error');
     for (const fileName of fs.readdirSync(result.archiveDir)) {
       const auditContents = fs.readFileSync(path.join(result.archiveDir, fileName), 'utf8');
       assert.equal(/^attempt-.*\.ts$/.test(fileName), false);
@@ -1392,7 +1392,8 @@ test('contiguous-prefix Base64 diagnostics never cross public audit or provider 
   const secretBearingDiagnostic = `locator.click: Timeout 30000ms exceeded for ${'a'.repeat(64)}${shapedSecret}`;
   const { run } = executionSequence([
     FAILED_EXECUTION,
-    { ...FAILED_EXECUTION, issues: [secretBearingDiagnostic] }
+    { ...FAILED_EXECUTION, issues: [secretBearingDiagnostic] },
+    FAILED_EXECUTION
   ]);
   const providerInputs = [];
   const result = await healSingleTest({
@@ -1463,6 +1464,7 @@ test('CLI help and exit-status policy distinguish proposals from failures', asyn
   const module = await import('../heal-test.mjs');
   assert.equal(module.isSuccessfulHealStatus('already-green'), true);
   assert.equal(module.isSuccessfulHealStatus('proposal-ready'), true);
+  assert.equal(module.isSuccessfulHealStatus('proposal-ready-with-policy-warnings'), true);
   assert.equal(module.isSuccessfulHealStatus('healed'), true);
   assert.equal(module.isSuccessfulHealStatus('manual-change-required'), false);
   assert.equal(module.isSuccessfulHealStatus('not-repairable'), false);
@@ -1545,29 +1547,119 @@ test('healSingleTest heals on a later attempt, promotes atomically, and archives
   assert.equal(summary.attemptsUsed, 2);
 });
 
-test('healSingleTest consumes attempts on policy-rejected candidates and leaves the original untouched', async () => {
+test('healSingleTest verifies and archives a proposal after a policy warning', async () => {
   const { webRoot, target, targetPath } = makeHealWorkspace();
-  const { run } = executionSequence([FAILED_EXECUTION]);
-  const skipSource = CLEAN_SOURCE.replace("test('flow works'", "test.skip('flow works'");
-  const notesSeen = [];
+  const warningSource = CLEAN_SOURCE.replace(
+    "  await expect(page.getByTestId('status')).toHaveText('Saved');\n",
+    ''
+  );
+  const { run, calls } = executionSequence([FAILED_EXECUTION, PASSED_EXECUTION]);
   const result = await healSingleTest({
     testPath: target,
     env: { AI_AUTOHEAL_ENABLED: 'true' },
     webRoot,
-    maxAttempts: 2,
+    maxAttempts: 1,
     log: () => {},
-    discoverSpec: () => null,
+    resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+    reviewContract: () => ({ passed: true, issues: [] }),
     typecheck: PASSING_TYPECHECK,
+    lint: PASSING_LINT,
     executeStandalone: run,
-    heal: async (input) => {
-      notesSeen.push(input.notes);
-      return { code: skipSource };
-    }
+    heal: async () => ({ code: warningSource })
   });
-  assert.equal(result.status, 'exhausted');
-  assert.equal(result.attemptsUsed, 2);
+  assert.equal(result.status, 'proposal-ready-with-policy-warnings');
+  assert.equal(result.attemptsUsed, 1);
+  assert.deepEqual(result.policyIssueCodes, [
+    'ASSERTION_ARGUMENT_CHANGED',
+    'EXECUTABLE_SEMANTICS_CHANGED',
+    'ASSERTION_COUNT_REDUCED',
+    'ASSERTION_MATCHER_REDUCED'
+  ]);
+  assert.equal(calls.length, 2);
   assert.equal(fs.readFileSync(targetPath, 'utf8'), CLEAN_SOURCE);
-  assert.match(notesSeen[1].join(' '), /test\.skip/);
+  assert.equal(fs.readFileSync(result.candidatePath, 'utf8'), warningSource);
+  assert.equal(fs.existsSync(result.diffPath), true);
+
+  const summary = fs.readFileSync(path.join(result.archiveDir, 'heal-summary.json'), 'utf8');
+  const warningAudit = fs.readFileSync(path.join(result.archiveDir, 'attempt-1.policy-warning.json'), 'utf8');
+  assert.deepEqual(JSON.parse(summary).attemptTrail[0].policyIssueCodes, result.policyIssueCodes);
+  assert.deepEqual(JSON.parse(warningAudit).policyIssueCodes, result.policyIssueCodes);
+  assert.deepEqual(result.attemptTrail[0], {
+    attempt: 1,
+    outcome: 'proposal-ready-with-policy-warnings',
+    checks: {
+      policy: 'warning',
+      typecheck: 'passed',
+      lint: 'passed',
+      review: 'passed',
+      runtime: 'passed',
+      candidateIntegrity: 'passed',
+      diff: 'passed'
+    },
+    policyIssueCodes: result.policyIssueCodes
+  });
+  assert.doesNotMatch(summary, /must not|flow works|expect\(|getByTestId/);
+  assert.doesNotMatch(warningAudit, /must not|flow works|expect\(|getByTestId/);
+});
+
+test('policy warnings never bypass later hard gates', async () => {
+  const warningSource = CLEAN_SOURCE.replace(
+    "  await expect(page.getByTestId('status')).toHaveText('Saved');\n",
+    ''
+  );
+  const cases = [
+    {
+      label: 'typecheck',
+      executions: [FAILED_EXECUTION],
+      expectedOutcome: 'typecheck-rejected',
+      overrides: { typecheck: () => ({ passed: false, issues: ['typecheck rejected'] }) }
+    },
+    {
+      label: 'lint',
+      executions: [FAILED_EXECUTION],
+      expectedOutcome: 'lint-rejected',
+      overrides: { lint: () => ({ passed: false, issues: ['lint rejected'] }) }
+    },
+    {
+      label: 'review',
+      executions: [FAILED_EXECUTION],
+      expectedOutcome: 'static-review-rejected',
+      overrides: { reviewContract: () => ({ passed: false, issues: ['review rejected'] }) }
+    },
+    {
+      label: 'runtime',
+      executions: [FAILED_EXECUTION, FAILED_EXECUTION],
+      expectedOutcome: 'still-failing',
+      overrides: {}
+    }
+  ];
+
+  for (const gateCase of cases) {
+    const { webRoot, target, targetPath } = makeHealWorkspace();
+    const { run } = executionSequence(gateCase.executions);
+    const result = await healSingleTest({
+      testPath: target,
+      env: { AI_AUTOHEAL_ENABLED: 'true' },
+      webRoot,
+      maxAttempts: 1,
+      log: () => {},
+      resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+      reviewContract: () => ({ passed: true, issues: [] }),
+      typecheck: PASSING_TYPECHECK,
+      lint: PASSING_LINT,
+      executeStandalone: run,
+      heal: async () => ({ code: warningSource }),
+      ...gateCase.overrides
+    });
+
+    assert.equal(result.status, 'exhausted', gateCase.label);
+    assert.equal(fs.readFileSync(targetPath, 'utf8'), CLEAN_SOURCE, gateCase.label);
+    assert.equal(fs.existsSync(path.join(result.archiveDir, 'candidate.ts')), false, gateCase.label);
+    assert.equal(fs.existsSync(path.join(result.archiveDir, 'candidate.diff')), false, gateCase.label);
+    assert.equal(result.attemptTrail[0].outcome, gateCase.expectedOutcome, gateCase.label);
+    assert.equal(result.attemptTrail[0].checks.policy, 'warning', gateCase.label);
+    assert.ok(result.attemptTrail[0].policyIssueCodes.includes('ASSERTION_COUNT_REDUCED'), gateCase.label);
+  }
 });
 
 test('healSingleTest preserves a concurrent manual edit instead of overwriting it', async () => {
@@ -1919,7 +2011,7 @@ test('healSingleTest routes recorded candidates through the recorded reviewer be
   assert.equal(calls.length, 2);
 });
 
-test('healSingleTest rejects a removed recorded header before candidate runtime verification', async () => {
+test('policy warnings do not bypass lint for a removed recorded header', async () => {
   const webRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'heal-recorded-header-'));
   const testDir = path.join(webRoot, 'tests', 'recorded');
   fs.mkdirSync(testDir, { recursive: true });
@@ -1942,7 +2034,8 @@ test('healSingleTest rejects a removed recorded header before candidate runtime 
   });
 
   assert.equal(result.status, 'exhausted');
-  assert.deepEqual(result.attemptTrail.map((entry) => entry.outcome), ['policy-rejected']);
+  assert.deepEqual(result.attemptTrail.map((entry) => entry.outcome), ['lint-rejected']);
+  assert.equal(result.attemptTrail[0].checks.policy, 'warning');
   assert.equal(calls.length, 1);
   assert.equal(fs.readFileSync(targetPath, 'utf8'), recordedSource);
 });
@@ -2103,7 +2196,7 @@ test('healSingleTest ratchets policy against the ORIGINAL source across attempts
     "await expect(page.getByTestId('status')).toHaveText('Saved');",
     "await expect(page.getByRole('listitem').first()).toHaveText('Saved');"
   );
-  const { run } = executionSequence([FAILED_EXECUTION, FAILED_EXECUTION]);
+  const { run } = executionSequence([FAILED_EXECUTION, FAILED_EXECUTION, FAILED_EXECUTION]);
   const result = await healSingleTest({
     testPath: target,
     env: { AI_AUTOHEAL_ENABLED: 'true' },
@@ -2119,8 +2212,9 @@ test('healSingleTest ratchets policy against the ORIGINAL source across attempts
   assert.equal(result.status, 'exhausted');
   assert.deepEqual(
     result.attemptTrail.map((entry) => entry.outcome),
-    ['still-failing', 'policy-rejected']
+    ['still-failing', 'still-failing']
   );
+  assert.ok(result.attemptTrail[1].policyIssueCodes.includes('POSITIONAL_LOCATOR_EXCEPTION_MISSING'));
 });
 
 test('healSingleTest sweeps stale crash-orphaned candidates before running', async () => {
