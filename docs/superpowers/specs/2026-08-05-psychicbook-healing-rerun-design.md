@@ -12,8 +12,9 @@ The experiment evaluates the framework and records findings. It does not impleme
 
 The rerun owns these artifacts:
 
-- the existing uncommitted target `packages/web/tests/regression/psychicbook-healing-experiment.spec.ts`, which will be deleted before regeneration and recreated through the framework;
+- the target `packages/web/tests/regression/psychicbook-healing-experiment.spec.ts`, which will be deleted when present before regeneration and recreated through the framework;
 - the existing flow contract `packages/web/specs/psychicbook-healing-experiment.md`, whose generation status may be changed only as required by the framework's regeneration lifecycle;
+- the environment-only helper `packages/web/data/psychicbook.ts`, recreated from its reviewed implementation when it is absent from the isolated worktree;
 - a fresh generation run below `packages/web/.ai-runs/` with result-cache reuse disabled;
 - a fresh healer archive below `packages/web/.ai-runs/heal/`;
 - a new comparison report at `packages/web/docs/ai-testing/psychicbook-healing-feedback-2026-08-05.md`.
@@ -42,6 +43,10 @@ Live values are supplied only through the process environment:
 - `E2E_HTTP_BASIC_USERNAME`;
 - `E2E_HTTP_BASIC_PASSWORD`;
 - `PSYCHICBOOK_E2E_EMAIL`.
+
+The generated source obtains the email only through `requirePsychicBookEmail()`
+from `packages/web/data/psychicbook.ts`. That helper validates presence without
+embedding, printing, or persisting the runtime identity.
 
 The verification value `1234` remains part of the reviewed stage test contract. The runtime email, HTTP Basic values, cookies, storage state, and authorization material must not be written to source files, generation inputs, Git history, or the feedback report. Live traces and retained browser media are sensitive local diagnostic artifacts and must not be committed.
 
