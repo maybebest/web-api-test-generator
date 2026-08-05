@@ -379,7 +379,7 @@ export function buildPlaywrightStage({
     `--repeat-each=${repeatEach}`
   ];
   if (workers !== undefined) playwrightArgs.push(`--workers=${workers}`);
-  if (normalizedTestPaths.length === 1) playwrightArgs.push('--max-failures=1');
+  if (normalizedTestPaths.length === 1 && !diagnosticSingleRun) playwrightArgs.push('--max-failures=1');
   if (testResultsDir) {
     playwrightArgs.push(`--output=${path.resolve(testResultsDir)}`);
   }

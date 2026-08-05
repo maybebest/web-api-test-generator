@@ -114,6 +114,7 @@ test('generated-pair execution permits one explicitly diagnostic baseline run on
     assert.equal(result.passed, false);
     assert.ok(seenArguments.includes('--repeat-each=1'));
     assert.ok(seenArguments.includes('--workers=1'));
+    assert.equal(seenArguments.includes('--max-failures=1'), false);
   } finally {
     fs.rmSync(workspace, { recursive: true, force: true });
   }
