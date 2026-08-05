@@ -357,9 +357,11 @@ export function buildPlaywrightStage({
   htmlReportDir,
   testResultsDir,
   repeatEach = FULL_GATE_REPEAT_EACH,
-  workers
+  workers,
+  diagnostic = false
 }) {
-  if (!GENERATED_GATE_REPEAT_VALUES.has(repeatEach)) {
+  const diagnosticSingleRun = diagnostic === true && repeatEach === 1;
+  if (!diagnosticSingleRun && !GENERATED_GATE_REPEAT_VALUES.has(repeatEach)) {
     throw new Error(
       `repeat-each must be ${PROMOTION_GATE_REPEAT_EACH} (promotion) or ${FULL_GATE_REPEAT_EACH} (full).`
     );
