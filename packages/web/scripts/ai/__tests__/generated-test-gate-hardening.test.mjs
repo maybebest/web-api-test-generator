@@ -79,3 +79,42 @@ test('generated-pair execution forwards the requested worker count to Playwright
     fs.rmSync(workspace, { recursive: true, force: true });
   }
 });
+
+test('generated-pair execution permits one explicitly diagnostic baseline run only', () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'generated-gate-diagnostic-'));
+  const seenArguments = [];
+  const stageInput = {
+    packageManager: 'npm',
+    testPath: TARGET,
+    project: 'chromium',
+    jsonReportPath: path.join(workspace, 'playwright.json'),
+    repeatEach: 1
+  };
+
+  assert.throws(() => buildPlaywrightStage(stageInput), /repeat-each must be/);
+
+  try {
+    const result = executeGeneratedPair({
+      specPath: 'specs/x.md',
+      testPath: TARGET,
+      validation: { metadata: {} }
+    }, {
+      diagnostic: true,
+      workers: 1,
+      repeatEach: 1,
+      runRoot: path.join(workspace, '.ai-runs'),
+      packageManager: 'npm',
+      projectPlanner: () => [{ project: 'chromium', env: {} }],
+      commandRunner(stage) {
+        seenArguments.push(...stage.args);
+        return 1;
+      }
+    });
+
+    assert.equal(result.passed, false);
+    assert.ok(seenArguments.includes('--repeat-each=1'));
+    assert.ok(seenArguments.includes('--workers=1'));
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
