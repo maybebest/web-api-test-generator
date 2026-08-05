@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { verifyHealedSourcePolicy } from '../lib/test-heal.mjs';
+import * as testHeal from '../lib/test-heal.mjs';
+
+const { MAX_HEAL_SOURCE_BYTES, verifyHealedSourcePolicy } = testHeal;
 
 const SOURCE = `/* recording: recordings/save.json title:Save sha256:${'a'.repeat(64)} */
 import { test, expect } from '../../fixtures/test';
@@ -12,6 +14,64 @@ test('RSTEP-001 saves', { tag: ['@save'] }, async ({ page }) => {
     await expect(page.getByTestId('status')).toHaveText('Saved');
   });
 });`;
+
+test('policy assigns stable codes to every previously prose-only warning', () => {
+  const sourceWithTwoMatchers = SOURCE.replace(
+    "    await expect(page.getByTestId('status')).toHaveText('Saved');",
+    "    await expect(page.getByTestId('status')).toHaveText('Saved');\n"
+      + "    await expect(page.getByTestId('status')).toBeVisible();"
+  );
+  const cases = [
+    ['empty source', SOURCE, '', 'EMPTY_HEALED_SOURCE'],
+    ['oversized source', SOURCE, ' '.repeat(MAX_HEAL_SOURCE_BYTES + 1), 'HEALED_SOURCE_TOO_LARGE'],
+    ['parse failure', SOURCE, 'import {', 'SOURCE_PARSE_FAILED'],
+    ['skip family', SOURCE, SOURCE.replace("test('RSTEP-001 saves'", "test.skip('RSTEP-001 saves'"), 'SKIP_FAMILY_INTRODUCED'],
+    ['dynamic test access', SOURCE, SOURCE.replace("test('RSTEP-001 saves'", "test[dynamicTestMethod]('RSTEP-001 saves'"), 'DYNAMIC_TEST_ACCESS_INTRODUCED'],
+    ['hard sleep', SOURCE, SOURCE.replace(
+      "    await page.getByLabel('Plan name').fill(payload.planName);",
+      "    await page.waitForTimeout(100);\n    await page.getByLabel('Plan name').fill(payload.planName);"
+    ), 'WAIT_FOR_TIMEOUT_INTRODUCED'],
+    ['XPath', SOURCE, SOURCE.replace("page.getByLabel('Plan name')", "page.locator('xpath=//input')"), 'XPATH_INTRODUCED'],
+    ['nth-child', SOURCE, SOURCE.replace("page.getByLabel('Plan name')", "page.locator('input:nth-child(1)')"), 'NTH_CHILD_INTRODUCED'],
+    ['positional pick', SOURCE, SOURCE.replace("page.getByLabel('Plan name')", "page.getByLabel('Plan name').first()"), 'POSITIONAL_LOCATOR_EXCEPTION_MISSING'],
+    ['assertion removal', SOURCE, SOURCE.replace("    await expect(page.getByTestId('status')).toHaveText('Saved');\n", ''), 'ASSERTION_COUNT_REDUCED'],
+    ['matcher reduction', sourceWithTwoMatchers, sourceWithTwoMatchers.replace("    await expect(page.getByTestId('status')).toHaveText('Saved');\n", ''), 'ASSERTION_MATCHER_REDUCED'],
+    ['try/catch', SOURCE, SOURCE.replace(
+      "    await expect(page.getByTestId('status')).toHaveText('Saved');",
+      "    try {\n      await expect(page.getByTestId('status')).toHaveText('Saved');\n    } catch {}"
+    ), 'TRY_CATCH_INTRODUCED'],
+    ['guarded assertion', SOURCE, SOURCE.replace(
+      "    await expect(page.getByTestId('status')).toHaveText('Saved');",
+      "    if (await page.getByTestId('status').isVisible()) {\n"
+        + "      await expect(page.getByTestId('status')).toHaveText('Saved');\n    }"
+    ), 'GUARDED_ASSERTION_INTRODUCED'],
+    ['secret-like literal', SOURCE, `${SOURCE}\nconst leaked = 'sk_live_1234567890abcdefghijklmnop';\n`, 'SECRET_LIKE_LITERAL']
+  ];
+
+  for (const [label, previousSource, healedSource, expectedCode] of cases) {
+    const result = verifyHealedSourcePolicy({ previousSource, healedSource });
+    assert.equal(result.passed, false, label);
+    assert.ok(result.issueCodes.includes(expectedCode), `${label}: ${expectedCode}`);
+  }
+});
+
+test('policy warning normalization keeps only allowlisted unique codes and supplies a safe fallback', () => {
+  assert.equal(typeof testHeal.normalizeHealPolicyIssueCodes, 'function');
+  assert.deepEqual(
+    testHeal.normalizeHealPolicyIssueCodes([
+      'SKIP_FAMILY_INTRODUCED',
+      'provider supplied detail',
+      'SKIP_FAMILY_INTRODUCED',
+      'WAIT_FOR_TIMEOUT_INTRODUCED'
+    ]),
+    ['SKIP_FAMILY_INTRODUCED', 'WAIT_FOR_TIMEOUT_INTRODUCED']
+  );
+  assert.deepEqual(
+    testHeal.normalizeHealPolicyIssueCodes(['provider supplied detail'], { requireAtLeastOne: true }),
+    ['POLICY_WARNING_UNCLASSIFIED']
+  );
+  assert.deepEqual(testHeal.normalizeHealPolicyIssueCodes(undefined), []);
+});
 
 for (const [label, candidate, code] of [
   ['expected value', SOURCE.replace("'Saved'", "'Save failed'"), 'ASSERTION_ARGUMENT_CHANGED'],

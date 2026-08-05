@@ -20,6 +20,51 @@ export const MAX_HEAL_EVIDENCE_CHARS = 2000;
 export const MAX_HEAL_NOTES = 8;
 export const MAX_HEAL_SOURCE_BYTES = 2 * 1024 * 1024;
 export const DEFAULT_HEAL_SOURCE_BYTES = 128 * 1024;
+export const HEAL_POLICY_ISSUE_CODES = Object.freeze([
+  'TRACEABILITY_HEADER_CHANGED',
+  'IMPORTS_CHANGED',
+  'TEST_DATA_CHANGED',
+  'TEST_TITLE_CHANGED',
+  'TEST_OPTIONS_CHANGED',
+  'FIXTURE_BINDING_CHANGED',
+  'STEP_TITLE_CHANGED',
+  'ANNOTATION_CHANGED',
+  'ASSERTION_ARGUMENT_CHANGED',
+  'ACTION_PAYLOAD_CHANGED',
+  'COVERAGE_TOKEN_CHANGED',
+  'EXECUTABLE_SEMANTICS_CHANGED',
+  'UNRESOLVED_DYNAMIC_REQUEST_MUTATION',
+  'COMMENTS_CHANGED',
+  'EMPTY_HEALED_SOURCE',
+  'HEALED_SOURCE_TOO_LARGE',
+  'SOURCE_PARSE_FAILED',
+  'SKIP_FAMILY_INTRODUCED',
+  'DYNAMIC_TEST_ACCESS_INTRODUCED',
+  'WAIT_FOR_TIMEOUT_INTRODUCED',
+  'XPATH_INTRODUCED',
+  'NTH_CHILD_INTRODUCED',
+  'POSITIONAL_LOCATOR_EXCEPTION_MISSING',
+  'ASSERTION_COUNT_REDUCED',
+  'ASSERTION_MATCHER_REDUCED',
+  'TRY_CATCH_INTRODUCED',
+  'GUARDED_ASSERTION_INTRODUCED',
+  'SECRET_LIKE_LITERAL',
+  'POLICY_WARNING_UNCLASSIFIED'
+]);
+
+const HEAL_POLICY_ISSUE_CODE_SET = new Set(HEAL_POLICY_ISSUE_CODES);
+
+export function normalizeHealPolicyIssueCodes(value, { requireAtLeastOne = false } = {}) {
+  const normalized = [];
+  for (const code of Array.isArray(value) ? value : []) {
+    if (!HEAL_POLICY_ISSUE_CODE_SET.has(code) || normalized.includes(code)) continue;
+    normalized.push(code);
+  }
+  if (normalized.length === 0 && requireAtLeastOne) {
+    return ['POLICY_WARNING_UNCLASSIFIED'];
+  }
+  return normalized;
+}
 
 const HEAL_SYSTEM_PROMPT = `Heal one existing Playwright TypeScript test that fails at runtime, using only the provided runtime failure evidence and bounded repository context.
 
@@ -1095,18 +1140,30 @@ export function assertHealSourceSendable(source, env = process.env) {
 export function verifyHealedSourcePolicy({ previousSource, healedSource }) {
   const issues = [];
   const issueCodes = [];
-  if (typeof healedSource !== 'string' || !healedSource.trim()) {
-    return { passed: false, issues: ['Healed source is empty.'], issueCodes };
+  const addIssue = (code, message) => {
+    issueCodes.push(code);
+    issues.push(message);
+  };
+  const reject = (code, message) => ({
+    passed: false,
+    issues: [message],
+    issueCodes: [code]
+  });
+  if (typeof healedSource !== 'string') {
+    return reject('EMPTY_HEALED_SOURCE', 'Healed source is empty.');
   }
   if (Buffer.byteLength(healedSource, 'utf8') > MAX_HEAL_SOURCE_BYTES) {
-    return { passed: false, issues: [`Healed source exceeds ${MAX_HEAL_SOURCE_BYTES} bytes.`], issueCodes };
+    return reject('HEALED_SOURCE_TOO_LARGE', `Healed source exceeds ${MAX_HEAL_SOURCE_BYTES} bytes.`);
+  }
+  if (!healedSource.trim()) {
+    return reject('EMPTY_HEALED_SOURCE', 'Healed source is empty.');
   }
   const previous = String(previousSource ?? '');
   const healed = analyzeHealSource(healedSource);
   const baseline = analyzeHealSource(previous);
 
   if (healed.parseErrorCount > 0) {
-    return { passed: false, issues: ['Healed source does not parse as TypeScript.'], issueCodes };
+    return reject('SOURCE_PARSE_FAILED', 'Healed source does not parse as TypeScript.');
   }
 
   const baselineFacts = collectProtectedHealFacts(previous);
@@ -1139,19 +1196,19 @@ export function verifyHealedSourcePolicy({ previousSource, healedSource }) {
   }
 
   if (healed.skipFamilyCount > 0) {
-    issues.push('Healed source must not contain test.skip, test.fixme, test.fail, test.only, or describe.skip/fixme/only in any form.');
+    addIssue('SKIP_FAMILY_INTRODUCED', 'Healed source must not contain test.skip, test.fixme, test.fail, test.only, or describe.skip/fixme/only in any form.');
   }
   if (healed.dynamicTestAccessCount > baseline.dynamicTestAccessCount) {
-    issues.push('Healed source must not access test/describe members through dynamic keys.');
+    addIssue('DYNAMIC_TEST_ACCESS_INTRODUCED', 'Healed source must not access test/describe members through dynamic keys.');
   }
   if (healed.waitForTimeoutCount > baseline.waitForTimeoutCount) {
-    issues.push('Healed source must not introduce waitForTimeout sleeps.');
+    addIssue('WAIT_FOR_TIMEOUT_INTRODUCED', 'Healed source must not introduce waitForTimeout sleeps.');
   }
   if (healed.xpathStringCount > baseline.xpathStringCount) {
-    issues.push('Healed source must not introduce XPath locators.');
+    addIssue('XPATH_INTRODUCED', 'Healed source must not introduce XPath locators.');
   }
   if (healed.nthChildStringCount > baseline.nthChildStringCount) {
-    issues.push('Healed source must not introduce nth-child selector chains.');
+    addIssue('NTH_CHILD_INTRODUCED', 'Healed source must not introduce nth-child selector chains.');
   }
   const commentDelta = commentFactDelta(
     collectHealCommentFacts(previous, baselineExecutable),
@@ -1172,30 +1229,33 @@ export function verifyHealedSourcePolicy({ previousSource, healedSource }) {
     );
   }
   if (addedPositional > 0 && addedExceptions.length < addedPositional) {
-    issues.push(
+    addIssue(
+      'POSITIONAL_LOCATOR_EXCEPTION_MISSING',
       'Healed source introduces positional picks (.first()/.last()/.nth()) without matching // locator-policy:exception justifications.'
     );
   }
   if (healed.expectCount < baseline.expectCount) {
-    issues.push(
+    addIssue(
+      'ASSERTION_COUNT_REDUCED',
       `Healed source removes assertions (expect count dropped from ${baseline.expectCount} to ${healed.expectCount}); healing must not weaken verification.`
     );
   }
   for (const [matcher, count] of baseline.matcherCounts) {
     if ((healed.matcherCounts.get(matcher) ?? 0) < count) {
-      issues.push(
+      addIssue(
+        'ASSERTION_MATCHER_REDUCED',
         `Healed source downgrades or drops assertion matcher "${matcher}" (${count} -> ${healed.matcherCounts.get(matcher) ?? 0}); matchers must be preserved.`
       );
     }
   }
   if (healed.tryStatementCount > baseline.tryStatementCount) {
-    issues.push('Healed source must not introduce try/catch blocks around test logic.');
+    addIssue('TRY_CATCH_INTRODUCED', 'Healed source must not introduce try/catch blocks around test logic.');
   }
   if (healed.guardedExpectCount > baseline.guardedExpectCount) {
-    issues.push('Healed source must not place assertions behind conditions, short-circuits, or try/catch.');
+    addIssue('GUARDED_ASSERTION_INTRODUCED', 'Healed source must not place assertions behind conditions, short-circuits, or try/catch.');
   }
   if (healed.containsSecrets) {
-    issues.push('Healed source contains secret-like literals; refusing to accept it.');
+    addIssue('SECRET_LIKE_LITERAL', 'Healed source contains secret-like literals; refusing to accept it.');
   }
   return { passed: issues.length === 0, issues, issueCodes };
 }
