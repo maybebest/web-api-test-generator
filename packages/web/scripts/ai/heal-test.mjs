@@ -852,6 +852,42 @@ export function isSuccessfulHealStatus(status) {
     || status === 'healed';
 }
 
+export function renderHealResults(results) {
+  const events = [];
+  const write = (stream, line) => events.push({ stream, line });
+  let allGreen = true;
+
+  for (const result of results) {
+    const suffix = result.attemptsUsed > 0 ? ` after ${result.attemptsUsed} attempt(s)` : '';
+    if (result.status === 'healed') {
+      write('stdout', `HEALED ${result.target}${suffix}. Backup: ${result.backupPath}`);
+    } else if (result.status === 'proposal-ready') {
+      write('stdout', `PROPOSAL READY ${result.target}${suffix} (target unchanged). Diff: ${result.diffPath}. Archive: ${result.archiveDir}`);
+    } else if (result.status === 'proposal-ready-with-policy-warnings') {
+      write('stdout', `PROPOSAL READY WITH POLICY WARNINGS ${result.target}${suffix} (target unchanged). Diff: ${result.diffPath}. Archive: ${result.archiveDir}`);
+    } else if (result.status === 'healed-with-policy-warnings') {
+      write('stderr', `HEALED WITH POLICY WARNINGS ${result.target}${suffix}. Backup: ${result.backupPath}`);
+    } else if (result.status === 'already-green') {
+      write('stdout', `ALREADY GREEN ${result.target} (no changes made).`);
+    } else {
+      write('stderr', `NOT HEALED ${result.target} (${result.status})${suffix}.`);
+      for (const issue of result.issues ?? []) write('stderr', `- ${issue}`);
+      if (result.archiveDir) write('stderr', `  Evidence: ${result.archiveDir}`);
+    }
+    for (const line of formatPolicyWarningDiagnostics(result.attemptTrail)) {
+      write('stderr', `- ${line}`);
+    }
+    if (!isSuccessfulHealStatus(result.status)) allGreen = false;
+  }
+
+  return {
+    exitCode: allGreen ? 0 : 1,
+    events,
+    stdoutLines: events.filter((event) => event.stream === 'stdout').map((event) => event.line),
+    stderrLines: events.filter((event) => event.stream === 'stderr').map((event) => event.line)
+  };
+}
+
 // Removes stale heal candidates for this target left behind by a hard crash,
 // so ordinary suite runs never pick up an unreviewed candidate.
 function sweepStaleHealCandidates(absoluteTarget, log) {
@@ -1531,30 +1567,12 @@ async function runCli() {
     }
   }
 
-  let allGreen = true;
-  for (const result of results) {
-    const suffix = result.attemptsUsed > 0 ? ` after ${result.attemptsUsed} attempt(s)` : '';
-    if (result.status === 'healed') {
-      console.log(`HEALED ${result.target}${suffix}. Backup: ${result.backupPath}`);
-    } else if (result.status === 'proposal-ready') {
-      console.log(`PROPOSAL READY ${result.target}${suffix} (target unchanged). Diff: ${result.diffPath}. Archive: ${result.archiveDir}`);
-    } else if (result.status === 'proposal-ready-with-policy-warnings') {
-      console.log(`PROPOSAL READY WITH POLICY WARNINGS ${result.target}${suffix} (target unchanged). Diff: ${result.diffPath}. Archive: ${result.archiveDir}`);
-    } else if (result.status === 'healed-with-policy-warnings') {
-      console.error(`HEALED WITH POLICY WARNINGS ${result.target}${suffix}. Backup: ${result.backupPath}`);
-    } else if (result.status === 'already-green') {
-      console.log(`ALREADY GREEN ${result.target} (no changes made).`);
-    } else {
-      console.error(`NOT HEALED ${result.target} (${result.status})${suffix}.`);
-      for (const issue of result.issues ?? []) console.error(`- ${issue}`);
-      if (result.archiveDir) console.error(`  Evidence: ${result.archiveDir}`);
-    }
-    for (const line of formatPolicyWarningDiagnostics(result.attemptTrail)) {
-      console.error(`- ${line}`);
-    }
-    if (!isSuccessfulHealStatus(result.status)) allGreen = false;
+  const rendered = renderHealResults(results);
+  for (const event of rendered.events) {
+    if (event.stream === 'stdout') console.log(event.line);
+    else console.error(event.line);
   }
-  process.exitCode = allGreen ? 0 : 1;
+  process.exitCode = rendered.exitCode;
 }
 
 const currentFile = fileURLToPath(import.meta.url);
