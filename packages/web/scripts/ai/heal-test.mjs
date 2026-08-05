@@ -1420,9 +1420,10 @@ export function helpText() {
 
 Runs each target test first (baseline). A test that already passes the required consecutive
 runs is reported as already-green and never modified. For a runtime failure the healer asks the
-heal brain (stage 'heal', see AI_HEAL_* env) for a repaired file, rejects candidates that violate
-the AST-level anti-masking policy (no removed/downgraded/conditional assertions, no skip family,
-no sleeps or XPath) or fail typechecking/linting, and verifies survivors with exact consecutive repetitions
+heal brain (stage 'heal', see AI_HEAL_* env) for a repaired file.
+AST-level anti-masking policy violations are recorded as warnings.
+Typecheck, lint, contract review, and runtime verification remain hard gates.
+Candidates that pass those gates are verified with exact consecutive repetitions
 (all verification lanes use --workers=1 and --retries=0; flaky = fail).
 Only locator-drift and synchronization runtime failures are repairable. Product, auth, network,
 data, assertion-mismatch, and unclassified failures are reported as not-repairable. A baseline-green

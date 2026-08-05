@@ -1508,14 +1508,18 @@ test('CLI policy warning diagnostics expose only allowlisted attempt codes', () 
 });
 
 test('CLI help documents the safe healing contract', () => {
+  const help = helpText();
   for (const required of [
     '--apply', '--allow-dirty', '--dom-snapshot', 'proposal-ready',
     'proposal-ready-with-policy-warnings', 'healed-with-policy-warnings',
     'locator-drift', 'synchronization', 'recorded reviewer',
     'all verification lanes', '--workers=1', 'exact consecutive repetitions',
     'already-green', 'manual-change-required', 'context-only'
-  ]) assert.match(helpText(), new RegExp(required.replaceAll('-', '\\-'), 'i'));
-  assert.match(helpText(), /An applied warning result exits non-zero\./i);
+  ]) assert.match(help, new RegExp(required.replaceAll('-', '\\-'), 'i'));
+  assert.match(help, /An applied warning result exits non-zero\./i);
+  assert.doesNotMatch(help, /rejects candidates that violate\s+the AST-level anti-masking policy/i);
+  assert.match(help, /AST-level anti-masking policy violations are recorded as warnings/i);
+  assert.match(help, /typecheck, lint, contract review, and runtime verification remain hard gates/i);
 });
 
 test('healSingleTest heals on a later attempt, promotes atomically, and archives evidence', async () => {
