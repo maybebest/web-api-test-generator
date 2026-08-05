@@ -988,20 +988,20 @@ export async function healSingleTest({
   const resolvedProject = project ?? inferStandaloneProject(target);
   // executeGeneratedPair returns the execution shape directly:
   // { passed, attempted, stage, issues, artifacts, runDir }.
-  const runVerification = (pathToRun) => (contract.kind === 'spec'
+  const runVerification = (pathToRun, runs = repeatEach) => (contract.kind === 'spec'
     ? executePair(
         { specPath: contract.specPath, testPath: pathToRun, validation: contract.validation },
-        { repeatEach, workers: 1, env, runRoot }
+        { repeatEach: runs, workers: 1, env, runRoot }
       )
-    : executeStandalone({ testPath: pathToRun, project: resolvedProject, repeatEach, env, webRoot, runRoot }));
+    : executeStandalone({ testPath: pathToRun, project: resolvedProject, repeatEach: runs, env, webRoot, runRoot }));
 
   const contractDescription = contract.kind === 'spec'
     ? `spec-bound via ${contract.specPath}`
     : contract.kind === 'recording'
       ? `recording-bound via ${contract.recordingPath}; standalone project ${resolvedProject}`
       : `handwritten; standalone project ${resolvedProject}`;
-  log(`[heal] ${target}: baseline verification (${repeatEach} consecutive runs, retries=0, ${contractDescription}).`);
-  let execution = runVerification(target);
+  log(`[heal] ${target}: baseline verification (1 diagnostic run, retries=0, ${contractDescription}).`);
+  let execution = runVerification(target, 1);
   if (execution.passed) {
     cleanupFailedRunDir(execution, runRoot);
     return sanitizePublicResult({ status: 'already-green', target, attemptsUsed: 0 });
