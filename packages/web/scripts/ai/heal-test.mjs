@@ -746,7 +746,10 @@ function sanitizePublicResult(result) {
 }
 
 function containsCandidateSecretLiteral(source) {
-  const text = String(source ?? '');
+  const text = String(source ?? '').replace(
+    /^(\/\*\s+(?:spec|recording):[^\r\n]*\bsha256:)[a-f0-9]{64}(\s+\*\/)/i,
+    '$1<traceability-sha256>$2'
+  );
   const containsSecretFragment = (value) => {
     const fragments = value.match(/[A-Za-z0-9._~+/-]{20,}/g) ?? [];
     return fragments.some((fragment) => {
