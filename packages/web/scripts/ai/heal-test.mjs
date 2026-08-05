@@ -696,6 +696,12 @@ function auditAttemptTrail(attemptTrail) {
   });
 }
 
+export function formatPolicyWarningDiagnostics(attemptTrail) {
+  return auditAttemptTrail(Array.isArray(attemptTrail) ? attemptTrail : [])
+    .filter((entry) => entry.outcome !== 'healed' && entry.policyIssueCodes?.length > 0)
+    .map((entry) => `Policy attempt ${entry.attempt}: ${entry.policyIssueCodes.join(', ')}`);
+}
+
 function sanitizedEvidenceList(value, secretValues) {
   if (!Array.isArray(value)) return [];
   return value
@@ -1323,14 +1329,18 @@ export async function healSingleTest({
           activePromotion = null;
           closeBoundRegularFile(candidateBinding);
           activeCandidate = null;
-          recordAttempt('healed');
+          const healedStatus = policyIssueCodes.length > 0
+            ? 'healed-with-policy-warnings'
+            : 'healed';
+          recordAttempt(healedStatus);
           const healedResult = {
-            status: 'healed',
+            status: healedStatus,
             attemptsUsed: attempt,
             candidateSha256: candidateSha,
             candidatePath: candidateArchivePath,
             diffPath,
-            backupPath: archiveOriginalPath
+            backupPath: archiveOriginalPath,
+            ...(policyIssueCodes.length > 0 ? { policyIssueCodes } : {})
           };
           try {
             return finish(healedResult);
@@ -1418,7 +1428,9 @@ Only locator-drift and synchronization runtime failures are repairable. Product,
 data, assertion-mismatch, and unclassified failures are reported as not-repairable. A baseline-green
 target returns already-green without a proposal. For a repairable failing target that produces a
 fully verified single-test candidate, default mode archives proposal-ready and leaves the target
-unchanged. Environment, non-repairable, and manual-change-required paths return their own statuses
+unchanged. A warning-bearing proposal returns proposal-ready-with-policy-warnings; an applied warning
+returns healed-with-policy-warnings after atomic promotion. An applied warning result exits non-zero.
+Environment, non-repairable, and manual-change-required paths return their own statuses
 and might not create a candidate proposal. Page Object or Component source is context-only and
 returns manual-change-required; it is never auto-promoted. Only --apply can atomically promote a
 fully verified target (clean unless --allow-dirty is explicit); integrity and concurrency checks
@@ -1427,7 +1439,7 @@ always remain. Every attempt and the original file are archived under .ai-runs/h
 Settings:
   AI_AUTOHEAL_ENABLED       must be true to generate a repair proposal (default false)
   AI_AUTOHEAL_MAX_ATTEMPTS  heal attempts per test, 1..${MAX_AUTOHEAL_MAX_ATTEMPTS} (default 3); --max-attempts overrides.
-                            Policy/typecheck/lint/review rejections consume attempts too.
+                            Policy warnings and typecheck/lint/review rejections consume attempts too.
   AI_AUTOHEAL_VERIFY_RUNS   consecutive green runs required, 2 or 3 (default 2); --verify-runs overrides
   --dom-snapshot            optional verified selector-discovery artifact below .ai-runs/dom-discovery
   --apply                   promote a fully verified single-file candidate
@@ -1525,12 +1537,19 @@ async function runCli() {
       console.log(`HEALED ${result.target}${suffix}. Backup: ${result.backupPath}`);
     } else if (result.status === 'proposal-ready') {
       console.log(`PROPOSAL READY ${result.target}${suffix} (target unchanged). Diff: ${result.diffPath}. Archive: ${result.archiveDir}`);
+    } else if (result.status === 'proposal-ready-with-policy-warnings') {
+      console.log(`PROPOSAL READY WITH POLICY WARNINGS ${result.target}${suffix} (target unchanged). Diff: ${result.diffPath}. Archive: ${result.archiveDir}`);
+    } else if (result.status === 'healed-with-policy-warnings') {
+      console.error(`HEALED WITH POLICY WARNINGS ${result.target}${suffix}. Backup: ${result.backupPath}`);
     } else if (result.status === 'already-green') {
       console.log(`ALREADY GREEN ${result.target} (no changes made).`);
     } else {
       console.error(`NOT HEALED ${result.target} (${result.status})${suffix}.`);
       for (const issue of result.issues ?? []) console.error(`- ${issue}`);
       if (result.archiveDir) console.error(`  Evidence: ${result.archiveDir}`);
+    }
+    for (const line of formatPolicyWarningDiagnostics(result.attemptTrail)) {
+      console.error(`- ${line}`);
     }
     if (!isSuccessfulHealStatus(result.status)) allGreen = false;
   }

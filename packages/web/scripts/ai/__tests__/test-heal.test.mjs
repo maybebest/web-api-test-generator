@@ -27,9 +27,11 @@ import {
   healSingleTest,
   helpText,
   inferStandaloneProject,
+  isSuccessfulHealStatus,
   lintCandidate,
   parseArgs
 } from '../heal-test.mjs';
+import * as healCli from '../heal-test.mjs';
 
 const PASSING_TYPECHECK = () => ({ passed: true, issues: [] });
 const PASSING_LINT = () => ({ passed: true, issues: [] });
@@ -1477,13 +1479,43 @@ test('CLI help and exit-status policy distinguish proposals from failures', asyn
   assert.match(help.stdout, /proposal-ready/);
 });
 
+test('CLI status policy treats warning proposal as success and warning apply as failure', () => {
+  assert.equal(isSuccessfulHealStatus('proposal-ready-with-policy-warnings'), true);
+  assert.equal(isSuccessfulHealStatus('healed-with-policy-warnings'), false);
+  assert.equal(isSuccessfulHealStatus('proposal-ready'), true);
+  assert.equal(isSuccessfulHealStatus('healed'), true);
+});
+
+test('CLI policy warning diagnostics expose only allowlisted attempt codes', () => {
+  assert.equal(typeof healCli.formatPolicyWarningDiagnostics, 'function');
+  assert.deepEqual(healCli.formatPolicyWarningDiagnostics([
+    {
+      attempt: 1,
+      outcome: 'healed-with-policy-warnings',
+      policyIssueCodes: [
+        'ASSERTION_COUNT_REDUCED',
+        'raw provider detail',
+        'ASSERTION_COUNT_REDUCED'
+      ],
+      rawIssue: 'source excerpt'
+    },
+    { attempt: 2, outcome: 'healed', policyIssueCodes: ['WAIT_FOR_TIMEOUT_INTRODUCED'] },
+    { attempt: 3, outcome: 'typecheck-rejected', policyIssueCodes: ['unknown-only'] }
+  ]), [
+    'Policy attempt 1: ASSERTION_COUNT_REDUCED',
+    'Policy attempt 3: POLICY_WARNING_UNCLASSIFIED'
+  ]);
+});
+
 test('CLI help documents the safe healing contract', () => {
   for (const required of [
     '--apply', '--allow-dirty', '--dom-snapshot', 'proposal-ready',
+    'proposal-ready-with-policy-warnings', 'healed-with-policy-warnings',
     'locator-drift', 'synchronization', 'recorded reviewer',
     'all verification lanes', '--workers=1', 'exact consecutive repetitions',
     'already-green', 'manual-change-required', 'context-only'
   ]) assert.match(helpText(), new RegExp(required.replaceAll('-', '\\-'), 'i'));
+  assert.match(helpText(), /An applied warning result exits non-zero\./i);
 });
 
 test('healSingleTest heals on a later attempt, promotes atomically, and archives evidence', async () => {
@@ -1600,6 +1632,40 @@ test('healSingleTest verifies and archives a proposal after a policy warning', a
   });
   assert.doesNotMatch(summary, /must not|flow works|expect\(|getByTestId/);
   assert.doesNotMatch(warningAudit, /must not|flow works|expect\(|getByTestId/);
+});
+
+test('healSingleTest applies a verified candidate with policy warnings', async () => {
+  const { webRoot, target, targetPath } = makeHealWorkspace();
+  const warningSource = CLEAN_SOURCE.replace(
+    "  await expect(page.getByTestId('status')).toHaveText('Saved');\n",
+    ''
+  );
+  const { run, calls } = executionSequence([FAILED_EXECUTION, PASSED_EXECUTION]);
+  const result = await healSingleTest({
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true' },
+    webRoot,
+    maxAttempts: 1,
+    apply: true,
+    log: () => {},
+    resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+    reviewContract: () => ({ passed: true, issues: [] }),
+    typecheck: PASSING_TYPECHECK,
+    lint: PASSING_LINT,
+    targetDirty: () => false,
+    executeStandalone: run,
+    heal: async () => ({ code: warningSource })
+  });
+
+  assert.equal(result.status, 'healed-with-policy-warnings');
+  assert.equal(calls.length, 2);
+  assert.equal(fs.readFileSync(targetPath, 'utf8'), warningSource);
+  assert.equal(fs.readFileSync(result.backupPath, 'utf8'), CLEAN_SOURCE);
+  assert.equal(fs.readFileSync(result.candidatePath, 'utf8'), warningSource);
+  assert.equal(fs.existsSync(result.diffPath), true);
+  assert.ok(result.policyIssueCodes.includes('ASSERTION_COUNT_REDUCED'));
+  assert.equal(result.attemptTrail[0].outcome, 'healed-with-policy-warnings');
+  assert.equal(result.attemptTrail[0].checks.policy, 'warning');
 });
 
 test('policy warnings never bypass later hard gates', async () => {
