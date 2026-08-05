@@ -36,16 +36,18 @@ import { buildGateEnvironment, knownSecretEnvValues } from './lib/gate-environme
 import { resolveHealContract, reviewHealContract } from './lib/test-heal-contract.mjs';
 import { collectHealContext } from './lib/test-heal-context.mjs';
 import { triageRuntimeFailure } from './lib/test-heal-triage.mjs';
-import { hasKnownSecretShape, redactSecretMaterial } from './lib/secret-safety.mjs';
+import { containsSecretLikeValue, redactSecretMaterial } from './lib/secret-safety.mjs';
 import {
   MAX_AUTOHEAL_MAX_ATTEMPTS,
   MAX_HEAL_EVIDENCE_ITEMS,
   MAX_HEAL_SOURCE_BYTES,
+  analyzeHealSource,
   autoHealEnabled,
   autoHealMaxAttempts,
   autoHealVerifyRuns,
   extractRuntimeFailureEvidence,
   healTestSource,
+  normalizeHealPolicyIssueCodes,
   redactKnownSecretValues,
   verifyHealedSourcePolicy
 } from './lib/test-heal.mjs';
@@ -679,11 +681,19 @@ function sanitizedDiagnosticText(value, secretValues) {
 }
 
 function auditAttemptTrail(attemptTrail) {
-  return attemptTrail.slice(-MAX_AUTOHEAL_MAX_ATTEMPTS).map((entry) => ({
-    attempt: entry.attempt,
-    outcome: entry.outcome,
-    ...(entry.checks ? { checks: { ...entry.checks } } : {})
-  }));
+  return attemptTrail.slice(-MAX_AUTOHEAL_MAX_ATTEMPTS).map((entry) => {
+    const policyWarning = entry.checks?.policy === 'warning'
+      || (Array.isArray(entry.policyIssueCodes) && entry.policyIssueCodes.length > 0);
+    const policyIssueCodes = normalizeHealPolicyIssueCodes(entry.policyIssueCodes, {
+      requireAtLeastOne: policyWarning
+    });
+    return {
+      attempt: entry.attempt,
+      outcome: entry.outcome,
+      ...(entry.checks ? { checks: { ...entry.checks } } : {}),
+      ...(policyIssueCodes.length > 0 ? { policyIssueCodes } : {})
+    };
+  });
 }
 
 function sanitizedEvidenceList(value, secretValues) {
@@ -711,6 +721,11 @@ function sanitizePublicResult(result) {
   if (Object.hasOwn(result, 'detail')) {
     sanitized.detail = publicDiagnostic(result.status);
   }
+  if (Object.hasOwn(result, 'policyIssueCodes')) {
+    sanitized.policyIssueCodes = normalizeHealPolicyIssueCodes(result.policyIssueCodes, {
+      requireAtLeastOne: true
+    });
+  }
   if (Array.isArray(result.attemptTrail)) {
     sanitized.attemptTrail = auditAttemptTrail(result.attemptTrail);
   }
@@ -722,7 +737,34 @@ function sanitizePublicResult(result) {
   return sanitized;
 }
 
-function sourceSafetyIssue(source, secretValues, label) {
+function containsCandidateSecretLiteral(source) {
+  const text = String(source ?? '');
+  const containsSecretFragment = (value) => {
+    const fragments = value.match(/[A-Za-z0-9._~+/-]{20,}/g) ?? [];
+    return fragments.some((fragment) => {
+      for (let index = 0; index <= fragment.length - 20; index += 1) {
+        if (containsSecretLikeValue(fragment.slice(index))) return true;
+      }
+      return false;
+    });
+  };
+  if (containsSecretFragment(text)) return true;
+  const scanner = ts.createScanner(ts.ScriptTarget.Latest, false, ts.LanguageVariant.Standard, text);
+  for (let token = scanner.scan(); token !== ts.SyntaxKind.EndOfFileToken; token = scanner.scan()) {
+    if (token !== ts.SyntaxKind.StringLiteral
+      && token !== ts.SyntaxKind.NoSubstitutionTemplateLiteral
+      && token !== ts.SyntaxKind.RegularExpressionLiteral) continue;
+    const tokenText = scanner.getTokenText();
+    const literal = token === ts.SyntaxKind.RegularExpressionLiteral
+      ? tokenText.slice(1, tokenText.lastIndexOf('/'))
+      : tokenText.slice(1, -1);
+    if (containsSecretLikeValue(literal)) return true;
+    if (containsSecretFragment(literal)) return true;
+  }
+  return false;
+}
+
+function sourceSafetyIssue(source, secretValues, label, { strictCandidateLiterals = false } = {}) {
   const normalizedSource = String(source ?? '');
   // Keep preflight checks deterministic. Generic candidate semantics belong to
   // verifyHealedSourcePolicy; every rejection below that boundary records only
@@ -730,7 +772,9 @@ function sourceSafetyIssue(source, secretValues, label) {
   if (redactKnownSecretValues(normalizedSource, secretValues) !== normalizedSource) {
     return `${label} contains a known secret value and cannot be healed or archived.`;
   }
-  if (hasKnownSecretShape(normalizedSource)) {
+  if (containsSecretLikeValue(normalizedSource)
+    || (strictCandidateLiterals && analyzeHealSource(normalizedSource).containsSecrets)
+    || (strictCandidateLiterals && containsCandidateSecretLiteral(normalizedSource))) {
     return `${label} contains secret-like material and cannot be healed or archived.`;
   }
   return null;
@@ -741,6 +785,15 @@ function rejectedAttemptAudit(attempt, outcome) {
     schema: 'test-heal-rejected-attempt/v1',
     attempt,
     outcome
+  }, null, 2)}\n`;
+}
+
+function policyWarningAudit(attempt, issueCodes) {
+  return `${JSON.stringify({
+    schema: 'test-heal-policy-warning/v1',
+    attempt,
+    outcome: 'policy-warning',
+    policyIssueCodes: normalizeHealPolicyIssueCodes(issueCodes, { requireAtLeastOne: true })
   }, null, 2)}\n`;
 }
 
@@ -787,7 +840,10 @@ function candidateDiff({ archiveOriginalPath, candidateAbsolute, webRoot }) {
 }
 
 export function isSuccessfulHealStatus(status) {
-  return status === 'already-green' || status === 'proposal-ready' || status === 'healed';
+  return status === 'already-green'
+    || status === 'proposal-ready'
+    || status === 'proposal-ready-with-policy-warnings'
+    || status === 'healed';
 }
 
 // Removes stale heal candidates for this target left behind by a hard crash,
@@ -998,11 +1054,13 @@ export async function healSingleTest({
     for (let attempt = 1; attempt <= attemptsBudget; attempt += 1) {
       log(`[heal] ${target}: attempt ${attempt}/${attemptsBudget}.`);
       const checks = {};
+      let policyIssueCodes = [];
       const recordAttempt = (outcome) => {
         attemptTrail.push({
           attempt,
           outcome,
-          ...(Object.keys(checks).length > 0 ? { checks: { ...checks } } : {})
+          ...(Object.keys(checks).length > 0 ? { checks: { ...checks } } : {}),
+          ...(policyIssueCodes.length > 0 ? { policyIssueCodes: [...policyIssueCodes] } : {})
         });
       };
       let healed;
@@ -1022,7 +1080,9 @@ export async function healSingleTest({
         recordAttempt('brain-error', error.message);
         return finish({ status: 'brain-error', attemptsUsed: attempt, issues: [error.message] });
       }
-      const candidateSafetyIssue = sourceSafetyIssue(healed?.code, secretValues, 'Heal candidate source');
+      const candidateSafetyIssue = sourceSafetyIssue(healed?.code, secretValues, 'Heal candidate source', {
+        strictCandidateLiterals: true
+      });
       if (candidateSafetyIssue) {
         checks.policy = 'rejected';
         recordAttempt('brain-error', candidateSafetyIssue);
@@ -1041,13 +1101,13 @@ export async function healSingleTest({
       // later attempt cannot ratchet the rules by comparing against an earlier
       // (already accepted-for-iteration) candidate.
       const policy = verifyHealedSourcePolicy({ previousSource: originalSource, healedSource: healed.code });
-      checks.policy = policy.passed ? 'passed' : 'rejected';
+      policyIssueCodes = policy.passed
+        ? []
+        : normalizeHealPolicyIssueCodes(policy.issueCodes, { requireAtLeastOne: true });
+      checks.policy = policy.passed ? 'passed' : 'warning';
       if (!policy.passed) {
-        archiveRejectedAttempt(attempt, 'rejected-policy');
-        recordAttempt('policy-rejected', policy.issues.join(' '));
-        log(`[heal] ${target}: attempt ${attempt} rejected by deterministic policy guard.`);
-        notes = sanitizedEvidenceList(policy.issues, secretValues);
-        continue;
+        archive.write(`attempt-${attempt}.policy-warning.json`, policyWarningAudit(attempt, policyIssueCodes));
+        log(`[heal] ${target}: attempt ${attempt} continues with policy warnings: ${policyIssueCodes.join(', ')}.`);
       }
 
       const candidateAbsolute = healCandidatePath(absoluteTarget, `${runId}-a${attempt}`);
@@ -1154,13 +1214,17 @@ export async function healSingleTest({
           }
 
           if (!apply) {
-            recordAttempt('proposal-ready');
+            const proposalStatus = policyIssueCodes.length > 0
+              ? 'proposal-ready-with-policy-warnings'
+              : 'proposal-ready';
+            recordAttempt(proposalStatus);
             return finish({
-              status: 'proposal-ready',
+              status: proposalStatus,
               attemptsUsed: attempt,
               candidateSha256: candidateSha,
               candidatePath: candidateArchivePath,
-              diffPath
+              diffPath,
+              ...(policyIssueCodes.length > 0 ? { policyIssueCodes } : {})
             });
           }
 
