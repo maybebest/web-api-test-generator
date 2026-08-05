@@ -1,98 +1,84 @@
-# Healer Policy-Rejection Diagnostics Design
+# Healer Policy-Warning Diagnostics and Soft-Fail Design
 
 ## Problem
 
-The healer's deterministic post-provider policy already produces local
-`issueCodes`, but the orchestration layer discards them when it records a rejected
-attempt. `recordAttempt()` retains only the attempt number, outcome, and stage
-checks; `rejectedAttemptAudit()` likewise writes only the attempt number and
-outcome. Public sanitization then deliberately replaces human-readable diagnostic
-messages with a generic status.
+The healer's deterministic post-provider policy detects unsafe or out-of-contract
+candidate changes, but its orchestration layer currently discards the locally
+computed `issueCodes`. Operators see only `policy-rejected`, so they cannot tell
+which rule fired.
 
-As a result, a safe fail-closed rejection is visible only as `policy-rejected`.
-Operators cannot distinguish an assertion downgrade from changed executable
-semantics, a forbidden sleep, a secret-like literal, or another policy rule. The
-2026-08-05 PsychicBook rerun demonstrated this defect across three consecutive
-healer attempts.
+The same policy is also a hard gate: any violation consumes an attempt before
+typecheck, lint, contract review, or live verification. For the current framework
+experiment, the user has explicitly chosen to make policy evaluation diagnostic
+rather than blocking in both proposal-only and `--apply` modes.
+
+This is an intentional safety trade-off. The policy still evaluates every candidate
+and reports stable codes, but the remaining gates decide whether the candidate can
+be proposed or applied.
 
 ## Goals
 
-- Preserve stable, non-sensitive policy issue codes from policy evaluation through
-  per-attempt audit files, `heal-summary.json`, and the public CLI result.
-- Guarantee that every policy-rejected attempt exposes at least one safe code.
-- Keep candidate source, diffs, raw policy messages, runtime evidence, secrets, DOM
-  content, and request data out of rejected-attempt diagnostics.
-- Preserve the healer's current fail-closed behavior and verification sequence.
-- Add regression coverage that proves the codes survive every intended boundary.
+- Preserve stable, non-sensitive policy issue codes through audit artifacts,
+  programmatic results, and CLI output.
+- Change policy violations from hard rejection to visible warnings in every mode.
+- Continue typecheck, lint, contract review, live verification, diff, and integrity
+  checks after a policy warning.
+- Distinguish clean and warning-bearing proposal/apply outcomes with explicit
+  statuses and CLI messages.
+- Apply a fully verified warning-bearing candidate when `--apply` is present, then
+  return exit code `1` so CI or a calling script cannot treat it as a clean heal.
+- Keep candidate secret preflight and every non-policy safety gate unchanged.
 
 ## Non-goals
 
-- Do not retain a policy-rejected candidate or its diff.
-- Do not expose raw `policy.issues` through the CLI or audit files.
-- Do not loosen any policy rule or make a rejected candidate executable.
-- Do not change failure triage, provider prompting, retry count, candidate
-  verification, proposal/apply behavior, or PsychicBook tests.
-- Do not redesign or version the complete healer audit format.
+- Do not delete or bypass policy evaluation.
+- Do not hide policy warnings or collapse them into a generic message.
+- Do not expose raw `policy.issues`, candidate source excerpts, runtime evidence,
+  secrets, DOM content, URLs, credentials, emails, or request payloads in warning
+  diagnostics.
+- Do not bypass typecheck, lint, generated/recorded contract review, consecutive live
+  verification, target/candidate integrity, or atomic promotion safeguards.
+- Do not change failure triage, provider selection, retry budgets, or PsychicBook
+  tests as part of this framework fix.
 
 ## Considered approaches
 
-### 1. Safe codes in CLI and audit JSON — selected
+### 1. Policy warning in proposal-only and apply modes — selected
 
-Carry allowlisted stable codes through the existing attempt trail and rejected
-attempt audit. This fixes operability while keeping the diagnostic surface small
-and deterministic.
+Policy always evaluates and reports codes, but never stops the candidate by itself.
+All remaining gates still run. A warning-bearing proposal is successful but clearly
+labelled; a warning-bearing apply mutates the target only after full verification and
+then exits non-zero.
 
-### 2. Codes only in audit JSON
+### 2. Policy warning only in proposal-only mode
 
-This would protect the public shape but leave normal CLI users with the same opaque
-failure. It does not satisfy the requirement to make the rejection immediately
-actionable.
+This preserves automatic-apply safety but does not meet the updated requirement that
+policy rejection also be a soft failure under `--apply`.
 
-### 3. Codes plus sanitized human-readable messages
+### 3. Remove policy evaluation entirely
 
-This is more descriptive but expands the leak surface and makes the public contract
-dependent on mutable prose. It is unnecessary when stable codes can be mapped to
-documentation or local policy rules.
+This reduces code but destroys the evidence needed to improve the framework and
+makes clean and policy-violating candidates indistinguishable. It is rejected.
 
-## Proposed behavior
+## Outcome matrix
 
-A rejected attempt will expose the same additive `issueCodes` field in all three
-interfaces:
+| Mode | Policy | Remaining gates | Target | Status | CLI exit |
+|---|---|---|---|---|---:|
+| proposal-only | passed | passed | unchanged | `proposal-ready` | `0` |
+| proposal-only | warning | passed | unchanged | `proposal-ready-with-policy-warnings` | `0` |
+| `--apply` | passed | passed | replaced atomically | `healed` | `0` |
+| `--apply` | warning | passed | replaced atomically | `healed-with-policy-warnings` | `1` |
+| either | passed or warning | any later gate fails | unchanged | existing later-gate failure status | `1` |
 
-```json
-{
-  "attempt": 1,
-  "outcome": "policy-rejected",
-  "checks": {
-    "policy": "rejected"
-  },
-  "issueCodes": [
-    "EXECUTABLE_SEMANTICS_CHANGED"
-  ]
-}
-```
+The warning-bearing apply deliberately changes the file before returning a non-zero
+exit. The backup, candidate, diff, summary, and warning codes give the operator the
+information needed to review or restore it. A subsequent run against the now-green
+target is a separate execution and does not erase the original archive.
 
-The field appears in:
+## Policy evaluation and stable codes
 
-1. the sanitized public `attemptTrail` returned by `healSingleTest()`;
-2. the `attemptTrail` stored in `heal-summary.json`;
-3. `attempt-N.rejected-policy.json`.
-
-The CLI additionally renders each policy rejection from the sanitized trail as a
-bounded line such as:
-
-```text
-Policy attempt 1: EXECUTABLE_SEMANTICS_CHANGED
-```
-
-Existing fields and status values remain unchanged. `issueCodes` is optional for
-non-policy attempt outcomes, making the change additive for existing consumers.
-The existing `test-heal-run/v1` and `test-heal-rejected-attempt/v1` schema names
-remain valid because no field is removed or reinterpreted.
-
-## Stable code set
-
-Existing codes remain unchanged:
+`packages/web/scripts/ai/lib/test-heal.mjs` remains the policy source of truth. Every
+policy issue has a stable framework-defined code. Existing codes remain unchanged:
 
 - `TRACEABILITY_HEADER_CHANGED`
 - `IMPORTS_CHANGED`
@@ -126,115 +112,170 @@ Rules that currently emit only prose receive stable codes:
 - `GUARDED_ASSERTION_INTRODUCED`
 - `SECRET_LIKE_LITERAL`
 
-The audit boundary accepts only codes from this local allowlist, removes duplicates,
-and caps the list to the bounded number of policy rules. If a future policy rejection
-forgets to assign a code, the boundary emits `POLICY_REJECTED_UNCLASSIFIED` rather
-than returning an empty list. That fallback is itself allowlisted and is a signal
-that the policy implementation needs a new stable code.
+The audit boundary accepts only codes from a local allowlist, removes duplicates,
+and preserves deterministic order. If a future policy warning has no known code, it
+records `POLICY_WARNING_UNCLASSIFIED` rather than exposing arbitrary text or an empty
+diagnostic.
 
-## Components and data flow
+## Candidate flow
 
-### Policy evaluation
+### 1. Non-bypassable candidate safety preflight
 
-`packages/web/scripts/ai/lib/test-heal.mjs` remains the source of truth. Every branch
-that appends a policy issue also appends its stable code. Passing candidates continue
-to return an empty issue-code list.
+Before policy evaluation, the existing `sourceSafetyIssue()` check remains a hard
+failure. A candidate containing a known secret value or secret-like material never
+reaches policy bypass, materialization, verification, proposal, or apply.
 
-### Attempt recording and audit
+### 2. Advisory policy evaluation
 
-`packages/web/scripts/ai/heal-test.mjs` will:
+The healer compares the candidate to the immutable original source on every attempt.
 
-- normalize policy codes through a local allowlist helper;
-- let `recordAttempt()` accept structured audit metadata for policy failures;
-- preserve normalized codes in `auditAttemptTrail()`;
-- pass the same codes into `rejectedAttemptAudit()`;
-- keep all non-policy attempt records unchanged.
+- Passed policy: `checks.policy = "passed"` and no warning codes.
+- Failed policy: `checks.policy = "warning"` and normalized
+  `policyIssueCodes` are attached to the attempt.
 
-The original source remains the immutable comparison baseline across attempts. A
-policy rejection still occurs before the candidate file is materialized, typechecked,
-linted, contract-reviewed, or executed.
+The failed-policy branch no longer archives `rejected-policy`, records
+`policy-rejected`, supplies rejection notes to the next attempt, or executes
+`continue`. Instead it writes a bounded `attempt-N.policy-warning.json` containing
+only attempt number, warning outcome, and allowlisted codes, then enters the normal
+candidate pipeline.
 
-### Public result
+### 3. Existing verification gates
 
-`sanitizePublicResult()` already rebuilds `attemptTrail` through
-`auditAttemptTrail()`. Once that boundary safely preserves allowlisted codes,
-programmatic callers receive them without exposing `policy.issues`.
+The candidate must still pass, in order:
 
-The current CLI prints only generic `result.issues` and never renders
-`attemptTrail`. `packages/web/scripts/ai/heal-test.mjs` therefore adds a small pure
-formatter for policy-rejection lines and calls it from `runCli()`. The formatter
-re-normalizes codes through the same allowlist before display, emits at most the
-bounded attempt/code count, and never consumes raw issue text.
+1. safe bound-file materialization;
+2. TypeScript typecheck;
+3. ESLint;
+4. generated or recorded contract review when the target has such a contract;
+5. exact consecutive live verification with one worker and zero retries;
+6. candidate integrity checks;
+7. non-empty diff generation.
 
-### Provider retry notes
+If a later gate fails, its existing outcome remains the attempt outcome. The attempt
+also retains `checks.policy = "warning"` and the warning codes so operators can see
+both facts. No proposal is archived and no target is changed.
 
-The existing internal path that supplies sanitized policy messages to the next
-provider attempt remains unchanged. Those messages are not persisted in public or
-audit output.
+### 4. Proposal-only completion
 
-## Security properties
+When all remaining gates pass and `apply === false`:
 
-- Codes are framework-defined constants, not provider-controlled text.
-- Unknown strings are discarded at the audit boundary.
-- Codes contain no source excerpts, locator values, URLs, credentials, emails,
-  payloads, or runtime evidence.
-- Rejected candidate source and diff remain absent from disk.
-- Public human-readable diagnostics remain generic.
-- The original target remains unchanged after policy rejection.
+- clean policy produces existing `proposal-ready`;
+- policy warning produces `proposal-ready-with-policy-warnings`;
+- candidate and diff are archived for manual review;
+- target bytes remain unchanged;
+- CLI prints the warning codes and exits `0`.
 
-## Error handling
+### 5. Apply completion
 
-- A policy rejection with known codes records the deduplicated codes in deterministic
-  order.
-- A policy rejection with no known code records only
-  `POLICY_REJECTED_UNCLASSIFIED`.
-- Non-policy failures do not gain an `issueCodes` field.
-- Policy feedback supplied to a later provider attempt continues to use the existing
-  sanitized prose and is not derived from the public audit object.
+When all remaining gates pass and `apply === true`, existing dirty-target,
+concurrency, candidate integrity, backup, permission, and atomic rename safeguards
+remain mandatory.
+
+- clean policy produces existing `healed` and exit `0`;
+- policy warning still promotes the verified bytes, produces
+  `healed-with-policy-warnings`, prints warning codes, and exits `1`.
+
+`--allow-dirty` continues to mean only that an already-dirty target may be the
+starting snapshot. It does not bypass concurrent-edit or integrity checks.
+
+## Audit and public data
+
+Warning codes appear consistently in:
+
+1. the sanitized public attempt trail returned by `healSingleTest()`;
+2. `heal-summary.json`;
+3. `attempt-N.policy-warning.json`;
+4. the final warning-bearing result as `policyIssueCodes`;
+5. bounded CLI lines such as `Policy attempt 1: ASSERTION_COUNT_REDUCED`.
+
+The attempt trail keeps its actual downstream outcome, for example:
+
+```json
+{
+  "attempt": 1,
+  "outcome": "proposal-ready-with-policy-warnings",
+  "checks": {
+    "policy": "warning",
+    "typecheck": "passed",
+    "lint": "passed",
+    "review": "passed",
+    "runtime": "passed"
+  },
+  "policyIssueCodes": [
+    "EXECUTABLE_SEMANTICS_CHANGED"
+  ]
+}
+```
+
+Non-warning attempts do not gain `policyIssueCodes`. Raw issue messages remain
+internal and are not serialized or printed.
+
+## CLI behavior
+
+The CLI adds explicit branches:
+
+- `PROPOSAL READY WITH POLICY WARNINGS ...` for
+  `proposal-ready-with-policy-warnings`;
+- `HEALED WITH POLICY WARNINGS ...` for `healed-with-policy-warnings`.
+
+Both branches print only attempt numbers and allowlisted warning codes. The first is
+a successful proposal result. The second is deliberately excluded from the set of
+clean successful statuses so aggregate CLI exit calculation returns `1` even though
+the target was promoted.
+
+## Security trade-off
+
+The user explicitly accepts that policy is no longer an enforcement boundary. In
+particular, a handwritten target has no generated/recorded static contract reviewer.
+A candidate that removes or weakens an assertion could therefore pass typecheck,
+lint, and runtime, then be applied with `--apply`. The warning status, non-zero exit,
+backup, diff, and issue codes make that event visible but do not prevent it.
+
+Generated and recorded targets retain their independent reviewers, which may still
+hard-reject changes such as skipped tests, lost traceability, invalid selectors, or
+contract drift. Those are separate gates and are not softened by this design.
 
 ## Testing strategy
 
 Implementation follows test-driven development.
 
-1. Extend the existing policy-rejection integration test so it initially fails
-   because `result.attemptTrail`, `heal-summary.json`, and each
-   `attempt-N.rejected-policy.json` lack `issueCodes`.
-2. Assert that a `test.skip` candidate produces
-   `SKIP_FAMILY_INTRODUCED` in all three interfaces.
-3. Add a focused formatter test proving the CLI line includes the attempt number and
-   allowlisted code, drops unknown strings, and never includes raw policy prose.
-4. Assert that rejected audit files contain neither candidate source nor raw policy
-   prose.
-5. Add focused policy tests for branches that previously lacked codes, including
-   empty/invalid source, forbidden sleeps, reduced assertions, guarded assertions,
-   and secret-like literals.
-6. Add a boundary test proving unknown codes are discarded and the unclassified
-   fallback is used.
-7. Run the focused healer tests, the complete policy test file, and the repository's
-   relevant lint/type checks.
-
-For regression-test credibility, the focused integration test must be observed RED
-before production code changes and GREEN afterward.
+1. Add focused policy tests proving every issue has a stable allowlisted code.
+2. Prove proposal-only plus a policy violation and green remaining gates returns
+   `proposal-ready-with-policy-warnings`, archives candidate/diff/codes, and leaves
+   the target unchanged.
+3. Prove `--apply` plus the same warning and green remaining gates atomically changes
+   the target, retains a backup, returns `healed-with-policy-warnings`, and yields CLI
+   exit `1`.
+4. Prove a clean `--apply` remains `healed` with exit `0`.
+5. Prove a policy warning followed by typecheck, lint, review, or runtime failure does
+   not create a proposal or mutate the target.
+6. Prove secret-bearing candidates remain hard failures before policy bypass.
+7. Prove public result, summary, warning audit, and CLI contain only allowlisted codes
+   and never raw policy messages or rejected source excerpts.
+8. Run focused healer tests, the complete policy tests, ESLint, TypeScript checks,
+   and the framework self-test suite.
 
 ## Files expected to change
 
 - `packages/web/scripts/ai/lib/test-heal.mjs`
 - `packages/web/scripts/ai/heal-test.mjs`
-- `packages/web/scripts/ai/__tests__/test-heal.test.mjs`
 - `packages/web/scripts/ai/__tests__/test-heal-policy.test.mjs`
+- `packages/web/scripts/ai/__tests__/test-heal.test.mjs`
+- `docs/superpowers/plans/2026-08-05-healer-policy-rejection-diagnostics.md`
 
-No live browser run or stage credentials are required for this framework-level
-diagnostic fix.
+No live stage credentials or PsychicBook browser execution are required for this
+framework-level behavior change.
 
 ## Acceptance criteria
 
-- Every `policy-rejected` attempt exposes at least one allowlisted `issueCodes` entry
-  in the programmatic public result, `heal-summary.json`, and its rejected-attempt
-  audit file.
-- CLI stderr prints each policy-rejected attempt number and its allowlisted codes,
-  without raw issue text.
-- A known `test.skip` rejection exposes `SKIP_FAMILY_INTRODUCED` consistently.
-- Raw issues, candidate source, and secret-like values do not appear in those outputs.
-- Non-policy trail entries preserve their existing shape.
-- Policy-rejected candidates remain unmaterialized and unexecuted.
-- Existing healer and policy test suites pass after the change.
+- No candidate is stopped solely because `verifyHealedSourcePolicy()` returns
+  `passed: false`.
+- Every policy warning exposes at least one allowlisted stable code.
+- Proposal-only warning candidates must pass all remaining gates, archive a proposal,
+  preserve the target, and return `proposal-ready-with-policy-warnings` with exit `0`.
+- Apply warning candidates must pass all remaining gates, preserve a backup, promote
+  atomically, and return `healed-with-policy-warnings` with exit `1`.
+- Clean proposal/apply statuses and exits remain unchanged.
+- Later hard-gate failures never create a proposal or mutate the target.
+- Secret-bearing candidates remain blocked before policy evaluation can be softened.
+- Raw issues and candidate excerpts do not appear in warning diagnostics.
