@@ -1507,6 +1507,61 @@ test('CLI policy warning diagnostics expose only allowlisted attempt codes', () 
   ]);
 });
 
+test('CLI aggregates and renders mixed policy-warning target results', () => {
+  assert.equal(typeof healCli.renderHealResults, 'function');
+
+  const warningProposal = {
+    status: 'proposal-ready-with-policy-warnings',
+    target: 'tests/warning-proposal.spec.ts',
+    attemptsUsed: 1,
+    diffPath: '.ai-runs/heal/proposal/candidate.diff',
+    archiveDir: '.ai-runs/heal/proposal',
+    attemptTrail: [{
+      attempt: 1,
+      outcome: 'proposal-ready-with-policy-warnings',
+      checks: { policy: 'warning' },
+      policyIssueCodes: ['ASSERTION_COUNT_REDUCED']
+    }]
+  };
+  const cleanTarget = {
+    status: 'already-green',
+    target: 'tests/clean.spec.ts',
+    attemptsUsed: 0,
+    attemptTrail: []
+  };
+  const warningApply = {
+    status: 'healed-with-policy-warnings',
+    target: 'tests/warning-apply.spec.ts',
+    attemptsUsed: 2,
+    backupPath: '.ai-runs/heal/apply/original.ts',
+    attemptTrail: [{
+      attempt: 2,
+      outcome: 'healed-with-policy-warnings',
+      checks: { policy: 'warning' },
+      policyIssueCodes: ['WAIT_FOR_TIMEOUT_INTRODUCED']
+    }]
+  };
+
+  const proposalBatch = healCli.renderHealResults([warningProposal, cleanTarget]);
+  assert.equal(proposalBatch.exitCode, 0);
+  assert.equal(proposalBatch.stdoutLines.length, 2);
+  assert.deepEqual(
+    proposalBatch.stderrLines.filter((line) => /^- Policy attempt /.test(line)),
+    ['- Policy attempt 1: ASSERTION_COUNT_REDUCED']
+  );
+
+  const mixedBatch = healCli.renderHealResults([warningProposal, cleanTarget, warningApply]);
+  assert.equal(mixedBatch.exitCode, 1);
+  assert.ok(mixedBatch.stderrLines.some((line) => /^HEALED WITH POLICY WARNINGS /.test(line)));
+  assert.deepEqual(
+    mixedBatch.stderrLines.filter((line) => /^- Policy attempt /.test(line)),
+    [
+      '- Policy attempt 1: ASSERTION_COUNT_REDUCED',
+      '- Policy attempt 2: WAIT_FOR_TIMEOUT_INTRODUCED'
+    ]
+  );
+});
+
 test('CLI help documents the safe healing contract', () => {
   const help = helpText();
   for (const required of [
@@ -1618,6 +1673,12 @@ test('healSingleTest verifies and archives a proposal after a policy warning', a
 
   const summary = fs.readFileSync(path.join(result.archiveDir, 'heal-summary.json'), 'utf8');
   const warningAudit = fs.readFileSync(path.join(result.archiveDir, 'attempt-1.policy-warning.json'), 'utf8');
+  const rawPolicy = verifyHealedSourcePolicy({
+    previousSource: CLEAN_SOURCE,
+    healedSource: warningSource
+  });
+  assert.equal(rawPolicy.passed, false);
+  assert.ok(rawPolicy.issues.length > 0);
   assert.deepEqual(JSON.parse(summary).attemptTrail[0].policyIssueCodes, result.policyIssueCodes);
   assert.deepEqual(JSON.parse(warningAudit).policyIssueCodes, result.policyIssueCodes);
   assert.deepEqual(result.attemptTrail[0], {
@@ -1634,6 +1695,10 @@ test('healSingleTest verifies and archives a proposal after a policy warning', a
     },
     policyIssueCodes: result.policyIssueCodes
   });
+  for (const rawIssue of rawPolicy.issues) {
+    assert.equal(summary.includes(rawIssue), false);
+    assert.equal(warningAudit.includes(rawIssue), false);
+  }
   assert.doesNotMatch(summary, /must not|flow works|expect\(|getByTestId/);
   assert.doesNotMatch(warningAudit, /must not|flow works|expect\(|getByTestId/);
 });

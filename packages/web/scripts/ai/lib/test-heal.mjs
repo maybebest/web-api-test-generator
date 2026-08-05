@@ -1130,8 +1130,8 @@ export function assertHealSourceSendable(source, env = process.env) {
   }
 }
 
-// Deterministic post-LLM guard: a healed candidate that violates the repo's
-// anti-masking policy is rejected before it is ever written or executed.
+// Deterministic post-LLM evaluation: classify a healed candidate against the
+// repo's anti-masking policy so orchestration can surface advisory warnings.
 // All counts come from the TypeScript AST, so assertions hidden in comments or
 // strings cannot satisfy the floor, and try/catch or conditional wrappers
 // around assertions are caught structurally. previousSource must be the
