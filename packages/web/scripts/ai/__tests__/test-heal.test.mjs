@@ -2074,12 +2074,13 @@ test('standalone verification revalidates run-root identity after creating its c
   assert.equal(commandCalls, 0, 'browser command must not run after the run root is replaced');
 });
 
-test('healSingleTest runs spec-bound static review before spending a verification run', async () => {
+test('healSingleTest uses one baseline run and reserves repeated verification for the candidate', async () => {
   const { webRoot, target, targetPath } = makeHealWorkspace();
   fs.writeFileSync(targetPath, SPEC_SOURCE);
   const healedSource = SPEC_SOURCE.replace("getByRole('button', { name: 'Save' })", "getByTestId('save-button')");
   const { run, calls } = executionSequence([FAILED_EXECUTION, PASSED_EXECUTION]);
   const reviews = [];
+  const repeatCounts = [];
   const result = await healSingleTest({
     testPath: target,
     env: { AI_AUTOHEAL_ENABLED: 'true' },
@@ -2092,7 +2093,7 @@ test('healSingleTest runs spec-bound static review before spending a verificatio
     lint: PASSING_LINT,
     executePair: (pair, options) => {
       assert.equal(pair.specPath, 'specs/flow.md');
-      assert.equal(options.repeatEach, 2);
+      repeatCounts.push(options.repeatEach);
       assert.equal(options.workers, 1);
       return run(pair);
     },
@@ -2107,6 +2108,7 @@ test('healSingleTest runs spec-bound static review before spending a verificatio
   assert.equal(reviews.length, 1);
   assert.match(reviews[0].testPath, /\.candidate\.spec\.ts$/);
   assert.equal(calls.length, 2);
+  assert.deepEqual(repeatCounts, [1, 2]);
 });
 
 test('healSingleTest routes recorded candidates through the recorded reviewer before runtime verification', async () => {
