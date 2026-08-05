@@ -25,6 +25,39 @@ function reportFixture(tests, file = 'regression/example-flow.spec.ts') {
   };
 }
 
+function repeatedPlaywrightReport(repetitions) {
+  const specs = Array.from({ length: repetitions }, (_, index) => ({
+    title: 'repeated spec',
+    file: 'regression/example-flow.spec.ts',
+    line: 7,
+    column: 3,
+    id: `logical-spec-repeat-${index}`,
+    tests: [{
+      status: 'expected',
+      expectedStatus: 'passed',
+      projectName: 'chromium',
+      projectId: 'chromium',
+      results: [{ status: 'passed', retry: 0 }]
+    }]
+  }));
+  return {
+    config: { projects: [{ name: 'chromium', id: 'chromium', repeatEach: 2, retries: 0 }] },
+    errors: [],
+    stats: { expected: repetitions, unexpected: 0, flaky: 0, skipped: 0 },
+    suites: [{ title: 'example-flow.spec.ts', file: 'regression/example-flow.spec.ts', specs }]
+  };
+}
+
+test('strict verdict accepts Playwright repeat-each represented as duplicate spec nodes', () => {
+  const expectedExecution = { project: 'chromium', repeatEach: 2, retries: 0 };
+  const accepted = verifyPlaywrightJsonReport(repeatedPlaywrightReport(2), TARGET, expectedExecution);
+  const incomplete = verifyPlaywrightJsonReport(repeatedPlaywrightReport(1), TARGET, expectedExecution);
+
+  assert.equal(accepted.passed, true, accepted.issues.join('\n'));
+  assert.equal(incomplete.passed, false);
+  assert.match(incomplete.issues.join('\n'), /requested repeat count/);
+});
+
 test('JSON report verdict passes when the target file has passing tests only', () => {
   const verdict = verifyPlaywrightJsonReport(reportFixture(['expected', 'expected']), TARGET);
 

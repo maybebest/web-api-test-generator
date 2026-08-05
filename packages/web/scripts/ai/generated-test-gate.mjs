@@ -644,6 +644,7 @@ export function verifyPlaywrightJsonReports(report, targetTestFiles, expectedExe
   let totalExecutionCount = 0;
   const completeCounts = emptyExecutionCounts();
   const logicalSpecIds = new Set();
+  const logicalSpecExecutionCounts = new Map();
   const states = new Map(targets.map((target) => [target, {
     issues: [],
     counts: emptyExecutionCounts(),
@@ -661,12 +662,15 @@ export function verifyPlaywrightJsonReports(report, targetTestFiles, expectedExe
     return undefined;
   };
 
-  const visitSuite = (suite, inheritedFile) => {
+  const visitSuite = (suite, inheritedFile, inheritedTitles = []) => {
     if (!plainObject(suite)) {
       reportTreeContractMismatch = true;
       return;
     }
     const suiteFile = suite?.file ?? inheritedFile;
+    const suiteTitles = typeof suite.title === 'string'
+      ? [...inheritedTitles, suite.title]
+      : inheritedTitles;
     const specs = suite.specs ?? [];
     const childSuites = suite.suites ?? [];
     if (!Array.isArray(specs) || !Array.isArray(childSuites)) {
@@ -692,8 +696,18 @@ export function verifyPlaywrightJsonReports(report, targetTestFiles, expectedExe
       const target = targetForReportFile(spec.file ?? suiteFile);
       const counts = target ? states.get(target).counts : undefined;
       if (!target && expectedExecution !== undefined) unaccountedExecutionCount += tests.length;
-      if (expectedExecution !== undefined && tests.length !== expectedExecution.repeatEach) {
-        targetRepeatContractMismatch = true;
+      if (expectedExecution !== undefined) {
+        const logicalSpecKey = JSON.stringify([
+          normalizeReportPath(spec.file ?? suiteFile),
+          suiteTitles,
+          spec.title ?? null,
+          spec.line ?? null,
+          spec.column ?? null
+        ]);
+        logicalSpecExecutionCounts.set(
+          logicalSpecKey,
+          (logicalSpecExecutionCounts.get(logicalSpecKey) ?? 0) + tests.length
+        );
       }
 
       for (const testEntry of tests) {
@@ -738,7 +752,7 @@ export function verifyPlaywrightJsonReports(report, targetTestFiles, expectedExe
     }
 
     for (const child of childSuites) {
-      visitSuite(child, suiteFile);
+      visitSuite(child, suiteFile, suiteTitles);
     }
   };
 
@@ -746,6 +760,9 @@ export function verifyPlaywrightJsonReports(report, targetTestFiles, expectedExe
     visitSuite(suite, undefined);
   }
   if (expectedExecution !== undefined) {
+    targetRepeatContractMismatch = [...logicalSpecExecutionCounts.values()].some(
+      (executionCount) => executionCount !== expectedExecution.repeatEach
+    );
     if (reportTreeContractMismatch) {
       environmentIssues.push(
         'Playwright JSON report execution contract contains malformed or unbounded suite execution evidence.'
