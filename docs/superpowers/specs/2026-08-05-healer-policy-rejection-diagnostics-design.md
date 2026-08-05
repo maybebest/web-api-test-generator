@@ -74,9 +74,16 @@ interfaces:
 
 The field appears in:
 
-1. the sanitized public `attemptTrail` returned to the CLI;
+1. the sanitized public `attemptTrail` returned by `healSingleTest()`;
 2. the `attemptTrail` stored in `heal-summary.json`;
 3. `attempt-N.rejected-policy.json`.
+
+The CLI additionally renders each policy rejection from the sanitized trail as a
+bounded line such as:
+
+```text
+Policy attempt 1: EXECUTABLE_SEMANTICS_CHANGED
+```
 
 Existing fields and status values remain unchanged. `issueCodes` is optional for
 non-policy attempt outcomes, making the change additive for existing consumers.
@@ -150,8 +157,14 @@ linted, contract-reviewed, or executed.
 ### Public result
 
 `sanitizePublicResult()` already rebuilds `attemptTrail` through
-`auditAttemptTrail()`. Once that boundary safely preserves allowlisted codes, the CLI
-receives them automatically without exposing `policy.issues`.
+`auditAttemptTrail()`. Once that boundary safely preserves allowlisted codes,
+programmatic callers receive them without exposing `policy.issues`.
+
+The current CLI prints only generic `result.issues` and never renders
+`attemptTrail`. `packages/web/scripts/ai/heal-test.mjs` therefore adds a small pure
+formatter for policy-rejection lines and calls it from `runCli()`. The formatter
+re-normalizes codes through the same allowlist before display, emits at most the
+bounded attempt/code count, and never consumes raw issue text.
 
 ### Provider retry notes
 
@@ -188,14 +201,16 @@ Implementation follows test-driven development.
    `attempt-N.rejected-policy.json` lack `issueCodes`.
 2. Assert that a `test.skip` candidate produces
    `SKIP_FAMILY_INTRODUCED` in all three interfaces.
-3. Assert that rejected audit files contain neither candidate source nor raw policy
+3. Add a focused formatter test proving the CLI line includes the attempt number and
+   allowlisted code, drops unknown strings, and never includes raw policy prose.
+4. Assert that rejected audit files contain neither candidate source nor raw policy
    prose.
-4. Add focused policy tests for branches that previously lacked codes, including
+5. Add focused policy tests for branches that previously lacked codes, including
    empty/invalid source, forbidden sleeps, reduced assertions, guarded assertions,
    and secret-like literals.
-5. Add a boundary test proving unknown codes are discarded and the unclassified
+6. Add a boundary test proving unknown codes are discarded and the unclassified
    fallback is used.
-6. Run the focused healer tests, the complete policy test file, and the repository's
+7. Run the focused healer tests, the complete policy test file, and the repository's
    relevant lint/type checks.
 
 For regression-test credibility, the focused integration test must be observed RED
@@ -214,7 +229,10 @@ diagnostic fix.
 ## Acceptance criteria
 
 - Every `policy-rejected` attempt exposes at least one allowlisted `issueCodes` entry
-  in public CLI output, `heal-summary.json`, and its rejected-attempt audit file.
+  in the programmatic public result, `heal-summary.json`, and its rejected-attempt
+  audit file.
+- CLI stderr prints each policy-rejected attempt number and its allowlisted codes,
+  without raw issue text.
 - A known `test.skip` rejection exposes `SKIP_FAMILY_INTRODUCED` consistently.
 - Raw issues, candidate source, and secret-like values do not appear in those outputs.
 - Non-policy trail entries preserve their existing shape.
