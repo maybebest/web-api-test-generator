@@ -590,6 +590,35 @@ test('realistic traceability sha256 headers are not mistaken for secret material
   assert.equal(executionCalls, 1);
 });
 
+test('a healed candidate may preserve a realistic traceability sha256 header', async () => {
+  const { webRoot, target, targetPath } = makeHealWorkspace();
+  const traceabilityHash = '1eb2468715d547fd92573232b3f1f0872fc1fef7767bdfbacce43ebb7e4b08ff';
+  const originalSource = `/* spec: specs/flow.md version:1.0.0 sha256:${traceabilityHash} */\n${CLEAN_SOURCE}`;
+  const healedSource = originalSource.replace(
+    "getByRole('button', { name: 'Save' })",
+    "getByTestId('save-button')"
+  );
+  fs.writeFileSync(targetPath, originalSource);
+  const { run } = executionSequence([FAILED_EXECUTION, PASSED_EXECUTION]);
+
+  const result = await healSingleTest({
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true' },
+    webRoot,
+    log: () => {},
+    resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+    reviewContract: () => ({ passed: true, issues: [] }),
+    typecheck: PASSING_TYPECHECK,
+    lint: PASSING_LINT,
+    executeStandalone: run,
+    collectEvidence: () => ['locator.click: Timeout 30000ms exceeded while waiting for getByRole("button")'],
+    heal: async () => ({ code: healedSource })
+  });
+
+  assert.equal(result.status, 'proposal-ready');
+  assert.equal(fs.readFileSync(targetPath, 'utf8'), originalSource);
+});
+
 test('ordinary high-entropy-looking TypeScript syntax is not treated as secret material', async () => {
   const { webRoot, target, targetPath } = makeHealWorkspace();
   const syntaxHeavySource = CLEAN_SOURCE.replace(
