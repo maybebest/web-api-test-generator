@@ -700,12 +700,6 @@ function auditAttemptTrail(attemptTrail) {
   });
 }
 
-export function formatPolicyWarningDiagnostics(attemptTrail) {
-  return auditAttemptTrail(Array.isArray(attemptTrail) ? attemptTrail : [])
-    .filter((entry) => entry.outcome !== 'healed' && entry.policyIssueCodes?.length > 0)
-    .map((entry) => `Policy attempt ${entry.attempt}: ${entry.policyIssueCodes.join(', ')}`);
-}
-
 function sanitizedEvidenceList(value, secretValues) {
   if (!Array.isArray(value)) return [];
   return value
@@ -807,15 +801,6 @@ function rejectedAttemptAudit(attempt, outcome) {
   }, null, 2)}\n`;
 }
 
-function policyWarningAudit(attempt, issueCodes) {
-  return `${JSON.stringify({
-    schema: 'test-heal-policy-warning/v1',
-    attempt,
-    outcome: 'policy-warning',
-    policyIssueCodes: normalizeHealPolicyIssueCodes(issueCodes, { requireAtLeastOne: true })
-  }, null, 2)}\n`;
-}
-
 function structuredProviderAudit(healed, attempt, secretValues) {
   const result = healed?.result;
   if (!result || typeof result !== 'object' || Array.isArray(result)) return null;
@@ -861,7 +846,6 @@ function candidateDiff({ archiveOriginalPath, candidateAbsolute, webRoot }) {
 export function isSuccessfulHealStatus(status) {
   return status === 'already-green'
     || status === 'proposal-ready'
-    || status === 'proposal-ready-with-policy-warnings'
     || status === 'healed';
 }
 
@@ -871,15 +855,17 @@ export function renderHealResults(results) {
   let allGreen = true;
 
   for (const result of results) {
+    const policyIssueCodes = normalizeHealPolicyIssueCodes(result.policyIssueCodes);
+    const hasPolicyWarnings = policyIssueCodes.length > 0;
     const suffix = result.attemptsUsed > 0 ? ` after ${result.attemptsUsed} attempt(s)` : '';
-    if (result.status === 'healed') {
+    if (result.status === 'healed' && hasPolicyWarnings) {
+      write('stderr', `HEALED WITH POLICY WARNINGS ${result.target}${suffix}. Backup: ${result.backupPath}`);
+    } else if (result.status === 'healed') {
       write('stdout', `HEALED ${result.target}${suffix}. Backup: ${result.backupPath}`);
+    } else if (result.status === 'proposal-ready' && hasPolicyWarnings) {
+      write('stdout', `PROPOSAL READY WITH POLICY WARNINGS ${result.target}${suffix} (target unchanged). Diff: ${result.diffPath}. Archive: ${result.archiveDir}`);
     } else if (result.status === 'proposal-ready') {
       write('stdout', `PROPOSAL READY ${result.target}${suffix} (target unchanged). Diff: ${result.diffPath}. Archive: ${result.archiveDir}`);
-    } else if (result.status === 'proposal-ready-with-policy-warnings') {
-      write('stdout', `PROPOSAL READY WITH POLICY WARNINGS ${result.target}${suffix} (target unchanged). Diff: ${result.diffPath}. Archive: ${result.archiveDir}`);
-    } else if (result.status === 'healed-with-policy-warnings') {
-      write('stderr', `HEALED WITH POLICY WARNINGS ${result.target}${suffix}. Backup: ${result.backupPath}`);
     } else if (result.status === 'already-green') {
       write('stdout', `ALREADY GREEN ${result.target} (no changes made).`);
     } else {
@@ -887,17 +873,16 @@ export function renderHealResults(results) {
       for (const issue of result.issues ?? []) write('stderr', `- ${issue}`);
       if (result.archiveDir) write('stderr', `  Evidence: ${result.archiveDir}`);
     }
-    for (const line of formatPolicyWarningDiagnostics(result.attemptTrail)) {
-      write('stderr', `- ${line}`);
+    if (hasPolicyWarnings) {
+      write('stderr', `- Policy warnings: ${policyIssueCodes.join(', ')}`);
     }
-    if (!isSuccessfulHealStatus(result.status)) allGreen = false;
+    if (!isSuccessfulHealStatus(result.status)
+      || (result.status === 'healed' && hasPolicyWarnings)) allGreen = false;
   }
 
   return {
     exitCode: allGreen ? 0 : 1,
-    events,
-    stdoutLines: events.filter((event) => event.stream === 'stdout').map((event) => event.line),
-    stderrLines: events.filter((event) => event.stream === 'stderr').map((event) => event.line)
+    events
   };
 }
 
@@ -1176,7 +1161,6 @@ export async function healSingleTest({
         : normalizeHealPolicyIssueCodes(policy.issueCodes, { requireAtLeastOne: true });
       checks.policy = policy.passed ? 'passed' : 'warning';
       if (!policy.passed) {
-        archive.write(`attempt-${attempt}.policy-warning.json`, policyWarningAudit(attempt, policyIssueCodes));
         log(`[heal] ${target}: attempt ${attempt} continues with policy warnings: ${policyIssueCodes.join(', ')}.`);
       }
 
@@ -1284,12 +1268,9 @@ export async function healSingleTest({
           }
 
           if (!apply) {
-            const proposalStatus = policyIssueCodes.length > 0
-              ? 'proposal-ready-with-policy-warnings'
-              : 'proposal-ready';
-            recordAttempt(proposalStatus);
+            recordAttempt('proposal-ready');
             return finish({
-              status: proposalStatus,
+              status: 'proposal-ready',
               attemptsUsed: attempt,
               candidateSha256: candidateSha,
               candidatePath: candidateArchivePath,
@@ -1393,12 +1374,9 @@ export async function healSingleTest({
           activePromotion = null;
           closeBoundRegularFile(candidateBinding);
           activeCandidate = null;
-          const healedStatus = policyIssueCodes.length > 0
-            ? 'healed-with-policy-warnings'
-            : 'healed';
-          recordAttempt(healedStatus);
+          recordAttempt('healed');
           const healedResult = {
-            status: healedStatus,
+            status: 'healed',
             attemptsUsed: attempt,
             candidateSha256: candidateSha,
             candidatePath: candidateArchivePath,
@@ -1493,8 +1471,8 @@ Only locator-drift and synchronization runtime failures are repairable. Product,
 data, assertion-mismatch, and unclassified failures are reported as not-repairable. A baseline-green
 target returns already-green without a proposal. For a repairable failing target that produces a
 fully verified single-test candidate, default mode archives proposal-ready and leaves the target
-unchanged. A warning-bearing proposal returns proposal-ready-with-policy-warnings; an applied warning
-returns healed-with-policy-warnings after atomic promotion. An applied warning result exits non-zero.
+unchanged. Policy warnings are reported separately from the accepted proposal or applied status.
+An applied result with policy warnings exits non-zero.
 Environment, non-repairable, and manual-change-required paths return their own statuses
 and might not create a candidate proposal. Page Object or Component source is context-only and
 returns manual-change-required; it is never auto-promoted. Only --apply can atomically promote a
