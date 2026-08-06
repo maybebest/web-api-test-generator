@@ -119,3 +119,32 @@ test('generated-pair execution permits one explicitly diagnostic baseline run on
     fs.rmSync(workspace, { recursive: true, force: true });
   }
 });
+
+test('generated-pair execution can preserve every repeated verification result', () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'generated-gate-complete-repeats-'));
+  const seenArguments = [];
+  try {
+    const result = executeGeneratedPair({
+      specPath: 'specs/x.md',
+      testPath: TARGET,
+      validation: { metadata: {} }
+    }, {
+      failFast: false,
+      workers: 1,
+      repeatEach: 2,
+      runRoot: path.join(workspace, '.ai-runs'),
+      packageManager: 'npm',
+      projectPlanner: () => [{ project: 'chromium', env: {} }],
+      commandRunner(stage) {
+        seenArguments.push(...stage.args);
+        return 1;
+      }
+    });
+
+    assert.equal(result.passed, false);
+    assert.ok(seenArguments.includes('--repeat-each=2'));
+    assert.equal(seenArguments.includes('--max-failures=1'), false);
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});

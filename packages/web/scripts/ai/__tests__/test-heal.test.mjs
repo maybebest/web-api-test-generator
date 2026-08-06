@@ -2153,6 +2153,7 @@ test('healSingleTest uses one baseline run and reserves repeated verification fo
       assert.equal(pair.specPath, 'specs/flow.md');
       repeatCounts.push(options.repeatEach);
       assert.equal(options.workers, 1);
+      assert.equal(options.failFast, false);
       return run(pair);
     },
     reviewer: (input) => {
