@@ -919,6 +919,35 @@ test('verified healing is proposal-only by default', async () => {
   }
 });
 
+test('verified proposal preserves the target final newline', async () => {
+  const { webRoot, target } = makeHealWorkspace();
+  const healedSourceWithoutFinalNewline = CLEAN_SOURCE.replace(
+    "getByRole('button', { name: 'Save' })",
+    "getByTestId('save-button')"
+  ).trimEnd();
+  const { run } = executionSequence([FAILED_EXECUTION, PASSED_EXECUTION]);
+
+  const result = await healSingleTest({
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true' },
+    webRoot,
+    log: () => {},
+    resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+    reviewContract: () => ({ passed: true, issues: [] }),
+    typecheck: PASSING_TYPECHECK,
+    lint: PASSING_LINT,
+    executeStandalone: run,
+    collectEvidence: () => ['locator.click: Timeout 30000ms exceeded while waiting for getByRole("button")'],
+    heal: async () => ({ code: healedSourceWithoutFinalNewline })
+  });
+
+  assert.equal(result.status, 'proposal-ready');
+  const candidate = fs.readFileSync(path.join(result.archiveDir, 'candidate.ts'), 'utf8');
+  const diff = fs.readFileSync(path.join(result.archiveDir, 'candidate.diff'), 'utf8');
+  assert.equal(candidate.endsWith('\n'), true);
+  assert.doesNotMatch(diff, /No newline at end of file/);
+});
+
 test('known low-entropy secrets in candidate source are never archived or sent to a later provider call', async () => {
   const { webRoot, target, targetPath } = makeHealWorkspace();
   const secretCandidate = `${CLEAN_SOURCE}\n// temporary credential: pin7\n`;
