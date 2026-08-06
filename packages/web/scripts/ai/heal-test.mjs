@@ -769,7 +769,7 @@ function containsCandidateSecretLiteral(source) {
   return false;
 }
 
-function sourceSafetyIssue(source, secretValues, label, { strictCandidateLiterals = false } = {}) {
+function sourceSafetyIssue(source, secretValues, label) {
   const normalizedSource = String(source ?? '');
   // Keep preflight checks deterministic. Generic candidate semantics belong to
   // verifyHealedSourcePolicy; every rejection below that boundary records only
@@ -777,12 +777,40 @@ function sourceSafetyIssue(source, secretValues, label, { strictCandidateLiteral
   if (redactKnownSecretValues(normalizedSource, secretValues) !== normalizedSource) {
     return `${label} contains a known secret value and cannot be healed or archived.`;
   }
-  if (containsSecretLikeValue(normalizedSource)
-    || (strictCandidateLiterals && analyzeHealSource(normalizedSource).containsSecrets)
-    || (strictCandidateLiterals && containsCandidateSecretLiteral(normalizedSource))) {
+  if (containsSecretLikeValue(normalizedSource)) {
     return `${label} contains secret-like material and cannot be healed or archived.`;
   }
   return null;
+}
+
+function candidateSourceSafetyIssue(source, secretValues) {
+  const normalizedSource = String(source ?? '');
+  const commonIssue = sourceSafetyIssue(normalizedSource, secretValues, 'Heal candidate source');
+  if (commonIssue) return commonIssue;
+  if (analyzeHealSource(normalizedSource).containsSecrets || containsCandidateSecretLiteral(normalizedSource)) {
+    return 'Heal candidate source contains secret-like material and cannot be healed or archived.';
+  }
+  return null;
+}
+
+function acceptedCandidateResult({
+  status,
+  attempt,
+  candidateSha256,
+  candidatePath,
+  diffPath,
+  policyIssueCodes,
+  backupPath
+}) {
+  return {
+    status,
+    attemptsUsed: attempt,
+    candidateSha256,
+    candidatePath,
+    diffPath,
+    ...(backupPath ? { backupPath } : {}),
+    ...(policyIssueCodes.length > 0 ? { policyIssueCodes } : {})
+  };
 }
 
 function preserveTerminalLineEnding(originalSource, candidateSource) {
@@ -1138,9 +1166,7 @@ export async function healSingleTest({
           code: preserveTerminalLineEnding(originalSource, healed.code)
         };
       }
-      const candidateSafetyIssue = sourceSafetyIssue(healed?.code, secretValues, 'Heal candidate source', {
-        strictCandidateLiterals: true
-      });
+      const candidateSafetyIssue = candidateSourceSafetyIssue(healed?.code, secretValues);
       if (candidateSafetyIssue) {
         checks.policy = 'rejected';
         recordAttempt('brain-error', candidateSafetyIssue);
@@ -1272,14 +1298,14 @@ export async function healSingleTest({
 
           if (!apply) {
             recordAttempt('proposal-ready');
-            return finish({
+            return finish(acceptedCandidateResult({
               status: 'proposal-ready',
-              attemptsUsed: attempt,
+              attempt,
               candidateSha256: candidateSha,
               candidatePath: candidateArchivePath,
               diffPath,
-              ...(policyIssueCodes.length > 0 ? { policyIssueCodes } : {})
-            });
+              policyIssueCodes
+            }));
           }
 
           if (!allowDirty && targetDirty(target, webRoot)) {
@@ -1378,15 +1404,15 @@ export async function healSingleTest({
           closeBoundRegularFile(candidateBinding);
           activeCandidate = null;
           recordAttempt('healed');
-          const healedResult = {
+          const healedResult = acceptedCandidateResult({
             status: 'healed',
-            attemptsUsed: attempt,
+            attempt,
             candidateSha256: candidateSha,
             candidatePath: candidateArchivePath,
             diffPath,
             backupPath: archiveOriginalPath,
-            ...(policyIssueCodes.length > 0 ? { policyIssueCodes } : {})
-          };
+            policyIssueCodes
+          });
           try {
             return finish(healedResult);
           } catch (error) {
