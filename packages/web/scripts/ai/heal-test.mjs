@@ -241,6 +241,7 @@ export function executeStandaloneTarget({
   project,
   repeatEach,
   diagnostic = false,
+  failFast = true,
   env,
   webRoot = process.cwd(),
   runRoot,
@@ -262,7 +263,8 @@ export function executeStandaloneTarget({
     htmlReportDir,
     testResultsDir,
     repeatEach,
-    diagnostic
+    diagnostic,
+    failFast
   });
   const profile = project === 'local-chromium' ? 'local-runtime' : 'external-runtime';
   assertStandaloneRunDirectoryIdentity(runDirIdentity);
@@ -1002,13 +1004,14 @@ export async function healSingleTest({
   const runVerification = (pathToRun, runs = repeatEach) => (contract.kind === 'spec'
     ? executePair(
         { specPath: contract.specPath, testPath: pathToRun, validation: contract.validation },
-        { repeatEach: runs, workers: 1, diagnostic: runs === 1, env, runRoot }
+        { repeatEach: runs, workers: 1, diagnostic: runs === 1, failFast: false, env, runRoot }
       )
     : executeStandalone({
         testPath: pathToRun,
         project: resolvedProject,
         repeatEach: runs,
         diagnostic: runs === 1,
+        failFast: false,
         env,
         webRoot,
         runRoot

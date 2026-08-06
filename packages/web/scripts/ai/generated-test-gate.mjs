@@ -358,7 +358,8 @@ export function buildPlaywrightStage({
   testResultsDir,
   repeatEach = FULL_GATE_REPEAT_EACH,
   workers,
-  diagnostic = false
+  diagnostic = false,
+  failFast = true
 }) {
   const diagnosticSingleRun = diagnostic === true && repeatEach === 1;
   if (!diagnosticSingleRun && !GENERATED_GATE_REPEAT_VALUES.has(repeatEach)) {
@@ -379,7 +380,9 @@ export function buildPlaywrightStage({
     `--repeat-each=${repeatEach}`
   ];
   if (workers !== undefined) playwrightArgs.push(`--workers=${workers}`);
-  if (normalizedTestPaths.length === 1 && !diagnosticSingleRun) playwrightArgs.push('--max-failures=1');
+  if (normalizedTestPaths.length === 1 && !diagnosticSingleRun && failFast) {
+    playwrightArgs.push('--max-failures=1');
+  }
   if (testResultsDir) {
     playwrightArgs.push(`--output=${path.resolve(testResultsDir)}`);
   }
