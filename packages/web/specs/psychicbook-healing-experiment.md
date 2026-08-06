@@ -15,7 +15,7 @@
 | Tags | @generated @regression @psychicbook @healing-experiment |
 | Generation Mode | single |
 | Generation Source | manual |
-| Generation Status | generated |
+| Generation Status | pending-generation |
 
 ## User Story
 
