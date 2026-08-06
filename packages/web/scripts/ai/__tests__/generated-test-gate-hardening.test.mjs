@@ -92,6 +92,10 @@ test('generated-pair execution permits one explicitly diagnostic baseline run on
   };
 
   assert.throws(() => buildPlaywrightStage(stageInput), /repeat-each must be/);
+  assert.throws(
+    () => buildPlaywrightStage({ ...stageInput, purpose: 'unknown' }),
+    /purpose must be gate, diagnostic, or healer-candidate/
+  );
 
   try {
     const result = executeGeneratedPair({
@@ -99,7 +103,7 @@ test('generated-pair execution permits one explicitly diagnostic baseline run on
       testPath: TARGET,
       validation: { metadata: {} }
     }, {
-      diagnostic: true,
+      purpose: 'diagnostic',
       workers: 1,
       repeatEach: 1,
       runRoot: path.join(workspace, '.ai-runs'),
@@ -129,7 +133,7 @@ test('generated-pair execution can preserve every repeated verification result',
       testPath: TARGET,
       validation: { metadata: {} }
     }, {
-      failFast: false,
+      purpose: 'healer-candidate',
       workers: 1,
       repeatEach: 2,
       runRoot: path.join(workspace, '.ai-runs'),
