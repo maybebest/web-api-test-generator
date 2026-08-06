@@ -1,4 +1,4 @@
-/* spec: specs/psychicbook-healing-experiment.md version:1.0.0 sha256:0d61eb631e8843a820769b7b116144c294b94246fc274e34377949fa257561ac */
+/* spec: specs/psychicbook-healing-experiment.md version:1.0.0 sha256:b5f7787c873ff928873cff1a4363e26e3943156ee8b5348f38e82a6127d0f057 */
 import type { Locator, Page } from '@playwright/test';
 
 import { requireStandardUserEmail } from '../../data/users';
@@ -8,10 +8,6 @@ const dataCase = {
   caseId: 'DC-001',
   inputs: {
     verificationCode: '1234'
-  },
-  expected: {
-    authenticatedTopMenu: true,
-    accountSettingsControlVisible: true
   }
 } as const;
 
