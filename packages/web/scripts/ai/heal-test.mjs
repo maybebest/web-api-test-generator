@@ -1489,8 +1489,8 @@ export function helpText() {
     [--max-attempts N] [--verify-runs N] [--dom-snapshot <.ai-runs/dom-discovery/...>]
     [--apply [--allow-dirty]]
 
-Runs each target test first (baseline). A test that already passes the required consecutive
-runs is reported as already-green and never modified. For a runtime failure the healer asks the
+Runs each target test first (baseline). A test that passes the single diagnostic baseline run
+is reported as already-green and never modified. For a runtime failure the healer asks the
 heal brain (stage 'heal', see AI_HEAL_* env) for a repaired file.
 AST-level anti-masking policy violations are recorded as warnings.
 Typecheck, lint, contract review, and runtime verification remain hard gates.

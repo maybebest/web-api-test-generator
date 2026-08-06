@@ -39,6 +39,16 @@ record was created.
 | External failure | The UI sometimes displayed `An error occurred while registration by code.` and did not expose the account control. |
 | Policy warnings | The live candidates did not trigger a policy warning; the soft-fail behavior is proven by deterministic framework tests only. |
 
+## Run matrix
+
+| Run | Framework checks | Fresh baseline | Healer evidence | Final gate |
+|---|---|---|---|---|
+| 2026-08-05 | Exact self-suite count was not recorded; every affected self-test and static candidate check passed. | Registration-by-code error before a clean repeated baseline was established. | After six framework fixes: `proposal-ready`, attempt 1, all hard gates passed, candidate 2/2, broken target unchanged. | 1 passed; 1 failed after the registration error; repeat 3 did not run after fail-fast. |
+| 2026-08-06 post-fix | Started 402/402; terminal-line regression raised the suite to 403/403. | 3/3 passed; unexpected=0, skipped=0, flaky=0. | Pre-fix and post-fix both returned `proposal-ready` on attempt 1 with 2/2 passes; post-fix candidate preserved exact EOF bytes. | 1 failed after the registration error; 2 did not run after fail-fast. |
+| 2026-08-06 rerun 2 | Started 403/403; complete-repeat fix raised the suite to 404/404; focused affected tests 80/80. | 3/3 passed; unexpected=0, skipped=0, flaky=0. | First candidate passed repeat 1 and failed repeat 2 but was misclassified as environment failure; after the fix: `proposal-ready`, attempt 1, exact candidate 2/2, target unchanged. | 2 passed; 1 failed after the registration error. |
+| 2026-08-06 rerun 3 | Started and finished 404/404; strict checks, TypeScript, ESLint, and drift passed. | 3/3 passed; unexpected=0, skipped=0, flaky=0. | `proposal-ready`, attempt 1, all hard gates passed, candidate 2/2, exact restoration. | 3/3 passed; unexpected=0, skipped=0, flaky=0. The complete positive journey was 8/8. |
+| 2026-08-06 rerun 4 | Started and finished 404/404; strict checks, TypeScript, ESLint, and drift passed. | 3/3 passed; unexpected=0, skipped=0, flaky=0. | `proposal-ready`, attempt 1, all hard gates passed, candidate 2/2, exact restoration. | 1 passed; 1 failed at AC-004 after the registration error; 1 did not run after fail-fast. |
+
 ## Generator observations
 
 The target was absent before every generation call and result-cache reuse was
