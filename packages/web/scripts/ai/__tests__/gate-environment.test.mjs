@@ -1,15 +1,22 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { pathToFileURL } from 'node:url';
+import fs from 'node:fs';
 import test from 'node:test';
+import ts from 'typescript';
 
 import { buildGateEnvironment, knownSecretEnvValues } from '../lib/gate-environment.mjs';
 
-const usersModuleUrl = pathToFileURL(new URL('../../../data/users.ts', import.meta.url).pathname).href;
+const usersSource = fs.readFileSync(new URL('../../../data/users.ts', import.meta.url), 'utf8');
+const usersJavaScript = ts.transpileModule(usersSource, {
+  compilerOptions: {
+    module: ts.ModuleKind.ESNext,
+    target: ts.ScriptTarget.ES2022
+  }
+}).outputText;
+const usersModuleUrl = `data:text/javascript;base64,${Buffer.from(usersJavaScript).toString('base64')}`;
 
 function runRequiredEmail(env) {
   return spawnSync(process.execPath, [
-    '--disable-warning=MODULE_TYPELESS_PACKAGE_JSON',
     '--input-type=module',
     '--eval',
     `import { requireStandardUserEmail } from ${JSON.stringify(usersModuleUrl)}; process.stdout.write(requireStandardUserEmail());`
