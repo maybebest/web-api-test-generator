@@ -137,34 +137,29 @@ So that I can see the account-settings control in the authenticated top menu.
 
 ## Locator Hints
 
-- Define a focused `PsychicBookHealingExperimentPage` class inline in the generated test file; do not import or modify an existing Page Object.
-- Keep every Playwright locator inside that inline Page Object so the single-file healer owns the deliberately broken locator.
-- Import the Playwright `Locator` and `Page` types, type the inline Page Object with them, and instantiate it as `psychicBookPage` so the deterministic reviewer recognizes its user-level method and locator calls.
-- Use `page.getByRole('link', { name: 'Get Started' })` for the Get Started control; this is the locator that the experiment will later break and heal.
-- Use role/name locators for Email, Continue, the verification-code alternative, and the account-settings control.
-- The reviewed authenticated accessibility snapshot exposes the top-menu account-settings icon as `button "T"` inside the `banner`; define it with `page.getByRole('banner').getByRole('button', { name: 'T', exact: true })`.
-- The reviewed verification digits are anonymous numeric inputs. A raw CSS locator is permitted only inside the inline Page Object with the immediately preceding comment `// locator-policy:exception the reviewed verification fields are anonymous numeric inputs without semantic names`.
+- Keep locators in an inline Page Object so the single-file healer owns the deliberately broken locator.
+- Prefer role/name locators for Get Started, Email, Continue, the verification-code alternative, and the account-settings control.
+- The controlled experiment breaks and heals the Get Started accessible name.
+- The reviewed authenticated snapshot exposes the account control as button `T` inside the banner.
+- The anonymous numeric verification inputs may use a documented CSS locator exception inside the Page Object.
 - Filling the fourth digit submits the deterministic code; do not add a hard wait or an unrequested submission control.
 
 ## Generated Test Requirements
 
 - Must import `test` and `expect` from `../../fixtures/test`.
 - Must import `requireStandardUserEmail` from `../../data/users` and call that reviewed helper to obtain the runtime email; direct `process` or `process.env` access is forbidden in generated source.
-- Must define `PsychicBookHealingExperimentPage` inline in this generated file and must not import `PsychicBookLoginPage` or any other Page Object.
-- Must import `Locator` and `Page` types from `@playwright/test`, declare locator members as `Locator`, type the constructor page as `Page`, and instantiate the Page Object with the exact local name `psychicBookPage`.
+- Must keep the experiment Page Object inline and must not import or modify another Page Object.
 - Must generate exactly one primary test and no optional `NEG-001` test.
-- Must declare the exact metadata tags through Playwright's `{ tag: [...] }` option.
+- Must declare the metadata tags from this spec.
 - Must use `test.describe.serial` and `test.step`.
-- Inside the primary test callback, before the first `test.step`, must declare the AC annotation with exactly `test.info().annotations.push({ type: 'covered-ac-ids', description: 'AC-001 AC-002 AC-003 AC-004' });`.
-- Must not declare `covered-ac-ids` through the test options object's `annotation` property; the deterministic reviewer accepts only the required `test.info().annotations.push(...)` call inside the test callback.
+- Must annotate the primary test with coverage for AC-001 through AC-004 using a reviewer-supported Playwright annotation form.
 - Must obtain the email at runtime only by calling `requireStandardUserEmail()`; the reviewed helper owns the missing-value error.
 - Must not read or embed the runtime base URL or HTTP Basic values; Playwright configuration owns those values.
 - Must validate that the verification code contains exactly four ASCII digits before filling the four rendered numeric inputs in order.
-- Must place `expect(...)` only in the final step titled `Assert AC-004: account-settings control is visible`.
-- Must assert only that the reviewed top-menu account avatar button `T` is visible.
+- Must finish with a visible assertion for the reviewed top-menu account control.
 - Must not use XPath, hard waits, focused/skipped tests, committed authentication state, or direct Playwright locators in the test body.
 
 ## Notes
 
-- This is an isolated, uncommitted experiment target for exercising generation, controlled locator failure, and proposal-only healing.
+- This is an isolated experiment target for exercising generation, controlled locator failure, and proposal-only healing.
 - The framework supplies HTTP Basic credentials through Playwright configuration when both runtime variables are present.
