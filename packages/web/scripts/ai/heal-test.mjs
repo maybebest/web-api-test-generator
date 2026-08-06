@@ -791,6 +791,12 @@ function sourceSafetyIssue(source, secretValues, label, { strictCandidateLiteral
   return null;
 }
 
+function preserveTerminalLineEnding(originalSource, candidateSource) {
+  const originalEnding = String(originalSource).match(/(?:\r\n|\r|\n)$/)?.[0] ?? '';
+  const candidateWithoutEnding = String(candidateSource).replace(/(?:\r\n|\r|\n)$/, '');
+  return `${candidateWithoutEnding}${originalEnding}`;
+}
+
 function rejectedAttemptAudit(attempt, outcome) {
   return `${JSON.stringify({
     schema: 'test-heal-rejected-attempt/v1',
@@ -1134,6 +1140,12 @@ export async function healSingleTest({
       } catch (error) {
         recordAttempt('brain-error', error.message);
         return finish({ status: 'brain-error', attemptsUsed: attempt, issues: [error.message] });
+      }
+      if (typeof healed?.code === 'string') {
+        healed = {
+          ...healed,
+          code: preserveTerminalLineEnding(originalSource, healed.code)
+        };
       }
       const candidateSafetyIssue = sourceSafetyIssue(healed?.code, secretValues, 'Heal candidate source', {
         strictCandidateLiterals: true
