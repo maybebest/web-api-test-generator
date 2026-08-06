@@ -1,7 +1,7 @@
-/* spec: specs/psychicbook-healing-experiment.md version:1.0.0 sha256:23e012214461a1475c9fc8ef54fb1ceee84924d1f35778afba3a816d32b59911 */
+/* spec: specs/psychicbook-healing-experiment.md version:1.0.0 sha256:0d61eb631e8843a820769b7b116144c294b94246fc274e34377949fa257561ac */
 import type { Locator, Page } from '@playwright/test';
 
-import { requirePsychicBookEmail } from '../../data/psychicbook';
+import { requireStandardUserEmail } from '../../data/users';
 import { test, expect } from '../../fixtures/test';
 
 const dataCase = {
@@ -75,7 +75,7 @@ test.describe.serial(
         description: 'AC-001 AC-002 AC-003 AC-004'
       });
 
-      const email = requirePsychicBookEmail();
+      const email = requireStandardUserEmail();
       const psychicBookPage = new PsychicBookHealingExperimentPage(page);
 
       await test.step('Arrange AC-001: open the external landing page', async () => {

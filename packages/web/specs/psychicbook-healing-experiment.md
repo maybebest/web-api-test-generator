@@ -27,7 +27,7 @@ So that I can see the account-settings control in the authenticated top menu.
 
 - `PLAYWRIGHT_TEST_BASE_URL` identifies the reviewed non-production PsychicBook environment.
 - `E2E_HTTP_BASIC_USERNAME` and `E2E_HTTP_BASIC_PASSWORD` supply the browser-level HTTP Basic challenge at runtime.
-- `PSYCHICBOOK_E2E_EMAIL` identifies a returning non-production user that can complete the email-verification journey without onboarding.
+- `E2E_USER_EMAIL` identifies a returning non-production user that can complete the email-verification journey without onboarding.
 - The deterministic verification code `1234` is accepted for the returning user.
 
 ## Out-of-scope
@@ -64,7 +64,7 @@ So that I can see the account-settings control in the authenticated top menu.
 
 | Case ID | Inputs | Expected Result | Notes |
 |---|---|---|---|
-| DC-001 | Runtime base URL, HTTP Basic values, `PSYCHICBOOK_E2E_EMAIL`, and verification code `1234` | The authenticated top menu exposes the account-settings control | Positive returning-user path used for the controlled healing experiment |
+| DC-001 | Runtime base URL, HTTP Basic values, `E2E_USER_EMAIL`, and verification code `1234` | The authenticated top menu exposes the account-settings control | Positive returning-user path used for the controlled healing experiment |
 
 ## Data Cases as JSON
 
@@ -76,7 +76,7 @@ So that I can see the account-settings control in the authenticated top menu.
       "baseUrlEnv": "PLAYWRIGHT_TEST_BASE_URL",
       "httpBasicUsernameEnv": "E2E_HTTP_BASIC_USERNAME",
       "httpBasicPasswordEnv": "E2E_HTTP_BASIC_PASSWORD",
-      "emailEnv": "PSYCHICBOOK_E2E_EMAIL",
+      "emailEnv": "E2E_USER_EMAIL",
       "verificationCode": "1234"
     },
     "expected": {
@@ -95,7 +95,7 @@ So that I can see the account-settings control in the authenticated top menu.
 | baseUrl | PLAYWRIGHT_TEST_BASE_URL | Non-production PsychicBook base URL supplied at runtime |
 | httpBasicUsername | E2E_HTTP_BASIC_USERNAME | Browser-challenge username supplied at runtime |
 | httpBasicPassword | E2E_HTTP_BASIC_PASSWORD | Browser-challenge password supplied at runtime |
-| email | PSYCHICBOOK_E2E_EMAIL | Returning-user identity supplied at runtime |
+| email | E2E_USER_EMAIL | Returning-user identity supplied at runtime |
 | verificationCode | 1234 | Deterministic stage verification value |
 
 ## Mocks
@@ -116,7 +116,7 @@ So that I can see the account-settings control in the authenticated top menu.
 |---:|---|---|---|---|---|---|
 | 1 | AC-001 | Open the external landing page | `/` | PLAYWRIGHT_TEST_BASE_URL with framework browser challenge configuration | The PsychicBook landing page is reached | Start without embedding runtime values |
 | 2 | AC-002 | Activate Get Started | Get Started link | none | The email-entry screen opens | Use role `link` with accessible name `Get Started` |
-| 3 | AC-002 | Enter the returning-user email | Email textbox | PSYCHICBOOK_E2E_EMAIL | The field receives the runtime email | Use role `textbox` with an email accessible name |
+| 3 | AC-002 | Enter the returning-user email | Email textbox | E2E_USER_EMAIL | The field receives the runtime email | Use role `textbox` with an email accessible name |
 | 4 | AC-002 | Continue from email entry | Continue button | none | The verification method screen opens | Use role `button` with accessible name `Continue` |
 | 5 | AC-003 | Choose direct verification-code entry | Have a verification code instead button | none | Four verification digit inputs become available | Use role `button` with name matching `have a verification code` case-insensitively |
 | 6 | AC-003 | Enter the verification code | Four anonymous numeric inputs | 1234 | The deterministic value is submitted and the authenticated experience opens | Fill `input[inputmode="numeric"][maxlength="1"]` in rendered order inside the Page Object only |
@@ -131,7 +131,7 @@ So that I can see the account-settings control in the authenticated top menu.
 ## Acceptance Criteria
 
 - AC-001: The landing page opens through the environment-provided browser challenge configuration.
-- AC-002: Get Started opens email entry and Continue accepts `PSYCHICBOOK_E2E_EMAIL`.
+- AC-002: Get Started opens email entry and Continue accepts `E2E_USER_EMAIL`.
 - AC-003: The user chooses direct code entry and submits `1234` through the four digit inputs.
 - AC-004: The authenticated top menu exposes a visible account-settings control.
 
@@ -149,7 +149,7 @@ So that I can see the account-settings control in the authenticated top menu.
 ## Generated Test Requirements
 
 - Must import `test` and `expect` from `../../fixtures/test`.
-- Must import `requirePsychicBookEmail` from `../../data/psychicbook` and call that reviewed helper to obtain the runtime email; direct `process` or `process.env` access is forbidden in generated source.
+- Must import `requireStandardUserEmail` from `../../data/users` and call that reviewed helper to obtain the runtime email; direct `process` or `process.env` access is forbidden in generated source.
 - Must define `PsychicBookHealingExperimentPage` inline in this generated file and must not import `PsychicBookLoginPage` or any other Page Object.
 - Must import `Locator` and `Page` types from `@playwright/test`, declare locator members as `Locator`, type the constructor page as `Page`, and instantiate the Page Object with the exact local name `psychicBookPage`.
 - Must generate exactly one primary test and no optional `NEG-001` test.
@@ -157,7 +157,7 @@ So that I can see the account-settings control in the authenticated top menu.
 - Must use `test.describe.serial` and `test.step`.
 - Inside the primary test callback, before the first `test.step`, must declare the AC annotation with exactly `test.info().annotations.push({ type: 'covered-ac-ids', description: 'AC-001 AC-002 AC-003 AC-004' });`.
 - Must not declare `covered-ac-ids` through the test options object's `annotation` property; the deterministic reviewer accepts only the required `test.info().annotations.push(...)` call inside the test callback.
-- Must obtain the email at runtime only by calling `requirePsychicBookEmail()`; the reviewed helper owns the missing-value error.
+- Must obtain the email at runtime only by calling `requireStandardUserEmail()`; the reviewed helper owns the missing-value error.
 - Must not read or embed the runtime base URL or HTTP Basic values; Playwright configuration owns those values.
 - Must validate that the verification code contains exactly four ASCII digits before filling the four rendered numeric inputs in order.
 - Must place `expect(...)` only in the final step titled `Assert AC-004: account-settings control is visible`.
