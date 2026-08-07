@@ -581,11 +581,12 @@ function codexCliIdentity(binary, explicitModel, sourceEnv, spawnSyncImpl, timeo
   return explicitModel ? `codex-cli@${version}:model=${explicitModel}` : `codex-cli@${version}:default`;
 }
 
-// Codex `exec --json` emits one JSON object per state change. Only the completed
-// assistant message is a response; lifecycle/tool events never become generated output.
+// Codex `exec --json` emits one JSON object per state change. The last contract-valid
+// assistant message before the single turn completion is the response.
 export function decodeCodexJsonlOutput(rawOutput, outputContract = OUTPUT_KINDS.playwright) {
   const contract = typeof outputContract === 'string' ? getOutputContract(outputContract) : outputContract;
-  let assistantMessage = null;
+  let decodedAssistantMessage = null;
+  let completionSeen = false;
   let completedUsage = null;
   const lines = String(rawOutput ?? '').split(/\r\n|\r|\n/);
 
@@ -602,24 +603,40 @@ export function decodeCodexJsonlOutput(rawOutput, outputContract = OUTPUT_KINDS.
       throw new Error(`Codex CLI JSONL line ${index + 1} must be an object.`);
     }
     if (event.type === 'item.completed' && event.item?.type === 'agent_message') {
+      if (completionSeen) {
+        throw new Error('Codex CLI JSONL contained an assistant message after turn completion.');
+      }
       if (typeof event.item.text !== 'string' || !event.item.text.trim()) {
         throw new Error('Codex CLI final assistant message must contain non-empty text.');
       }
-      assistantMessage = event.item.text;
-    }
-    if (event.type === 'turn.completed' && event.usage !== undefined) {
-      if (!event.usage || typeof event.usage !== 'object' || Array.isArray(event.usage)) {
-        throw new Error('Codex CLI turn.completed usage must be an object when present.');
+      try {
+        decodedAssistantMessage = decodeStructuredOutput(event.item.text, contract);
+      } catch {
+        // Codex can emit non-contract progress messages before its terminal payload.
       }
-      completedUsage = event.usage;
+    }
+    if (event.type === 'turn.completed') {
+      if (completionSeen) {
+        throw new Error('Codex CLI JSONL contained multiple turn.completed events.');
+      }
+      completionSeen = true;
+      if (event.usage !== undefined) {
+        if (!event.usage || typeof event.usage !== 'object' || Array.isArray(event.usage)) {
+          throw new Error('Codex CLI turn.completed usage must be an object when present.');
+        }
+        completedUsage = event.usage;
+      }
     }
   }
 
-  if (assistantMessage === null) {
-    throw new Error('Codex CLI JSONL did not contain a final assistant message.');
+  if (!completionSeen) {
+    throw new Error('Codex CLI JSONL did not contain a turn.completed event.');
+  }
+  if (decodedAssistantMessage === null) {
+    throw new Error('Codex CLI JSONL did not contain a schema-valid assistant message before turn completion.');
   }
 
-  const text = decodeStructuredOutput(assistantMessage, contract);
+  const text = decodedAssistantMessage;
   if (completedUsage === null) return { text, usage: null };
 
   const inputTokens = tokenNumber(completedUsage.input_tokens);

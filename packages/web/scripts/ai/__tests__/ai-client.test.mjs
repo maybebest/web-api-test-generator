@@ -884,7 +884,14 @@ test('Claude and Codex CLI flow drafts decode semantic JSON through the shared r
 
   const codex = await runBrain('rough notes', {
     env: { AI_BRAIN: 'codex-cli', AI_RESULT_CACHE: 'false' }, hasBinary: () => true,
-    spawnSyncImpl: () => ({ status: 0, stdout: JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: JSON.stringify(draft) } }), stderr: '' }),
+    spawnSyncImpl: () => ({
+      status: 0,
+      stdout: [
+        JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: JSON.stringify(draft) } }),
+        '{"type":"turn.completed"}'
+      ].join('\n'),
+      stderr: ''
+    }),
     outputKind: 'flow-spec-draft', systemPrompt: 'Fit the source.'
   });
   assert.equal(codex.text, expected);
@@ -1291,7 +1298,8 @@ test('decodeCodexJsonlOutput accepts the final assistant message and normalizes 
 test('decodeCodexJsonlOutput ignores non-contract progress messages before the final payload', () => {
   const output = decodeCodexJsonlOutput([
     '{"type":"item.completed","item":{"type":"agent_message","text":"Working on the requested test."}}',
-    '{"type":"item.completed","item":{"type":"agent_message","text":"{\\"code\\":\\"const generated = true;\\"}"}}'
+    '{"type":"item.completed","item":{"type":"agent_message","text":"{\\"code\\":\\"const generated = true;\\"}"}}',
+    '{"type":"turn.completed"}'
   ].join('\n'), 'playwright-typescript');
 
   assert.deepEqual(output, {
@@ -1300,7 +1308,7 @@ test('decodeCodexJsonlOutput ignores non-contract progress messages before the f
   });
 });
 
-test('decodeCodexJsonlOutput selects the last assistant payload before turn completion', () => {
+test('decodeCodexJsonlOutput selects the last schema-valid assistant payload before turn completion', () => {
   const output = decodeCodexJsonlOutput([
     '{"type":"item.completed","item":{"type":"agent_message","text":"{\\"code\\":\\"const progress = true;\\"}"}}',
     '{"type":"item.completed","item":{"type":"agent_message","text":"{\\"code\\":\\"const final = true;\\"}"}}',
@@ -1313,20 +1321,62 @@ test('decodeCodexJsonlOutput selects the last assistant payload before turn comp
   });
 });
 
-test('decodeCodexJsonlOutput rejects malformed JSONL and missing final assistant messages', () => {
+test('decodeCodexJsonlOutput rejects a missing or ambiguous completion boundary', () => {
+  assert.throws(
+    () => decodeCodexJsonlOutput(
+      '{"type":"item.completed","item":{"type":"agent_message","text":"{\\"code\\":\\"const generated = true;\\"}"}}',
+      'playwright-typescript'
+    ),
+    /turn\.completed/
+  );
+  assert.throws(
+    () => decodeCodexJsonlOutput([
+      '{"type":"item.completed","item":{"type":"agent_message","text":"{\\"code\\":\\"const generated = true;\\"}"}}',
+      '{"type":"turn.completed"}',
+      '{"type":"turn.completed"}'
+    ].join('\n'), 'playwright-typescript'),
+    /multiple turn\.completed/
+  );
+});
+
+test('decodeCodexJsonlOutput rejects assistant payloads after turn completion', () => {
+  assert.throws(
+    () => decodeCodexJsonlOutput([
+      '{"type":"item.completed","item":{"type":"agent_message","text":"{\\"code\\":\\"const before = true;\\"}"}}',
+      '{"type":"turn.completed"}',
+      '{"type":"item.completed","item":{"type":"agent_message","text":"{\\"code\\":\\"const after = true;\\"}"}}'
+    ].join('\n'), 'playwright-typescript'),
+    /assistant message after turn completion/
+  );
+});
+
+test('decodeCodexJsonlOutput rejects completion without a pre-completion assistant contract', () => {
+  assert.throws(
+    () => decodeCodexJsonlOutput([
+      '{"type":"item.completed","item":{"type":"agent_message","text":"Still working."}}',
+      '{"type":"turn.completed"}'
+    ].join('\n'), 'playwright-typescript'),
+    /schema-valid assistant message before turn completion/
+  );
+});
+
+test('decodeCodexJsonlOutput rejects malformed JSONL and missing pre-completion assistant messages', () => {
   assert.throws(
     () => decodeCodexJsonlOutput('{"type":"turn.started"}\nnot-json', 'playwright-typescript'),
     /Codex CLI JSONL line 2 is not valid JSON/
   );
   assert.throws(
     () => decodeCodexJsonlOutput('{"type":"turn.completed"}', 'playwright-typescript'),
-    /final assistant message/
+    /schema-valid assistant message before turn completion/
   );
 });
 
 test('decodeCodexJsonlOutput preserves null usage when Codex omits it', () => {
   const output = decodeCodexJsonlOutput(
-    '{"type":"item.completed","item":{"type":"agent_message","text":"{\\"code\\":\\"const noUsage = true;\\"}"}}',
+    [
+      '{"type":"item.completed","item":{"type":"agent_message","text":"{\\"code\\":\\"const noUsage = true;\\"}"}}',
+      '{"type":"turn.completed"}'
+    ].join('\n'),
     'playwright-typescript'
   );
 
@@ -1420,7 +1470,10 @@ test('runBrain invalidates a default Codex cache entry when its CLI version chan
     providerCalls += 1;
     return {
       status: 0,
-      stdout: '{"type":"item.completed","item":{"type":"agent_message","text":"{\\"code\\":\\"const versioned = true;\\"}"}}',
+      stdout: [
+        '{"type":"item.completed","item":{"type":"agent_message","text":"{\\"code\\":\\"const versioned = true;\\"}"}}',
+        '{"type":"turn.completed"}'
+      ].join('\n'),
       stderr: ''
     };
   };
@@ -1602,7 +1655,10 @@ test('runBrain includes a custom Playwright system contract for CLI repair stage
       calls.push({ binary, args, options });
       return {
         status: 0,
-        stdout: '{"type":"item.completed","item":{"type":"agent_message","text":"{\\"code\\":\\"const repaired = true;\\"}"}}',
+        stdout: [
+          '{"type":"item.completed","item":{"type":"agent_message","text":"{\\"code\\":\\"const repaired = true;\\"}"}}',
+          '{"type":"turn.completed"}'
+        ].join('\n'),
         stderr: ''
       };
     },
@@ -1621,7 +1677,10 @@ test('runBrain honors AI_BRAIN_TIMEOUT_MS for CLI brains', async () => {
     calls.push({ binary, args, options });
     return {
       status: 0,
-      stdout: '{"type":"item.completed","item":{"type":"agent_message","text":"{\\"code\\":\\"const timed = true;\\"}"}}',
+      stdout: [
+        '{"type":"item.completed","item":{"type":"agent_message","text":"{\\"code\\":\\"const timed = true;\\"}"}}',
+        '{"type":"turn.completed"}'
+      ].join('\n'),
       stderr: ''
     };
   };
