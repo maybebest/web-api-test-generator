@@ -1288,6 +1288,31 @@ test('decodeCodexJsonlOutput accepts the final assistant message and normalizes 
   });
 });
 
+test('decodeCodexJsonlOutput ignores non-contract progress messages before the final payload', () => {
+  const output = decodeCodexJsonlOutput([
+    '{"type":"item.completed","item":{"type":"agent_message","text":"Working on the requested test."}}',
+    '{"type":"item.completed","item":{"type":"agent_message","text":"{\\"code\\":\\"const generated = true;\\"}"}}'
+  ].join('\n'), 'playwright-typescript');
+
+  assert.deepEqual(output, {
+    text: '```ts\nconst generated = true;\n```',
+    usage: null
+  });
+});
+
+test('decodeCodexJsonlOutput selects the last assistant payload before turn completion', () => {
+  const output = decodeCodexJsonlOutput([
+    '{"type":"item.completed","item":{"type":"agent_message","text":"{\\"code\\":\\"const progress = true;\\"}"}}',
+    '{"type":"item.completed","item":{"type":"agent_message","text":"{\\"code\\":\\"const final = true;\\"}"}}',
+    '{"type":"turn.completed"}'
+  ].join('\n'), 'playwright-typescript');
+
+  assert.deepEqual(output, {
+    text: '```ts\nconst final = true;\n```',
+    usage: null
+  });
+});
+
 test('decodeCodexJsonlOutput rejects malformed JSONL and missing final assistant messages', () => {
   assert.throws(
     () => decodeCodexJsonlOutput('{"type":"turn.started"}\nnot-json', 'playwright-typescript'),
@@ -1296,13 +1321,6 @@ test('decodeCodexJsonlOutput rejects malformed JSONL and missing final assistant
   assert.throws(
     () => decodeCodexJsonlOutput('{"type":"turn.completed"}', 'playwright-typescript'),
     /final assistant message/
-  );
-  assert.throws(
-    () => decodeCodexJsonlOutput([
-      '{"type":"item.completed","item":{"type":"agent_message","text":"{\\"code\\":\\"const first = true;\\"}"}}',
-      '{"type":"item.completed","item":{"type":"agent_message","text":"{\\"code\\":\\"const second = true;\\"}"}}'
-    ].join('\n'), 'playwright-typescript'),
-    /multiple final assistant messages/
   );
 });
 

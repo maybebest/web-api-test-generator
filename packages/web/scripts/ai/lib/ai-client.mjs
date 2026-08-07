@@ -605,9 +605,6 @@ export function decodeCodexJsonlOutput(rawOutput, outputContract = OUTPUT_KINDS.
       if (typeof event.item.text !== 'string' || !event.item.text.trim()) {
         throw new Error('Codex CLI final assistant message must contain non-empty text.');
       }
-      if (assistantMessage !== null) {
-        throw new Error('Codex CLI JSONL contained multiple final assistant messages.');
-      }
       assistantMessage = event.item.text;
     }
     if (event.type === 'turn.completed' && event.usage !== undefined) {
