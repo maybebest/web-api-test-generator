@@ -592,6 +592,37 @@ test('healSingleTest rejects a test-root lookalike before browser or provider wo
   assert.equal(providerCalls, 0);
 });
 
+test('healSingleTest rejects traversal-bearing relative targets before browser or provider work', async () => {
+  const webRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'heal-test-traversal-'));
+  fs.mkdirSync(path.join(webRoot, 'tests', 'regression'), { recursive: true });
+  fs.mkdirSync(path.join(webRoot, 'tests-dev'), { recursive: true });
+  fs.writeFileSync(path.join(webRoot, 'tests', '.no-header-allowlist'), 'tests/regression/flow.spec.ts\n');
+  fs.writeFileSync(path.join(webRoot, 'tests', 'regression', 'flow.spec.ts'), CLEAN_SOURCE);
+  fs.writeFileSync(path.join(webRoot, 'tests-dev', 'flow.spec.ts'), CLEAN_SOURCE);
+  let browserCalls = 0;
+  let providerCalls = 0;
+
+  for (const testPath of [
+    'tests-dev/../tests/regression/flow.spec.ts',
+    'tests-shadow/../tests-dev/flow.spec.ts'
+  ]) {
+    await assert.rejects(
+      healSingleTest({
+        testPath,
+        env: { AI_AUTOHEAL_ENABLED: 'true' },
+        webRoot,
+        log: () => {},
+        executeStandalone: () => (browserCalls += 1, PASSED_EXECUTION),
+        heal: async () => (providerCalls += 1, { code: CLEAN_SOURCE })
+      }),
+      /safe test suite root/i,
+      testPath
+    );
+  }
+  assert.equal(browserCalls, 0);
+  assert.equal(providerCalls, 0);
+});
+
 test('healSingleTest rejects a symlink escape from tests-dev before browser or provider work', async () => {
   const webRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'heal-test-dev-symlink-'));
   const outsideRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'heal-test-dev-outside-'));
