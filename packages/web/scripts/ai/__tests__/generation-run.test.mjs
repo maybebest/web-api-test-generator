@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { generateTestSource, recordGenerationInManifest } from '../ai-generate.mjs';
 import { runBrain } from '../lib/ai-client.mjs';
@@ -27,6 +28,8 @@ import {
 import { runVerifiedGeneration } from '../verified-generate.mjs';
 
 const noBinaries = { hasBinary: () => false };
+const here = path.dirname(fileURLToPath(import.meta.url));
+const fixtureBaseUrl = 'https://qa.example.test';
 const acceptedSourceSha256 = '205e8c43a278ba22c066e3ae822f57cc42659b2a4654cb14279bc3b4c2d13522';
 const acceptedQualityFingerprint = acceptedGenerationQualityFingerprint({
   sourceSha256: acceptedSourceSha256,
@@ -40,7 +43,7 @@ function tempDirectory(t, prefix = 'generation-run-') {
 }
 
 function writeValidFlowSpec(webRoot, specName, targetName) {
-  const source = fs.readFileSync(path.join(process.cwd(), 'specs', 'special-preconditions', 'media-planner-minimum-campaign-duration.md'), 'utf8')
+  const source = fs.readFileSync(path.resolve(here, '../../../specs/special-preconditions/media-planner-minimum-campaign-duration.md'), 'utf8')
     .replace('| Auth | required |', '| Auth | none |')
     .replace(/\| Target Test File \| [^|]+ \|/, `| Target Test File | tests/regression/${targetName} |`);
   fs.mkdirSync(path.join(webRoot, 'specs'), { recursive: true });
@@ -812,6 +815,7 @@ test('verified generation records provider, gate, promotion, and final quality u
     specPath: 'specs/accepted.md',
     out: 'tests/regression/accepted.spec.ts',
     webRoot,
+    env: { PLAYWRIGHT_TEST_BASE_URL: fixtureBaseUrl },
     browserExecutableExists: () => true,
     candidateId: () => 'accepted-run',
     generate: async ({ onAttempt }) => {
@@ -924,6 +928,7 @@ test('verified generation finalizes a rejected run without persisting the gate e
       specPath: 'specs/rejected.md',
       out: 'tests/regression/rejected.spec.ts',
       webRoot,
+      env: { PLAYWRIGHT_TEST_BASE_URL: fixtureBaseUrl },
       browserExecutableExists: () => true,
       candidateId: () => 'rejected-run',
       generate: async () => ({
@@ -965,6 +970,7 @@ test('verified generation records a single-flight join as a saved request, not a
     specPath: 'specs/joined.md',
     out: 'tests/regression/joined.spec.ts',
     webRoot,
+    env: { PLAYWRIGHT_TEST_BASE_URL: fixtureBaseUrl },
     browserExecutableExists: () => true,
     candidateId: () => 'joined-run',
     generate: async () => ({
@@ -1019,6 +1025,7 @@ test('a failed single-flight join remains a non-attempt when the leader fails', 
       specPath: 'specs/failed-join.md',
       out: 'tests/regression/failed-join.spec.ts',
       webRoot,
+      env: { PLAYWRIGHT_TEST_BASE_URL: fixtureBaseUrl },
       browserExecutableExists: () => true,
       candidateId: () => 'failed-join-run',
       generate: async () => { throw joinedError; }
@@ -1052,6 +1059,7 @@ test('verified generation reconstructs every unknown retry attempt when its gene
       specPath: 'specs/retry.md',
       out: 'tests/regression/retry.spec.ts',
       webRoot,
+      env: { PLAYWRIGHT_TEST_BASE_URL: fixtureBaseUrl },
       browserExecutableExists: () => true,
       candidateId: () => 'retry-run',
       generate: async () => { throw providerError; }
@@ -1079,6 +1087,7 @@ test('candidate-integrity rejection is attributed to promotion safety rather tha
     specPath: 'specs/integrity.md',
     out: 'tests/regression/integrity.spec.ts',
     webRoot,
+    env: { PLAYWRIGHT_TEST_BASE_URL: fixtureBaseUrl },
     browserExecutableExists: () => true,
     candidateId: () => 'integrity-run',
     generate: async () => ({ code: 'const candidate = true;\n', result: {} }),
