@@ -1228,8 +1228,8 @@ export async function healSingleTest({
         ...locatorEvidence.warningCodes,
         ...semanticPolicyIssueCodes
       ]);
-      checks.policy = policy.passed ? 'passed' : 'warning';
-      if (!policy.passed) {
+      checks.policy = policyIssueCodes.length > 0 ? 'warning' : 'passed';
+      if (policyIssueCodes.length > 0) {
         log(`[heal] ${target}: attempt ${attempt} continues with policy warnings: ${policyIssueCodes.join(', ')}.`);
       }
 
