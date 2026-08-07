@@ -276,13 +276,17 @@ function projectSelectorDiscoveryArtifact(artifactValue, secretValues) {
       }
       if (!Number.isInteger(candidate.matchCount) || candidate.matchCount < 0
         || candidate.unique !== (candidate.matchCount === 1)
-        || !Number.isInteger(candidate.snapshotMatchCount) || candidate.snapshotMatchCount !== 1
-        || candidate.snapshotUnique !== true
+        || !Number.isInteger(candidate.snapshotMatchCount) || candidate.snapshotMatchCount < 0
+        || candidate.snapshotUnique !== (candidate.snapshotMatchCount === 1)
         || candidate.matchEvidence !== 'playwright-live') {
         throw new Error(`${candidateLabel} is missing consistent live and snapshot uniqueness evidence.`);
       }
       if (candidateIndex === 0 && candidate.matchCount !== 1) {
         throw new Error(`${candidateLabel} is preferred but not unique.`);
+      }
+      if (candidate.type === 'scopedRole'
+        && (candidate.matchCount !== 1 || candidate.snapshotMatchCount !== 1)) {
+        throw new Error(`${candidateLabel} is missing consistent live and snapshot uniqueness evidence.`);
       }
       if (candidate.matchCount !== 1) return undefined;
       return projectedCandidate(candidate, secretValues);

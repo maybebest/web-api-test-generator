@@ -44,6 +44,36 @@ test('audited unnamed scoped locator is warning-soft', () => {
   );
 });
 
+test('a direct page role-only locator does not require scoped evidence', () => {
+  const direct = `const control = page.getByRole('button');`;
+  assert.deepEqual(
+    verifyScopedRoleEvidence({ previousSource: baseline, healedSource: direct }),
+    { passed: true, reasonCodes: [], warningCodes: [] }
+  );
+});
+
+for (const { label, healedSource } of [
+  {
+    label: 'a frame root',
+    healedSource: `const control = frame.getByRole('banner').getByRole('button');`
+  },
+  {
+    label: 'a locator root',
+    healedSource: `const control = locator.getByRole('banner').getByRole('button');`
+  },
+  {
+    label: 'a this.page root',
+    healedSource: `const control = this.page.getByRole('banner').getByRole('button');`
+  }
+]) {
+  test(`matching page evidence does not authorize ${label}`, () => {
+    assert.deepEqual(
+      verifyScopedRoleEvidence({ previousSource: baseline, healedSource, repositoryContext: context }),
+      { passed: false, reasonCodes: ['UNVERIFIED_SCOPED_ROLE_LOCATOR'], warningCodes: [] }
+    );
+  });
+}
+
 test('unaudited role-only scoped locator fails before runtime', () => {
   const invented = `const control = page.getByRole('navigation').getByRole('button');`;
   assert.deepEqual(
@@ -92,7 +122,7 @@ for (const { label, healedSource } of [
   },
   {
     label: 'computed getByRole access',
-    healedSource: `const control = page.getByRole('navigation')['getByRole']('button');`
+    healedSource: `const control = page.getByRole('banner')['getByRole']('button');`
   },
   {
     label: 'dynamic computed getByRole access',
@@ -117,6 +147,26 @@ for (const { label, healedSource } of [
   {
     label: 'a nested direct const scope alias',
     healedSource: `const scope = page.getByRole('banner').getByRole('button'); const control = scope.getByRole('button');`
+  },
+  {
+    label: 'a let scope alias',
+    healedSource: `let scope = page.getByRole('banner'); const control = scope.getByRole('button');`
+  },
+  {
+    label: 'an outer-block const scope alias',
+    healedSource: `const scope = page.getByRole('banner'); { const control = scope.getByRole('button'); }`
+  },
+  {
+    label: 'an awaited scope alias',
+    healedSource: `const scope = await page.getByRole('banner'); const control = scope.getByRole('button');`
+  },
+  {
+    label: 'a class-property scope alias',
+    healedSource: `class View { scope = page.getByRole('banner'); control = this.scope.getByRole('button'); }`
+  },
+  {
+    label: 'a direct this.page role-only receiver',
+    healedSource: `const control = this.page.getByRole('button');`
   }
 ]) {
   test(`new scoped locator rejects ${label}`, () => {
@@ -127,6 +177,14 @@ for (const { label, healedSource } of [
   });
 }
 
+test('a static computed non-getByRole method is not a scoped-role call', () => {
+  const healedSource = `const roleLocator = page.getByRole('button'); await roleLocator['click']();`;
+  assert.deepEqual(
+    verifyScopedRoleEvidence({ previousSource: baseline, healedSource }),
+    { passed: true, reasonCodes: [], warningCodes: [] }
+  );
+});
+
 test('unchanged legacy invalid scoped-role forms do not block an unrelated heal', () => {
   for (const source of [
     `const role = 'button'; const control = page.getByRole('banner').getByRole(role);`,
@@ -134,7 +192,12 @@ test('unchanged legacy invalid scoped-role forms do not block an unrelated heal'
     `const control = page.getByRole('main').getByRole('banner').getByRole('button');`,
     `const method = 'getByRole'; const control = page.getByRole('banner')[method]('button');`,
     `const scope = page.getByRole('banner'); const control = scope.getByRole('button');`,
-    `const control = page?.getByRole('banner')?.getByRole('button');`
+    `const control = page?.getByRole('banner')?.getByRole('button');`,
+    `let scope = page.getByRole('banner'); const control = scope.getByRole('button');`,
+    `const scope = page.getByRole('banner'); { const control = scope.getByRole('button'); }`,
+    `const scope = await page.getByRole('banner'); const control = scope.getByRole('button');`,
+    `class View { scope = page.getByRole('banner'); control = this.scope.getByRole('button'); }`,
+    `const control = this.page.getByRole('button');`
   ]) {
     assert.deepEqual(
       verifyScopedRoleEvidence({ previousSource: source, healedSource: `${source}\nconst unrelated = true;` }),
@@ -150,22 +213,4 @@ test('a replaced invalid scoped-role form remains hard-rejected', () => {
     verifyScopedRoleEvidence({ previousSource, healedSource }),
     { passed: false, reasonCodes: ['UNVERIFIED_SCOPED_ROLE_LOCATOR'], warningCodes: [] }
   );
-});
-
-test('changed direct const inputs replace invalid scoped-role forms', () => {
-  for (const { previousSource, healedSource } of [{
-    previousSource: `const role = 'button'; const control = page.getByRole('banner').getByRole(role);`,
-    healedSource: `const role = 'link'; const control = page.getByRole('banner').getByRole(role);`
-  }, {
-    previousSource: `const name = 'Account'; const control = page.getByRole('banner').getByRole('button', { name });`,
-    healedSource: `const name = 'Profile'; const control = page.getByRole('banner').getByRole('button', { name });`
-  }, {
-    previousSource: `const method = 'other'; const control = page.getByRole('banner')[method]('button');`,
-    healedSource: `const method = 'getByRole'; const control = page.getByRole('banner')[method]('button');`
-  }]) {
-    assert.deepEqual(
-      verifyScopedRoleEvidence({ previousSource, healedSource }),
-      { passed: false, reasonCodes: ['UNVERIFIED_SCOPED_ROLE_LOCATOR'], warningCodes: [] }
-    );
-  }
 });
