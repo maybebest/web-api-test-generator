@@ -10,7 +10,7 @@ A test can be merged only if:
 - It passes locally or failure is documented as a product bug.
 - It produces useful failure artifacts.
 
-Generated tests must be reviewed like human-written tests. Do not merge tests that only verify implementation details or page internals.
+Generated tests must satisfy the same deterministic quality checks as hand-written tests. Do not merge tests that only verify implementation details or page internals.
 
 ## Generated Test Gate
 
@@ -41,7 +41,7 @@ Generated tests must be reviewed like human-written tests. Do not merge tests th
 - Multiple JSON Data Cases or Variants must be enumerated by looping over the case/variant rows (`for (const dataCase of dataCases) { test(...) }`); `@playwright/test` has no `.each`. Every `caseId` must appear in a title or data row.
 - Minimum/duration rules must include below-minimum, at-minimum, and above-minimum cases.
 - Generated tests must assert salient expected values from JSON data cases. Values listed in a spec's "Must assert the salient expected values ..." requirement must appear inside an assertion, a step/test title, or an iterated data row (a dead constant does not satisfy the gate).
-- Raw manual docs must be imported into an `ai-draft` spec and human-reviewed before the normal generation gate can pass.
+- Raw manual docs must be imported into a draft spec. Every `NEEDS_REVIEW` marker must be resolved before deterministic validation and the normal generation gate can pass.
 - Generated tests must not skip themselves: `test.skip`, `test.fixme`, and `test.fail` are forbidden in every form — test-defining, zero-arg, and condition-arg runtime calls (including bracket-access or cast obfuscations).
 - The generated spec header hash must match the spec's actual behavioral hash; a stale or fabricated 64-hex value fails review.
 - The executed gate runs Playwright with `--reporter=html,json` and parses the JSON report: it fails unless the target file has at least one passing test and zero failed or skipped tests, closing the "skipped test exits 0" hole end-to-end.

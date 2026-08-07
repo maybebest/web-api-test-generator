@@ -1,0 +1,38 @@
+{
+  "outputPath": "/Users/maybebest/Documents/Projects/general/web-api-test-generator/outputs/e2e-master-20260713/Nectar360_Pollen_Complete_E2E_Master_List_20260713.xlsx",
+  "masterRecords": 800,
+  "repositoryRecords": 752,
+  "externalJourneys": 48,
+  "externalAtomicCheckReferences": 316,
+  "uniqueExternalAtomicCheckReferences": 316,
+  "exactCrossSourceIdMatches": 0,
+  "externalJourneyIdCollisions": [
+    "TC-VAL-001",
+    "TC-VAL-002",
+    "TC-VAL-003",
+    "TC-VAL-004"
+  ],
+  "exactCrossSourceTitleMatches": 0,
+  "confirmedHardMerges": 0,
+  "repositoryDuplicateTitleGroups": 32,
+  "semanticAssessment": {
+    "strongOverlap": 27,
+    "partialOverlap": 16,
+    "materiallyNew": 5
+  },
+  "externalTraceability": {
+    "uniqueRules": 123,
+    "references": 168,
+    "danglingIds": 0
+  },
+  "missingExternalTicketSources": [
+    "NUP-18835",
+    "NUP-18922",
+    "NUP-18945",
+    "NUP-19104",
+    "NUP-20820",
+    "NUP-21160"
+  ],
+  "sourceHash": "de457895412bde105e45a6719a099780fbc5a99522d021edcef789589d094788",
+  "repositoryHash": "7fa90bbd81351f749cc4dd5f481091cd4dbccb3876a119efa11b029565bea586"
+}

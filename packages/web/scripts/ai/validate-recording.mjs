@@ -15,12 +15,9 @@ export function validateRecordingDirectory(recordingsDir = DEFAULT_RECORDINGS_DI
     // A missing directory is a real misconfiguration (e.g. a typo in --dir).
     issues.push(`Recordings directory not found: ${recordingsDir}.`);
   } else if (recordingFiles.length === 0) {
-    // The directory exists but holds no app-specific recordings yet — a `_`-prefixed template such
-    // as _example.json is intentionally skipped by listRecordingFiles. The recording -> UI pipeline
-    // is wired; there is simply nothing to validate. Treat this as pass-with-notice so a
-    // template-only checkout keeps CI green; a real recording is validated/gated the moment one is
-    // added under recordings/*.json.
-    warnings.push(`No Chrome DevTools Recorder JSON files to validate in ${recordingsDir} (add recordings/*.json to generate recorded UI tests).`);
+    issues.push(
+      `No Chrome DevTools Recorder JSON files to validate in ${recordingsDir}; refusing a zero-recording validation pass.`
+    );
   }
 
   for (const recordingPath of recordingFiles) {

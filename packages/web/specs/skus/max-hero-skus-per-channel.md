@@ -15,8 +15,9 @@
 | Tags | @generated @regression @media-planner @authenticated @max-hero-skus-per-channel |
 | Generation Mode | suite |
 | Review Status | human-reviewed |
+| Review Sign-off | legacy-reviewed-before-signoff-metadata |
 | Generation Source | manual-test-case |
-| Generation Status | pending-generation |
+| Generation Status | generated |
 
 ## User Story
 
@@ -1584,25 +1585,25 @@ These 39 source cases are E2E-specified but cannot be verified end-to-end today.
 | TC-MAX-013 — Deselect via modal to over-limit-still (5→4) — warning persists, still blocked | channel-config: needs channel media resolution (E2E_MP_*_CHANNEL) + admin_editMedia write |
 | TC-MAX-014 — Modal deselect exactly to max (count=3) — boundary unblocks | channel-config: needs channel media resolution (E2E_MP_*_CHANNEL) + admin_editMedia write |
 | TC-MAX-015 — Global Hero list set first, then channel selected exceeding its max — channel added, warned, blocked (Scenari… | channel-config: needs channel media resolution (E2E_MP_*_CHANNEL) + admin_editMedia write |
-| TC-MAX-016 — Global Hero list exceeds two channels' max — warning on EACH affected channel, blocked until all fixed | warning-needs-channel: the plan has no channels; needs assignChannelToPlan (unimplemented) or the UI chat flow |
-| TC-MAX-017 — Global exceeds one channel but within another — only over-limit channel warned | warning-needs-channel: the plan has no channels; needs assignChannelToPlan (unimplemented) or the UI chat flow |
-| TC-MAX-018 — Mixed-max multi-channel plan — one channel over blocks the WHOLE plan | warning-needs-channel: the plan has no channels; needs assignChannelToPlan (unimplemented) or the UI chat flow |
+| TC-MAX-016 — Global Hero list exceeds two channels' max — warning on EACH affected channel, blocked until all fixed | warning-needs-channel: the plan has no channels; `assignChannelToPlan` requires an injected, verified media-plan adapter, otherwise the case must use the UI chat flow |
+| TC-MAX-017 — Global exceeds one channel but within another — only over-limit channel warned | warning-needs-channel: the plan has no channels; `assignChannelToPlan` requires an injected, verified media-plan adapter, otherwise the case must use the UI chat flow |
+| TC-MAX-018 — Mixed-max multi-channel plan — one channel over blocks the WHOLE plan | warning-needs-channel: the plan has no channels; `assignChannelToPlan` requires an injected, verified media-plan adapter, otherwise the case must use the UI chat flow |
 | TC-MAX-019 — Backend: single channel typed exceeds maxHeroSkus — block add, route to ask node | channel-config: needs channel media resolution (E2E_MP_*_CHANNEL) + admin_editMedia write |
 | TC-MAX-020 — Backend: multiple channels typed, one exceeds max — block that one, continue other resolver nodes | no-assertable-expectation: the source case has no UI-checkable outcome without the assistant flow |
 | TC-MAX-021 — Backend: single channel typed below minHeroSkus — block add, inform, ask node | no-assertable-expectation: the source case has no UI-checkable outcome without the assistant flow |
 | TC-MAX-022 — Backend: multiple channels typed, all within min/max — all added, full resolver continues | no-assertable-expectation: the source case has no UI-checkable outcome without the assistant flow |
 | TC-MAX-023 — Backend: no max configured (null) on resolved channel — never blocked regardless of count | no-assertable-expectation: the source case has no UI-checkable outcome without the assistant flow |
-| TC-MAX-024 — Re-exceeding after a valid state — adding SKUs back over max re-triggers warning and re-blocks | warning-needs-channel: the plan has no channels; needs assignChannelToPlan (unimplemented) or the UI chat flow |
+| TC-MAX-024 — Re-exceeding after a valid state — adding SKUs back over max re-triggers warning and re-blocks | warning-needs-channel: the plan has no channels; `assignChannelToPlan` requires an injected, verified media-plan adapter, otherwise the case must use the UI chat flow |
 | TC-MAX-025 — Min configured boundary: count below minHeroSkus on UI — informs/blocks (min enforcement) | channel-config: needs channel media resolution (E2E_MP_*_CHANNEL) + admin_editMedia write |
 | TC-MAX-026 — Warning 'Edit SKUs' affordance opens the channel SKU modal scoped to that channel | no-assertable-expectation: the source case has no UI-checkable outcome without the assistant flow |
-| TC-MAX-027 — Booking explicitly attempted while over limit surfaces block reason, no save persisted | warning-needs-channel: the plan has no channels; needs assignChannelToPlan (unimplemented) or the UI chat flow |
+| TC-MAX-027 — Booking explicitly attempted while over limit surfaces block reason, no save persisted | warning-needs-channel: the plan has no channels; `assignChannelToPlan` requires an injected, verified media-plan adapter, otherwise the case must use the UI chat flow |
 | TC-MAX-028 — Channel max boundary: assigning exactly max Hero SKUs (count == max) is accepted with no warning and booking … | channel-config: needs channel media resolution (E2E_MP_*_CHANNEL) + admin_editMedia write |
 | TC-MAX-029 — Channel max boundary: assigning max-1 Hero SKUs (count < max) is accepted with no warning | channel-config: needs channel media resolution (E2E_MP_*_CHANNEL) + admin_editMedia write |
 | TC-MAX-030 — Channel max boundary: assigning max+1 Hero SKUs (count > max) adds channel with all SKUs but shows verbatim w… | channel-config: needs channel media resolution (E2E_MP_*_CHANNEL) + admin_editMedia write |
 | TC-MAX-031 — Channel with NO max configured: assigning a large Hero SKU count imposes no restriction and no warning | no-assertable-expectation: the source case has no UI-checkable outcome without the assistant flow |
 | TC-MAX-032 — Channel max = exactly 1 (singleton limit): one Hero accepted, two Hero blocked with warning interpolating '1 … | channel-config: needs channel media resolution (E2E_MP_*_CHANNEL) + admin_editMedia write |
-| TC-MAX-033 — Mixed-max plan: one channel over its max blocks booking even while another channel is within its max | warning-needs-channel: the plan has no channels; needs assignChannelToPlan (unimplemented) or the UI chat flow |
-| TC-MAX-034 — Global Hero list exceeds the lower of two channels' DIFFERENT maxes: only the channel whose max is exceeded i… | warning-needs-channel: the plan has no channels; needs assignChannelToPlan (unimplemented) or the UI chat flow |
+| TC-MAX-033 — Mixed-max plan: one channel over its max blocks booking even while another channel is within its max | warning-needs-channel: the plan has no channels; `assignChannelToPlan` requires an injected, verified media-plan adapter, otherwise the case must use the UI chat flow |
+| TC-MAX-034 — Global Hero list exceeds the lower of two channels' DIFFERENT maxes: only the channel whose max is exceeded i… | warning-needs-channel: the plan has no channels; `assignChannelToPlan` requires an injected, verified media-plan adapter, otherwise the case must use the UI chat flow |
 | TC-MAX-035 — After deselecting excess down to max, the warning clears and booking unblocks (recompute on save) | channel-config: needs channel media resolution (E2E_MP_*_CHANNEL) + admin_editMedia write |
 | TC-MAX-036 — Reducing an over-max channel to max-1 (not just to max) also clears the warning and unblocks | channel-config: needs channel media resolution (E2E_MP_*_CHANNEL) + admin_editMedia write |
 | TC-MAX-037 — Backend NUP-20507: SINGLE channel typed exceeds maxHeroSkus on activation -> channel blocked from being added… | channel-config: needs channel media resolution (E2E_MP_*_CHANNEL) + admin_editMedia write |

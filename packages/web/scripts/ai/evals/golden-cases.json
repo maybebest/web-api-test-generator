@@ -1,0 +1,93 @@
+{
+  "schemaVersion": 2,
+  "pipelineInputs": [
+    "ai/prompts/02-generate-test.md",
+    "ai/prompts/05-review-ai-test.md",
+    "playwright.config.ts",
+    "scripts/ai/ai-generate.mjs",
+    "scripts/ai/create-generation-task.mjs",
+    "scripts/ai/gate-all.mjs",
+    "scripts/ai/generated-test-gate.mjs",
+    "scripts/ai/lib/ai-client.mjs",
+    "scripts/ai/lib/authenticated-target.mjs",
+    "scripts/ai/lib/gate-environment.mjs",
+    "scripts/ai/lib/generated-capability-policy.mjs",
+    "scripts/ai/lib/generated-gate-fingerprint.mjs",
+    "scripts/ai/lib/generated-gate-runner.mjs",
+    "scripts/ai/lib/generated-gate-verdict.mjs",
+    "scripts/ai/lib/generation-cache.mjs",
+    "scripts/ai/lib/generation-context-pack.mjs",
+    "scripts/ai/lib/generation-context.mjs",
+    "scripts/ai/lib/generation-input.mjs",
+    "scripts/ai/lib/generation-ir.mjs",
+    "scripts/ai/lib/generation-policy.mjs",
+    "scripts/ai/lib/generation-preflight.mjs",
+    "scripts/ai/lib/generation-repair.mjs",
+    "scripts/ai/lib/generation-run.mjs",
+    "scripts/ai/lib/output-contracts.mjs",
+    "scripts/ai/lib/rest-prompt.mjs",
+    "scripts/ai/lib/secret-safety.mjs",
+    "scripts/ai/lib/spec-parser.mjs",
+    "scripts/ai/lib/verified-file-read.mjs",
+    "scripts/ai/review-generated-test.mjs",
+    "scripts/ai/review-recorded-test.mjs",
+    "scripts/ai/run-local-generated.mjs",
+    "scripts/ai/validate-flow-spec.mjs",
+    "scripts/ai/verified-generate.mjs"
+  ],
+  "pipelineFingerprintSha256": "9d64101202cc237da139ce6d4bbf5288febc328f12232d1ee5885214312ed0e0",
+  "cases": [
+    {
+      "id": "single-checkout",
+      "mode": "single",
+      "spec": "fixtures/single-checkout/spec.md",
+      "reference": "fixtures/single-checkout/reference.spec.ts",
+      "candidate": "single-checkout.spec.ts",
+      "specFileSha256": "e5091826ce2c4bafbb3c9f64bf7d31606831f8f57125213e0c6a56b2d3103624",
+      "referenceFileSha256": "330ed878bf7500fe83d220b44f5820c9ae4aaf2e4cc4b0c1b8160194326de712",
+      "referenceSemanticSha256": "a46dc03e4ebb140653945348956be8106344d020e8746f59758721790f7e38dd",
+      "expectedMetrics": {
+        "testCount": 2,
+        "stepCount": 6,
+        "assertionCount": 2,
+        "acIds": [
+          "AC-001",
+          "AC-002",
+          "AC-003"
+        ],
+        "negativeCaseIds": [
+          "NEG-001"
+        ],
+        "dataCaseIds": [
+          "DC-001"
+        ]
+      }
+    },
+    {
+      "id": "suite-checkout",
+      "mode": "suite",
+      "spec": "fixtures/suite-checkout/spec.md",
+      "reference": "fixtures/suite-checkout/reference.spec.ts",
+      "candidate": "suite-checkout.spec.ts",
+      "specFileSha256": "72fe779f32b3a29290e715eb8c4960678c7051e854ec90025483cfaeb32b00fe",
+      "referenceFileSha256": "5a79f351fb7e30811de00755e5107d11173bb2c18d27a518a5f48369e5b351ac",
+      "referenceSemanticSha256": "e81d307c4da30eca5ef1ac2e0ca19f4cf38be26b1747050a8aae0b2aa40cf1b7",
+      "expectedMetrics": {
+        "testCount": 4,
+        "stepCount": 12,
+        "assertionCount": 4,
+        "acIds": [
+          "AC-001",
+          "AC-002",
+          "AC-003"
+        ],
+        "negativeCaseIds": [
+          "NEG-001"
+        ],
+        "dataCaseIds": [
+          "DC-001"
+        ]
+      }
+    }
+  ]
+}

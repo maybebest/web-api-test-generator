@@ -11,11 +11,13 @@ import {
 } from '../support/apiTestUtils.js';
 
 test.describe('scenarios', () => {
-  // origin: inferred | category: scenario | confidence: high | execution: active | mutationRisk: guarded | isolated: true
+  // origin: inferred | category: scenario | confidence: high | execution: active | mutationRisk: guarded | correlation: not-required | isolated: true
   test('scenario: stageautomation.heartpace.dev login account logout flow @extended @auth @profile @mutating', async ({}, testInfo) => {
-    const sessionContext = await request.newContext({ ignoreHTTPSErrors: true });
+    const sessionContext = await request.newContext({
+      ignoreHTTPSErrors: process.env.API_IGNORE_HTTPS_ERRORS === 'true'
+    });
     try {
-      const step1Body = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-auth-main-login-0b7504f5.login-account-logout-step-1.request.json'));
+      const step1Body = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-auth-main-login-d17602e9.login-account-logout-step-1.request.json'));
       const { response: step1Response, elapsedMs: step1ElapsedMs } = await sendApiRequest({
         request: sessionContext,
         defaultBaseUrl: 'https://stageautomation.heartpace.dev',
@@ -64,23 +66,6 @@ test.describe('scenarios', () => {
       const { response: step4Response, elapsedMs: step4ElapsedMs } = await sendApiRequest({
         request: sessionContext,
         defaultBaseUrl: 'https://stageautomation.heartpace.dev',
-        path: '/me/account/oauth',
-        method: 'GET',
-        isolatedSession: true,
-        headers: {
-          "accept": "application/json, text/plain, */*",
-          "x-csrf-token": "${CSRF_TOKEN}",
-          "x-requested-with": "XMLHttpRequest",
-          "x-site-uuid": "${X_SITE_UUID}"
-        }
-      });
-      assertStatusCode(step4Response.status(), {"kind":"exact","status":200}, 'GET /me/account/oauth returns 200');
-      expect(step4Response.headers()['content-type'] ?? '').toContain('application/json');
-      assertResponseTime(step4ElapsedMs, 2000);
-
-      const { response: step5Response, elapsedMs: step5ElapsedMs } = await sendApiRequest({
-        request: sessionContext,
-        defaultBaseUrl: 'https://stageautomation.heartpace.dev',
         path: '/auth/main/logout',
         method: 'POST',
         isolatedSession: true,
@@ -88,9 +73,9 @@ test.describe('scenarios', () => {
           "accept": "application/json, text/plain, */*"
         }
       });
-      assertStatusCode(step5Response.status(), {"kind":"exact","status":200}, 'POST /auth/main/logout returns 200');
-      expect(step5Response.headers()['content-type'] ?? '').toContain('application/json');
-      assertResponseTime(step5ElapsedMs, 2000);
+      assertStatusCode(step4Response.status(), {"kind":"exact","status":200}, 'POST /auth/main/logout returns 200');
+      expect(step4Response.headers()['content-type'] ?? '').toContain('application/json');
+      assertResponseTime(step4ElapsedMs, 2000);
     } finally {
       await sessionContext.dispose();
     }

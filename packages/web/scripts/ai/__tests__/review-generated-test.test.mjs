@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { specSha256 } from '../lib/spec-parser.mjs';
+import { parseFlowSpec, specSha256 } from '../lib/spec-parser.mjs';
 import { reviewGeneratedTest } from '../review-generated-test.mjs';
 import { validateSpecDirectory, validateSpecFile } from '../validate-flow-spec.mjs';
 
@@ -52,6 +52,65 @@ test('validator rejects bogus stability values, variants header, and includes', 
   assert.match(joined, /Allowed Retries/);
   assert.match(joined, /Variants header must be Locale \| Role \| Plan/);
   assert.match(joined, /Includes entry must be "none" or a Flow ID/);
+});
+
+test('validator authorizes a complete contract without review or sign-off metadata', () => {
+  const result = validateSpecFile(writeSpec(createWorkspace()));
+
+  assert.equal(result.valid, true, result.issues.join('\n'));
+});
+
+test('validator rejects duplicate machine-consumed metadata fields', () => {
+  const duplicate = validateSpecFile(
+    writeSpec(createWorkspace(), { metadataExtra: ['| Target Test File | tests/regression/other.spec.ts |'] })
+  );
+  assert.equal(duplicate.valid, false);
+  assert.match(duplicate.issues.join('\n'), /Duplicate Metadata field\(s\) found: Target Test File/);
+});
+
+test('Markdown table parsing preserves escaped pipe characters inside cells', () => {
+  const parsed = parseFlowSpec(`# Flow: escaped pipes
+
+## Flow Steps
+
+| Step | AC IDs | Action | Target | Input | Expected Result | Assertion Hint |
+|---:|---|---|---|---|---|---|
+| 1 | AC-001 | Choose product | planner | N360\\|Unilever | Knorr\\|MS | summary shows N360\\|Unilever |
+`);
+
+  assert.equal(parsed.flowSteps[0].input, 'N360|Unilever');
+  assert.equal(parsed.flowSteps[0].expectedResult, 'Knorr|MS');
+  assert.equal(parsed.flowSteps[0].assertionHint, 'summary shows N360|Unilever');
+});
+
+test('validator allows unresolved placeholders only in structural allow-draft mode', () => {
+  const specPath = writeSpec(createWorkspace(), { owner: 'NEEDS_REVIEW' });
+
+  const normal = validateSpecFile(specPath);
+  assert.equal(normal.valid, false);
+  assert.match(normal.issues.join('\n'), /NEEDS_REVIEW|placeholder/);
+
+  const structural = validateSpecFile(specPath, { allowDraft: true });
+  assert.equal(structural.valid, true, structural.issues.join('\n'));
+});
+
+test('validator rejects non-zero retry allowances', () => {
+  const workspace = createWorkspace();
+  const specPath = writeSpec(workspace, {
+    stability: ['| Parallel Safe | yes |', '| Data Isolation | per-test |', '| Allowed Retries | 1 |']
+  });
+
+  const result = validateSpecFile(specPath);
+  assert.equal(result.valid, false);
+  assert.match(result.issues.join('\n'), /Allowed Retries" must be 0/);
+});
+
+test('directory validation fails closed when no flow specs are present', () => {
+  const workspace = createWorkspace();
+  const result = validateSpecDirectory(workspace);
+
+  assert.equal(result.valid, false);
+  assert.match(result.issues.join('\n'), /zero-spec validation pass/);
 });
 
 test('validator --strict requires the target test file to exist', () => {
@@ -102,11 +161,10 @@ test('manual importer creates business rules and JSON data cases for Media Plann
 
   const strictValidation = validateSpecFile(specPath);
   assert.equal(strictValidation.valid, false);
-  assert.match(strictValidation.issues.join('\n'), /ai-draft/);
   assert.match(strictValidation.issues.join('\n'), /NEEDS_REVIEW/);
 });
 
-test('validator rejects human-reviewed duration specs without below equal and above boundaries', () => {
+test('validator rejects duration specs without below equal and above boundaries', () => {
   const workspace = createWorkspace();
   const specPath = writeSpec(workspace, {
     businessRulesRows: [
@@ -179,6 +237,18 @@ test('reviewer defaults to single mode and rejects multiple primary test blocks'
 test('reviewer accepts one focused test in default single mode', () => {
   const workspace = createWorkspace();
   const specPath = writeSpec(workspace);
+  const testPath = writeGeneratedTest(workspace, specPath, singleBodyWithExtras(''));
+
+  const result = reviewGeneratedTest({ specPath, testPath });
+
+  assert.equal(result.passed, true, result.issues.join('\n'));
+});
+
+test('unknown informational metadata neither authorizes nor blocks a valid machine-checked contract', () => {
+  const workspace = createWorkspace();
+  const specPath = writeSpec(workspace, {
+    metadataExtra: ['| Informational Note | ignored-by-policy |']
+  });
   const testPath = writeGeneratedTest(workspace, specPath, singleBodyWithExtras(''));
 
   const result = reviewGeneratedTest({ specPath, testPath });
@@ -602,6 +672,75 @@ test.only('flow', async ({ page }) => {
   assert.match(result.issues.join('\n'), /Promise\.race/);
   assert.match(result.issues.join('\n'), /setTimeout/);
   assert.match(result.issues.join('\n'), /test\.only/);
+});
+
+test('reviewer rejects direct environment, system, and network capabilities in generated targets', () => {
+  const workspace = createWorkspace();
+  const specPath = writeSpec(workspace);
+  const body = singleBodyWithExtras(`
+    const password = process.env.E2E_USER_PASSWORD;
+    const dynamicName = 'E2E_USER_PASSWORD';
+    const dynamicValue = process.env[dynamicName];
+    const allEnvironment = Object.entries(process.env);
+    const required = require('node:fs');
+    const requiredAlias = require;
+    const dynamicallyImported = import('node:net');
+    const response = fetch('/credential-sink');
+    const parsedEnvironment = dotenv.config().parsed;
+    const requestContext = request.newContext();
+    const requestPost = page.request.post('/credential-sink', { data: parsedEnvironment });
+    const dynamicTarget = process.env.E2E_MP_ONSITE_CHANNEL;
+    const dynamicNavigation = page.goto(dynamicTarget);
+    const absoluteNavigation = page.goto('https://qa.example.test/credential-sink');
+    const globalsAlias = globalThis;
+    const nodeGlobalAlias = global;
+    const pageAlias = page;
+    const evaluateAlias = pageAlias.evaluate;
+    const requestAlias = pageAlias.request;
+    const context = page.context();
+    const evaluated = page.evaluate(() => 1);
+    void password; void dynamicValue; void allEnvironment; void required; void requiredAlias;
+    void dynamicallyImported; void response; void parsedEnvironment; void requestContext; void requestPost;
+    void dynamicNavigation; void absoluteNavigation; void globalsAlias; void nodeGlobalAlias;
+    void evaluateAlias; void requestAlias; void context; void evaluated;
+  `).replace(
+    "import type { Locator, Page } from '@playwright/test';",
+    "import type { Locator, Page } from '@playwright/test';\nimport fs from 'node:fs';\nimport childProcess = require('node:child_process');\nimport axios from 'axios';\nimport dotenv from 'dotenv';\nimport { resolveFreshBearerToken } from '../../fixtures/nectar-api';"
+  );
+  const testPath = writeGeneratedTest(workspace, specPath, body);
+
+  const result = reviewGeneratedTest({ specPath, testPath });
+  const joined = result.issues.join('\n');
+
+  assert.equal(result.passed, false);
+  assert.match(joined, /System or network module import is forbidden.*node:fs/);
+  assert.match(joined, /System or network module import is forbidden.*node:child_process/);
+  assert.match(joined, /System or network module import is forbidden.*axios/);
+  assert.match(joined, /Unapproved package import is forbidden.*dotenv/);
+  assert.match(joined, /Sensitive fixture export is forbidden.*resolveFreshBearerToken/);
+  assert.match(joined, /Sensitive environment access is forbidden.*E2E_USER_PASSWORD/);
+  assert.match(joined, /Computed or bulk process\.env access is forbidden/);
+  assert.match(joined, /CommonJS require\(\) is forbidden/);
+  assert.match(joined, /Dynamic import\(\) is forbidden/);
+  assert.match(joined, /Global fetch capability is forbidden/);
+  assert.match(joined, /Global runtime capability is forbidden/);
+  assert.match(joined, /Browser context access is forbidden/);
+  assert.match(joined, /Browser evaluation is forbidden/);
+  assert.match(joined, /Playwright API request capability is forbidden/);
+  assert.match(joined, /Direct page navigation must use a static relative path/);
+});
+
+test('reviewer permits only explicit non-secret generated-test configuration reads', () => {
+  const workspace = createWorkspace();
+  const specPath = writeSpec(workspace);
+  const testPath = writeGeneratedTest(workspace, specPath, singleBodyWithExtras(`
+    const channel = process.env.E2E_MP_ONSITE_CHANNEL?.trim() || 'Onsite Display';
+    void channel;
+  `));
+
+  const result = reviewGeneratedTest({ specPath, testPath });
+
+  assert.equal(result.passed, true, result.issues.join('\n'));
 });
 
 test('reviewer rejects generated tests that reference critical precondition helpers', () => {
@@ -1438,8 +1577,7 @@ test('reviewer keeps accepting thin arrange steps with a single awaited POM call
 
 test('validator requires the .authenticated.spec.ts suffix for Auth=required specs', () => {
   const workspace = createWorkspace();
-  const specPath = writeSpec(workspace);
-  fs.writeFileSync(specPath, fs.readFileSync(specPath, 'utf8').replace('| Auth | none |', '| Auth | required |'));
+  const specPath = writeSpec(workspace, { auth: 'required' });
 
   const result = validateSpecFile(specPath);
 
@@ -1465,8 +1603,10 @@ test('validator forbids the .authenticated.spec.ts suffix when Auth is not requi
 
 test('validator accepts Auth=required specs targeting an .authenticated.spec.ts file', () => {
   const workspace = createWorkspace();
-  const specPath = writeSpec(workspace, { targetTestFile: 'tests/regression/generated.authenticated.spec.ts' });
-  fs.writeFileSync(specPath, fs.readFileSync(specPath, 'utf8').replace('| Auth | none |', '| Auth | required |'));
+  const specPath = writeSpec(workspace, {
+    auth: 'required',
+    targetTestFile: 'tests/regression/generated.authenticated.spec.ts'
+  });
 
   const result = validateSpecFile(specPath);
 
@@ -1854,7 +1994,7 @@ test('gate-all fails a pending-generation spec whose target test already exists'
   assert.match(result.stderr, /Stale Generation Status: .* is marked pending-generation but tests\/regression\/generated\.spec\.ts already exists/);
 });
 
-test('gate-all still skips pending-generation specs whose target test does not exist', () => {
+test('gate-all fails closed on pending generation while review-only reports no execution claim', () => {
   const workspace = createGateAllWorkspace();
   writeSpec(path.join(workspace, 'specs'), {
     metadataExtra: ['| Generation Status | pending-generation |']
@@ -1866,8 +2006,17 @@ test('gate-all still skips pending-generation specs whose target test does not e
     { cwd: workspace, encoding: 'utf8' }
   );
 
-  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
-  assert.match(result.stdout, /Specs awaiting live generation \(not gated\)/);
+  assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`);
+  assert.match(result.stdout, /Skipping spec awaiting live generation/);
+  assert.match(result.stderr, /default gate-all refuses skipped work/);
+
+  const reviewOnly = spawnSync(
+    process.execPath,
+    [path.join(process.cwd(), 'scripts', 'ai', 'gate-all.mjs'), '--dir', 'specs', '--review-only'],
+    { cwd: workspace, encoding: 'utf8' }
+  );
+  assert.equal(reviewOnly.status, 0, `${reviewOnly.stdout}\n${reviewOnly.stderr}`);
+  assert.match(reviewOnly.stdout, /no execution is claimed/);
 });
 
 // gate-all resolves ai:spec:validate / ai:test:review through npm in its cwd, so expected-red
@@ -2063,18 +2212,18 @@ function writeSpec(workspace, overrides = {}) {
     ...variants.rows.map((row) => `| ${row.join(' | ')} |`)
   ].join('\n');
   const includesBullets = includes.map((entry) => `- ${entry}`).join('\n');
-  const content = `# Flow: Test flow
+  let content = `# Flow: Test flow
 
 ## Metadata
 
 | Field | Value |
 |---|---|
-| Flow ID | FLOW-TEST-${crypto.randomUUID().slice(0, 8)} |
+| Flow ID | ${overrides.flowId ?? `FLOW-TEST-${crypto.randomUUID().slice(0, 8)}`} |
 | Spec Version | 1.0.0 |
-| Owner | aqa-team@example.com |
+| Owner | ${overrides.owner ?? 'aqa-team@example.com'} |
 | Priority | P1 |
 | Test Type | regression |
-| Auth | none |
+| Auth | ${overrides.auth ?? 'none'} |
 | Target Test File | ${overrides.targetTestFile ?? 'tests/regression/generated.spec.ts'} |
 | Base Path | /checkout |
 | Tags | @generated @regression |
@@ -2195,6 +2344,9 @@ ${(overrides.extraRequirements ?? []).join('\n')}
 - Test fixture spec.
 `;
 
+  if (content.includes('__BEHAVIORAL_HASH__')) {
+    content = content.replace('__BEHAVIORAL_HASH__', specSha256(content));
+  }
   fs.writeFileSync(specPath, content);
   return specPath;
 }

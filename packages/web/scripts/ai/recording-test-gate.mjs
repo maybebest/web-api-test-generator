@@ -6,11 +6,14 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 import { normalizeRecordingFile } from './lib/recording-parser.mjs';
+import { resolveEnv } from './lib/ai-client.mjs';
+import { buildGateEnvironment } from './lib/gate-environment.mjs';
 
-function parseArgs(args) {
+export function parseArgs(args) {
   const parsed = {
     recording: undefined,
-    test: undefined
+    test: undefined,
+    repeatEach: 3
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -24,6 +27,16 @@ function parseArgs(args) {
 
     if (arg === '--test') {
       parsed.test = args[index + 1];
+      index += 1;
+      continue;
+    }
+
+    if (arg === '--repeat-each') {
+      const repeatEach = Number(args[index + 1]);
+      if (repeatEach !== 1 && repeatEach !== 3) {
+        throw new Error('--repeat-each must be 1 (fast) or 3 (full).');
+      }
+      parsed.repeatEach = repeatEach;
       index += 1;
       continue;
     }
@@ -88,13 +101,13 @@ function tscCommand(packageManager) {
   return ['npx', args];
 }
 
-function runCommand(command, args, env = {}) {
+function runCommand(command, args, env) {
   console.log('');
   console.log(`$ ${command} ${args.join(' ')}`);
   const result = spawnSync(command, args, {
     stdio: 'inherit',
     shell: false,
-    env: { ...process.env, ...env }
+    env
   });
 
   if (result.error) {
@@ -212,6 +225,21 @@ export function playwrightStageEnv(reportPath) {
   };
 }
 
+export function buildRecordingPlaywrightArgs(testPath, repeatEach = 3) {
+  if (repeatEach !== 1 && repeatEach !== 3) {
+    throw new Error('repeat-each must be 1 (fast) or 3 (full).');
+  }
+  return [
+    'test',
+    testPath,
+    '--project=local-chromium',
+    '--reporter=html,json',
+    '--retries=0',
+    `--repeat-each=${repeatEach}`,
+    '--max-failures=1'
+  ];
+}
+
 // A green run must leave no .ai-runs leftovers behind — ai:clean:check treats
 // them as dirty state; only failure evidence may stay. Mirrors
 // cleanupJsonReports in generated-test-gate.mjs.
@@ -241,7 +269,7 @@ export function readPlaywrightReportVerdict(reportPath) {
 
 function printHelp() {
   console.log(`Usage:
-  node scripts/ai/recording-test-gate.mjs --recording <recording.json> --test <test-file>
+  node scripts/ai/recording-test-gate.mjs --recording <recording.json> --test <test-file> [--repeat-each 1|3]
 
 Runs validation, static review, typecheck, Playwright listing, and chromium execution for one recorded test.
 The chromium stage writes a JSON report and the gate fails unless it shows expected>=1, unexpected=0, skipped=0.`);
@@ -276,15 +304,17 @@ function runCli() {
   }
 
   const packageManager = detectPackageManager();
+  const resolvedEnvironment = resolveEnv(process.env).env;
+  const staticEnvironment = buildGateEnvironment(resolvedEnvironment, { profile: 'static' });
   const staticCommands = [
     packageRunCommand(packageManager, 'ai:recording:validate', [args.recording]),
     packageRunCommand(packageManager, 'ai:recording:review', ['--recording', args.recording, '--test', args.test]),
-    packageRunCommand(packageManager, 'test:e2e:list'),
+    packageRunCommand(packageManager, 'test:e2e:list', [args.test]),
     tscCommand(packageManager)
   ];
 
   for (const [command, commandArgs] of staticCommands) {
-    const status = runCommand(command, commandArgs);
+    const status = runCommand(command, commandArgs, staticEnvironment);
     if (status !== 0) {
       copyEvidence(normalized.recordingPath, normalized.sha256);
       process.exit(status);
@@ -295,13 +325,14 @@ function runCli() {
   fs.mkdirSync(path.dirname(reportPath), { recursive: true });
   fs.rmSync(reportPath, { force: true });
 
-  const [playwrightBin, playwrightArgs] = playwrightCommand(packageManager, [
-    'test',
-    args.test,
-    '--project=chromium',
-    '--reporter=html,json'
-  ]);
-  const playwrightStatus = runCommand(playwrightBin, playwrightArgs, playwrightStageEnv(reportPath));
+  const [playwrightBin, playwrightArgs] = playwrightCommand(
+    packageManager,
+    buildRecordingPlaywrightArgs(args.test, args.repeatEach)
+  );
+  const playwrightStatus = runCommand(playwrightBin, playwrightArgs, {
+    ...buildGateEnvironment(resolvedEnvironment, { profile: 'local-runtime' }),
+    ...playwrightStageEnv(reportPath)
+  });
   if (playwrightStatus !== 0) {
     copyEvidence(normalized.recordingPath, normalized.sha256);
     process.exit(playwrightStatus);

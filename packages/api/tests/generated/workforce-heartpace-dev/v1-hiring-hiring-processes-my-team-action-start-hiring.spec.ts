@@ -11,9 +11,9 @@ import {
 } from '../support/apiTestUtils.js';
 
 test.describe('workforce.heartpace.dev /v1/hiring/hiring-processes/my-team/action/start-hiring', () => {
-  // origin: observed | category: smoke | confidence: high | execution: fixme | mutationRisk: unsafe
-  test.fixme('smoke: POST /v1/hiring/hiring-processes/my-team/action/start-hiring returns 200 @smoke @hiring @mutating', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-workforce-heartpace-dev-v1-hiring-hiring-processes-my-team-action-start-hir-8f618426.request.json'));
+  // origin: observed | category: smoke | confidence: high | execution: skip | mutationRisk: unsafe
+  test.skip('smoke: POST /v1/hiring/hiring-processes/my-team/action/start-hiring returns 200 @smoke @hiring @mutating', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-workforce-heartpace-dev-v1-hiring-hiring-processes-my-team-action-start-hir-2d689327.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://workforce.heartpace.dev',

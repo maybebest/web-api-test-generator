@@ -33,7 +33,7 @@ npm run ai:recording:gate -- --recording recordings/checkout-confirmation.json -
 npm run ai:recording:drift
 ```
 
-`recordings/_example.json` is an underscore-prefixed template and is skipped by the gates (like `specs/_template.md`). The committed example pair above runs against the demo app's `/recorded-example/checkout` page.
+`recordings/_example.json` is an underscore-prefixed template and is skipped by the gates (like `specs/_template.md`). The committed pair above runs against the deterministic local fixture's `/recorded-example/checkout` page in `local-chromium`.
 
 ## Enforcement
 

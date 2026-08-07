@@ -217,7 +217,6 @@ function buildSpec({ text, args }) {
 | Base Path | ${args.basePath} |
 | Tags | @generated @manual-import |
 | Generation Mode | single |
-| Review Status | ai-draft |
 | Generation Source | manual-doc-import |
 
 ## User Story
@@ -228,7 +227,7 @@ So that NEEDS_REVIEW business value is verified.
 
 ## Preconditions
 
-- Imported from manual documentation; review and replace NEEDS_REVIEW values before promotion.
+- Imported from manual documentation; replace every NEEDS_REVIEW value before automated validation.
 - Source scenario must be confirmed against the current product behavior.
 
 ## Out-of-scope
@@ -350,16 +349,16 @@ ${outcomes
 \`\`\`text
 ${sanitizeEmbeddedSource(text)}
 \`\`\`
-- This draft intentionally fails strict validation until Review Status is changed from ai-draft after human review.
+- This draft intentionally fails normal validation while any NEEDS_REVIEW marker remains.
 `;
 }
 
 // Untrusted manual-doc text is embedded inside a fenced ```text block. Without
 // sanitization, a payload containing its own closing fence followed by Markdown
-// (e.g. a second `## Metadata` with `Review Status | human-reviewed`) would break
-// out of the block and inject real spec structure, defeating the ai-draft
-// human-review firewall. Neutralize any fence-closing backtick runs and stray
-// heading markers so the source can only ever be inert quoted text.
+// (e.g. a second `## Metadata` overriding Owner or Target Test File) would
+// break out of the block and inject real spec structure. Neutralize any
+// fence-closing backtick runs and stray heading markers so the source can only
+// ever be inert quoted text.
 function sanitizeEmbeddedSource(text) {
   return String(text)
     .trim()
@@ -542,8 +541,9 @@ Options:
   --base-path <path>         Flow entry path. Default: /.
   --force                    Overwrite existing output file.
 
-Creates a draft strict flow spec from raw manual QA text. Draft specs are marked
-Review Status=ai-draft and must be human-reviewed before the normal gate passes.`);
+Creates a draft strict flow spec from raw manual QA text. Draft specs keep
+NEEDS_REVIEW markers until deterministic contract data is supplied; normal
+validation fails closed while any marker remains.`);
 }
 
 function runCli() {
@@ -569,7 +569,7 @@ function runCli() {
     fs.writeFileSync(out, content);
     console.log(`Draft flow spec written to ${out}`);
     console.log('');
-    console.log('Next step: review NEEDS_REVIEW fields, set Review Status to human-reviewed, then run:');
+    console.log('Next step: resolve every NEEDS_REVIEW field, then run the deterministic validator:');
     console.log(`npm run ai:spec:validate -- ${out}`);
   } catch (error) {
     console.error(error.message);

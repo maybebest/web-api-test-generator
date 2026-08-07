@@ -17,8 +17,8 @@ The short version:
 The project has a TypeScript Playwright setup with:
 
 - `playwright.config.ts`
-- Chromium, Firefox, WebKit, and mobile Chrome projects
-- CI-friendly retries, workers, reports, traces, screenshots, and videos
+- a deterministic `local-chromium` project plus external Chromium, Firefox, WebKit, and mobile Chrome projects when an external URL is configured
+- zero retries, serialized external workers, reports, traces, screenshots, and videos
 - `PLAYWRIGHT_TEST_BASE_URL` support
 - optional auth setup through `tests/setup/auth.setup.ts`
 
@@ -34,7 +34,8 @@ tests/
   smoke/          fast confidence checks
   regression/     business flow tests
   accessibility/  axe accessibility checks
-  visual/         opt-in visual snapshot examples
+  visual/         blocking local layout/CSS contract
+  recorded/       Chrome Recorder-derived local flow
 ```
 
 ### Reusable Test Code
@@ -67,13 +68,13 @@ ai/config.json  project-specific variant axes for generated specs
 GitHub Actions workflow is added at:
 
 ```text
-.github/workflows/playwright.yml
+.github/workflows/web.yml
 ```
 
 It runs two jobs on pull requests and pushes to `main`/`master` (with a concurrency group that cancels in-progress runs on the same ref):
 
-- `quality`: typecheck, AI script self-tests, clean-tree check, brain doctor, agent-browser skill check, strict spec validation, spec/recording drift, generated and recorded test gates, smoke tests, and accessibility tests — on chromium only (the job installs only the chromium browser).
-- `regression-matrix`: `tests/regression` per Playwright project. Chromium-only by default; opt in to more projects via the `PW_PROJECTS` repo variable (derived names like `chromium-auth` and `mobile-chrome` are resolved to the right browser engine).
+- `quality`: static quality gates plus smoke, accessibility, visual-contract, and recorded local tests in `local-chromium`.
+- `authenticated-regression`: an opt-in, preflighted, single-worker `chromium-auth` run against the configured non-production environment.
 
 Both jobs upload Playwright reports, test results, and Allure results/reports as artifacts; the quality job also uploads the spec coverage catalog and, on failure, the `.ai-runs` gate evidence.
 
@@ -97,11 +98,11 @@ Write down:
 
 Use Playwright CLI and local skills to inspect the real app.
 
-Example (start the bundled demo app first with `npm run demo:start` — exploration sessions do not start it for you, only `playwright test` does via `webServer`):
+Example (start the deterministic fixture first; exploration sessions do not start it for you):
 
 ```bash
-npm run demo:start &
-export PLAYWRIGHT_TEST_BASE_URL=http://localhost:3000
+npm run fixture:start &
+export PLAYWRIGHT_TEST_BASE_URL=http://127.0.0.1:3000
 export PLAYWRIGHT_CLI_SESSION=checkout-flow
 
 playwright-cli open "$PLAYWRIGHT_TEST_BASE_URL" --headed
@@ -125,7 +126,7 @@ If you are starting from raw Gherkin, a checklist, or manual QA notes, create a 
 npm run ai:spec:import -- --input docs/manual/<scenario>.md --out specs/<flow-name>.draft.md
 ```
 
-Review `NEEDS_REVIEW` values, confirm business rules/data cases, and promote `Review Status` from `ai-draft` to `human-reviewed`.
+Resolve every `NEEDS_REVIEW` value and provide deterministic business rules/data cases, then run the normal spec validator. No interactive promotion or sign-off step is required.
 
 Start from the strict template:
 
@@ -288,13 +289,13 @@ npm run pw:install
 Set the app URL:
 
 ```bash
-export PLAYWRIGHT_TEST_BASE_URL=http://localhost:3000
+export PLAYWRIGHT_TEST_BASE_URL=https://your-non-production-host.example
 ```
 
-Start the bundled demo app when working outside `playwright test` (it serves `http://localhost:3000`, the default base URL; test runs start it automatically via `webServer`):
+Start the deterministic fixture when working outside `playwright test` (test runs start it automatically):
 
 ```bash
-npm run demo:start
+npm run fixture:start
 ```
 
 Run smoke tests:
@@ -335,13 +336,9 @@ playwright/.auth/*.json
 
 ## Visual Tests
 
-Visual tests are present but disabled by default, and they run only in the `chromium` project (other browser projects ignore `tests/visual/`). Screenshot policy is centralized in `playwright.config.ts` (`maxDiffPixelRatio: 0.01`, animations disabled, baselines under `tests/__screenshots__/`).
+The blocking local visual suite checks a deterministic layout/CSS contract in `local-chromium` and attaches a screenshot as evidence. It does not claim pixel-baseline comparison.
 
-Enable them only when the team is ready to maintain baselines:
-
-```bash
-ENABLE_VISUAL_TESTS=true npm run test:e2e -- tests/visual
-```
+Run it with `npm run test:e2e:visual`.
 
 ## Accessibility Tests
 
@@ -350,7 +347,7 @@ Accessibility tests use `@axe-core/playwright`.
 Run them with:
 
 ```bash
-npx playwright test tests/accessibility --project=chromium
+npm run test:e2e:accessibility
 ```
 
 ## Useful Commands

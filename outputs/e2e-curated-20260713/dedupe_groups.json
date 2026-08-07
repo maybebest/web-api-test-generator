@@ -1,0 +1,295 @@
+{
+  "schemaVersion": 1,
+  "generatedOn": "2026-07-13",
+  "scope": {
+    "repositoryInventory": "packages/web/docs/ai-testing/e2e-test-case-inventory.json",
+    "externalWorkbook": "/Users/maybebest/Documents/Projects/sains/sains_docs/outputs/pollen_e2e_generated_20260713/Nectar360_Pollen_E2E_Journey_Test_Suite.xlsx",
+    "masterRecords": 800,
+    "repositoryRecords": 752,
+    "externalJourneys": 48
+  },
+  "counts": {
+    "semanticUnionGroups": 120,
+    "semanticUnionInputRecords": 301,
+    "semanticAliasesRemovedFromExecutableCount": 181,
+    "safeExactTitleGroups": 25,
+    "falseTitleGroups": 7,
+    "obsoleteIds": 6,
+    "coverageOnlyIds": 14,
+    "externalFalseIdCollisions": 4,
+    "projectedRepositoryExecutableRecords": 551,
+    "projectedMasterRowsIncludingExternalJourneys": 599
+  },
+  "countingNotes": [
+    "safeExactTitleGroups are a subset of semanticUnionGroups and must not be subtracted again.",
+    "projectedRepositoryExecutableRecords = 752 - 181 semantic aliases - 6 obsolete IDs - 14 coverage-only IDs.",
+    "The 48 external journeys are unique high-level journeys. Twenty-seven have strong composite-to-atomic overlap with repository cases and should be linked as coverage parents, not silently merged into a single atomic case.",
+    "All aliases and source references must be retained on the canonical record for traceability."
+  ],
+  "selectionRules": [
+    "Prefer the current-contract or explicitly corrected case over a superseded baseline.",
+    "Then prefer the richer end-to-end case with persisted or non-UI assertions.",
+    "Merge only cases with the same business risk, trigger, relative boundary and oracle.",
+    "Keep different boundaries, roles, pricing models, entry contexts and expected outcomes separate.",
+    "Treat coverage-only wrappers as traceability containers, not executable tests."
+  ],
+  "semanticUnionGroups": [
+    { "canonical": "AUTH-001", "aliases": ["SAI-AUTH-001"] },
+    { "canonical": "AUTH-002", "aliases": ["SAI-AUTH-002"] },
+    { "canonical": "AUTH-006", "aliases": ["SAI-AUTH-003"] },
+    { "canonical": "DEL-001", "aliases": ["SAI-DEL-001"] },
+    { "canonical": "DEL-002", "aliases": ["SAI-DEL-002"] },
+    { "canonical": "DEL-003", "aliases": ["SAI-DEL-003"] },
+    { "canonical": "DEL-004", "aliases": ["SAI-DEL-006"] },
+    { "canonical": "DEL-005", "aliases": ["SAI-DEL-005"] },
+    { "canonical": "DEL-006", "aliases": ["SAI-DEL-004"] },
+    { "canonical": "DEL-007", "aliases": ["SAI-DEL-007"] },
+    { "canonical": "SKU-H-011", "aliases": ["SAI-LIM-001"] },
+    { "canonical": "SKU-H-012", "aliases": ["SAI-LIM-003"] },
+    { "canonical": "SKU-H-013", "aliases": ["SAI-LIM-004"] },
+    { "canonical": "SKU-H-014", "aliases": ["SAI-LIM-005"] },
+    { "canonical": "ENTRY-001", "aliases": ["SAI-MP-001"] },
+    { "canonical": "AI-004", "aliases": ["SAI-MP-003"] },
+    { "canonical": "AI-002", "aliases": ["SAI-MP-005"] },
+    { "canonical": "AI-003", "aliases": ["SAI-MP-006"] },
+    { "canonical": "SKU-M-008", "aliases": ["SAI-NEG-001"] },
+    { "canonical": "SKU-M-007", "aliases": ["SAI-NEG-002"] },
+    { "canonical": "ENTRY-007", "aliases": ["SAI-NEG-003"] },
+    { "canonical": "NEG-003", "aliases": ["SAI-NEG-004"] },
+    { "canonical": "NEG-001", "aliases": ["SAI-NEG-005"] },
+    { "canonical": "SAVE-006", "aliases": ["SAI-NEG-006"] },
+    { "canonical": "NEG-005", "aliases": ["SAI-NEG-007"] },
+    { "canonical": "NEG-007", "aliases": ["SAI-NEG-008", "SUM-012"] },
+    { "canonical": "RATE-005", "aliases": ["SAI-RATE-002"] },
+    { "canonical": "RATE-006", "aliases": ["SAI-RATE-003"] },
+    { "canonical": "RATE-013", "aliases": ["SAI-RATE-004"] },
+    { "canonical": "REST-001", "aliases": ["SAI-REST-001"] },
+    { "canonical": "REST-002", "aliases": ["SAI-REST-002"] },
+    { "canonical": "SAVE-001", "aliases": ["SAVE-002", "SAI-SAVE-001"] },
+    { "canonical": "SAVE-005", "aliases": ["SAI-SAVE-002"] },
+    { "canonical": "SKU-M-002", "aliases": ["SAI-SKU-001"] },
+    { "canonical": "SKU-M-003", "aliases": ["SAI-SKU-002"] },
+    { "canonical": "SKU-H-004", "aliases": ["SAI-SKU-004", "TC-CHAN-001"] },
+    { "canonical": "SKU-H-005", "aliases": ["SAI-SKU-005"] },
+    { "canonical": "SKU-H-006", "aliases": ["SAI-SKU-006"] },
+    { "canonical": "SKU-M-009", "aliases": ["SAI-SKU-007"] },
+    { "canonical": "SKU-H-007", "aliases": ["SAI-SKU-008"] },
+    { "canonical": "SKU-M-010", "aliases": ["SUM-007"] },
+    { "canonical": "SKU-H-008", "aliases": ["SUM-008"] },
+    { "canonical": "CHANNELM-E2E-002", "aliases": ["CHANNELM-E2E-024", "SAI-SS-001"] },
+    { "canonical": "CHANNELM-E2E-009", "aliases": ["SAI-SS-009"] },
+    { "canonical": "CHANNELM-E2E-008", "aliases": ["SAI-SS-010"] },
+    { "canonical": "CHANNELM-E2E-019", "aliases": ["CHANNELM-E2E-020", "SAI-SS-012"] },
+    { "canonical": "CHANNELM-E2E-021", "aliases": ["SAI-SS-014"] },
+    { "canonical": "CHANNELM-E2E-022", "aliases": ["SAI-SS-015"] },
+    { "canonical": "CHANNELM-E2E-016", "aliases": ["CHANNELM-E2E-018", "SAI-SS-016"] },
+    { "canonical": "SECONDAR-E2E-001", "aliases": ["SAI-SS-019"] },
+    { "canonical": "STORE-002", "aliases": ["SAI-STORE-001"] },
+    { "canonical": "STORE-001", "aliases": ["SAI-STORE-002"] },
+    { "canonical": "STORE-003", "aliases": ["SAI-STORE-003"] },
+    { "canonical": "STORE-006", "aliases": ["SAI-STORE-004"] },
+    { "canonical": "TIME-002", "aliases": ["SAI-TIME-001"] },
+    { "canonical": "TIME-003", "aliases": ["SAI-TIME-002"] },
+    { "canonical": "TIME-004", "aliases": ["SAI-TIME-003"] },
+    { "canonical": "TIME-005", "aliases": ["SAI-TIME-004"] },
+    { "canonical": "TIME-006", "aliases": ["SAI-TIME-005"] },
+    { "canonical": "TIME-007", "aliases": ["SAI-TIME-006"] },
+    { "canonical": "TIME-008", "aliases": ["SAI-TIME-007"] },
+    { "canonical": "EMPTY-005", "aliases": ["EXP-009"] },
+    { "canonical": "TC-ESL-001", "aliases": ["TC-EDIT-001"] },
+    { "canonical": "TC-ESL-002", "aliases": ["TC-EDIT-002"] },
+    { "canonical": "TC-ESL-003", "aliases": ["TC-EDIT-003"] },
+    { "canonical": "TC-ESL-005", "aliases": ["TC-EDIT-004"] },
+    { "canonical": "TC-EDIT-005", "aliases": ["TC-ESL-006", "TC-ESL-007"] },
+    { "canonical": "TC-EDIT-006", "aliases": ["TC-ESL-010", "TC-ABL-022"] },
+    { "canonical": "TC-ESL-011", "aliases": ["TC-EDIT-007"] },
+    { "canonical": "TC-EDIT-008", "aliases": ["TC-ESL-012", "TC-ESL-013", "TC-SPI-018"] },
+    { "canonical": "TC-ESL-014", "aliases": ["TC-EDIT-009"] },
+    { "canonical": "TC-ESL-016", "aliases": ["TC-EDIT-010"] },
+    { "canonical": "TC-EDIT-012", "aliases": ["TC-ESL-017"] },
+    { "canonical": "TC-EDIT-013", "aliases": ["TC-ESL-020"] },
+    { "canonical": "TC-EDIT-014", "aliases": ["TC-IND-009"] },
+    { "canonical": "TC-EDIT-015", "aliases": ["TC-IND-010"] },
+    { "canonical": "TC-SPI-001", "aliases": ["TC-PRM-002"] },
+    { "canonical": "TC-SPI-003", "aliases": ["TC-ABL-008", "TC-XJ-004", "TC-CHAN-022"] },
+    { "canonical": "TC-SPI-007", "aliases": ["TC-PRM-005"] },
+    { "canonical": "TC-SPI-009", "aliases": ["TC-PRM-007"] },
+    { "canonical": "TC-SPI-010", "aliases": ["TC-ABL-002", "TC-IND-003", "TC-PRM-003"] },
+    { "canonical": "TC-SPI-011", "aliases": ["TC-PRM-008"] },
+    { "canonical": "TC-SPI-012", "aliases": ["TC-PRM-010", "TC-XJ-019"] },
+    { "canonical": "TC-SPI-017", "aliases": ["TC-ABL-007", "TC-PRM-014"] },
+    { "canonical": "TC-SPI-021", "aliases": ["TC-PRM-011"] },
+    { "canonical": "TC-SPI-026", "aliases": ["TC-PRM-017"] },
+    { "canonical": "TC-SPI-027", "aliases": ["TC-PRM-004"] },
+    { "canonical": "TC-ABL-001", "aliases": ["TC-IND-001", "TC-GHM-036"] },
+    { "canonical": "TC-ABL-003", "aliases": ["TC-IND-002", "TC-GHM-034"] },
+    { "canonical": "TC-ABL-005", "aliases": ["TC-CHAN-024", "TC-XJ-006"] },
+    { "canonical": "TC-ABL-010", "aliases": ["TC-IND-007", "TC-XJ-007"] },
+    { "canonical": "TC-ABL-011", "aliases": ["TC-IND-008", "TC-CHAN-019"] },
+    { "canonical": "TC-ABL-012", "aliases": ["TC-CHAN-020", "TC-XJ-014"] },
+    { "canonical": "TC-ABL-029", "aliases": ["TC-ABL-015"] },
+    { "canonical": "SKU-H-003", "aliases": ["SAI-SKU-003", "TC-ABL-017", "TC-GHM-020", "TC-SPI-014", "TC-CHAN-002", "TC-CHL-001", "TC-VAL-002"] },
+    { "canonical": "TC-GHM-037", "aliases": ["TC-ABL-018", "TC-CHL-012", "TC-VAL-015", "TC-XJ-026"] },
+    { "canonical": "TC-ABL-019", "aliases": ["TC-CHL-010", "TC-VAL-014"] },
+    { "canonical": "TC-ABL-025", "aliases": ["TC-ESL-024", "TC-VAL-016"] },
+    { "canonical": "TC-ABL-027", "aliases": ["TC-XJ-020"] },
+    { "canonical": "TC-ABL-030", "aliases": ["TC-IND-032"] },
+    { "canonical": "TC-GHM-016", "aliases": ["TC-XJ-018"] },
+    { "canonical": "TC-CHAN-004", "aliases": ["TC-IND-024"] },
+    { "canonical": "TC-CHAN-006", "aliases": ["TC-IND-012"] },
+    { "canonical": "SKU-H-009", "aliases": ["SAI-SKU-010", "TC-CHAN-007", "TC-CHAN-027", "TC-IND-013", "TC-CHL-021"] },
+    { "canonical": "SKU-H-010", "aliases": ["SAI-SKU-011", "TC-CHAN-009", "TC-IND-015"] },
+    { "canonical": "TC-CHAN-008", "aliases": ["TC-IND-014", "TC-CHL-011", "TC-XJ-009"] },
+    { "canonical": "TC-MAX-003", "aliases": ["TC-CHAN-010", "TC-IND-016", "TC-MAX-028", "TC-VAL-009"] },
+    { "canonical": "TC-MAX-002", "aliases": ["TC-CHAN-011", "TC-IND-017", "TC-MAX-029"] },
+    { "canonical": "TC-MAX-004", "aliases": ["TC-MAX-001", "TC-CHAN-012", "TC-IND-018", "TC-MAX-030", "TC-VAL-010"] },
+    { "canonical": "TC-MAX-014", "aliases": ["TC-CHAN-013", "TC-IND-019", "TC-MAX-012", "TC-MAX-035"] },
+    { "canonical": "TC-MAX-010", "aliases": ["TC-CHAN-014", "TC-IND-020", "TC-MAX-031"] },
+    { "canonical": "TC-MAX-015", "aliases": ["TC-CHAN-015", "TC-IND-021"] },
+    { "canonical": "TC-MAX-019", "aliases": ["TC-CHAN-016", "TC-IND-022", "TC-MAX-037"] },
+    { "canonical": "TC-MAX-020", "aliases": ["TC-CHAN-017", "TC-IND-023", "TC-MAX-038"] },
+    { "canonical": "TC-MAX-021", "aliases": ["TC-CHAN-018", "TC-MAX-039"] },
+    { "canonical": "TC-CHAN-023", "aliases": ["TC-IND-004"] },
+    { "canonical": "TC-MAX-018", "aliases": ["TC-MAX-033"] },
+    { "canonical": "TC-MAX-017", "aliases": ["TC-MAX-034"] },
+    { "canonical": "TC-VAL-001", "aliases": ["TC-XJ-017"] },
+    { "canonical": "TC-CHL-007", "aliases": ["TC-VAL-020"] }
+  ],
+  "safeExactTitleGroups": [
+    { "canonical": "TIME-003", "aliases": ["SAI-TIME-002"] },
+    { "canonical": "TIME-004", "aliases": ["SAI-TIME-003"] },
+    { "canonical": "DEL-002", "aliases": ["SAI-DEL-002"] },
+    { "canonical": "TC-ESL-016", "aliases": ["TC-EDIT-010"] },
+    { "canonical": "SKU-H-011", "aliases": ["SAI-LIM-001"] },
+    { "canonical": "SKU-H-012", "aliases": ["SAI-LIM-003"] },
+    { "canonical": "SKU-H-004", "aliases": ["SAI-SKU-004"] },
+    { "canonical": "DEL-003", "aliases": ["SAI-DEL-003"] },
+    { "canonical": "DEL-001", "aliases": ["SAI-DEL-001"] },
+    { "canonical": "EMPTY-005", "aliases": ["EXP-009"] },
+    { "canonical": "SKU-H-007", "aliases": ["SAI-SKU-008"] },
+    { "canonical": "SKU-M-009", "aliases": ["SAI-SKU-007"] },
+    { "canonical": "SKU-H-009", "aliases": ["SAI-SKU-010"] },
+    { "canonical": "SKU-H-010", "aliases": ["SAI-SKU-011"] },
+    { "canonical": "SKU-M-008", "aliases": ["SAI-NEG-001"] },
+    { "canonical": "TIME-007", "aliases": ["SAI-TIME-006"] },
+    { "canonical": "AI-004", "aliases": ["SAI-MP-003"] },
+    { "canonical": "SKU-H-013", "aliases": ["SAI-LIM-004"] },
+    { "canonical": "RATE-006", "aliases": ["SAI-RATE-003"] },
+    { "canonical": "RATE-005", "aliases": ["SAI-RATE-002"] },
+    { "canonical": "RATE-013", "aliases": ["SAI-RATE-004"] },
+    { "canonical": "NEG-003", "aliases": ["SAI-NEG-004"] },
+    { "canonical": "STORE-002", "aliases": ["SAI-STORE-001"] },
+    { "canonical": "STORE-001", "aliases": ["SAI-STORE-002"] },
+    { "canonical": "STORE-003", "aliases": ["SAI-STORE-003"] }
+  ],
+  "falseTitleGroups": [
+    {
+      "ids": ["CHANNELM-E2E-006", "CHANNELM-E2E-011"],
+      "reason": "Same display title, but mandatory-element Assign all and optional-element Assign all have different contexts and optional Confirm-state behavior."
+    },
+    {
+      "ids": ["FLOW-MP-007:DC-004", "FLOW-MP-007:DC-005"],
+      "reason": "Same unchanged-state oracle, but one case cancels with the labelled Cancel control and the other dismisses with Escape."
+    },
+    {
+      "ids": ["FLOW-MP-006:DC-005", "FLOW-MP-006:DC-006"],
+      "reason": "Both are above-maximum, but Cost per store and Cost per unit are distinct pricing-model inputs."
+    },
+    {
+      "ids": ["FLOW-MP-006:DC-002", "FLOW-MP-006:DC-007"],
+      "reason": "Both are at-minimum, but Cost per store and Cost per unit are distinct pricing-model inputs."
+    },
+    {
+      "ids": ["FLOW-MP-006:DC-004", "FLOW-MP-006:DC-009"],
+      "reason": "Both are at-maximum, but Cost per store and Base rate with explicit store count are distinct pricing-model inputs."
+    },
+    {
+      "ids": ["FLOW-MP-006:DC-001", "FLOW-MP-006:DC-008"],
+      "reason": "Both are below-minimum, but Cost per store and Base rate with explicit store count are distinct pricing-model inputs."
+    },
+    {
+      "ids": ["FLOW-MP-006:DC-011", "FLOW-MP-006:DC-012", "FLOW-MP-006:DC-013", "FLOW-MP-006:DC-014"],
+      "reason": "The shared generated title hides four different checks: unbounded low, unbounded high, pure predicate matrix and exact message-builder output."
+    }
+  ],
+  "obsoleteIds": [
+    {
+      "id": "TC-CHL-003",
+      "replacement": "TC-ABL-001 / TC-CHAN-023",
+      "reason": "Measurement-only Hero candidate expectation conflicts with the current all-brand-linked NUP-20956 behavior."
+    },
+    {
+      "id": "TC-GHM-005",
+      "replacement": "TC-GHM-036",
+      "reason": "Explicit pre-NUP-20956 Measurement-only baseline."
+    },
+    {
+      "id": "TC-GHM-015",
+      "replacement": "TC-GHM-036",
+      "reason": "The replacement case explicitly identifies this expectation as superseded."
+    },
+    {
+      "id": "TC-GHM-030",
+      "replacement": "TC-GHM-037",
+      "reason": "Uses channel confirmation as the disable trigger instead of the start of channel-level Hero editing."
+    },
+    {
+      "id": "TC-XJ-010",
+      "replacement": "TC-XJ-026",
+      "reason": "The replacement case explicitly corrects the post-confirm/pre-edit button-state contract."
+    },
+    {
+      "id": "TC-XJ-023",
+      "replacement": "TC-XJ-026 plus retained non-conflicting journey assertions",
+      "reason": "Step 3 incorrectly expects the global Hero edit control to disable immediately after channel confirmation."
+    }
+  ],
+  "conditionalVersionGatedIds": [
+    {
+      "id": "TC-GHM-004",
+      "reason": "It may describe a pre-NUP-20956 initial conversation-box contract; keep only if an owner confirms that this surface intentionally differs from the current all-brand-linked Hero modal contract."
+    }
+  ],
+  "coverageOnlyIds": [
+    "SAI-MP-004",
+    "SAI-RATE-001",
+    "SAI-STORE-005",
+    "TC-CHAN-030",
+    "TC-MAX-032",
+    "TC-ABL-023",
+    "JOURNEY-001",
+    "JOURNEY-002",
+    "JOURNEY-003",
+    "JOURNEY-004",
+    "JOURNEY-005",
+    "JOURNEY-006",
+    "JOURNEY-007",
+    "JOURNEY-008"
+  ],
+  "externalFalseIdCollisions": [
+    {
+      "bareId": "TC-VAL-001",
+      "repositoryId": "REPO::TC-VAL-001",
+      "externalId": "XLSX::TC-VAL-001",
+      "reason": "Repository case assigns selected SKUs to channels; external journey validates independent Hero limits."
+    },
+    {
+      "bareId": "TC-VAL-002",
+      "repositoryId": "REPO::TC-VAL-002",
+      "externalId": "XLSX::TC-VAL-002",
+      "reason": "Repository case inherits global Heroes on a later channel; external journey blocks save while Hero-limit warnings remain."
+    },
+    {
+      "bareId": "TC-VAL-003",
+      "repositoryId": "REPO::TC-VAL-003",
+      "externalId": "XLSX::TC-VAL-003",
+      "reason": "Repository case propagates Measurement SKUs to channels; external journey filters ineligible Heroes and continues batches."
+    },
+    {
+      "bareId": "TC-VAL-004",
+      "repositoryId": "REPO::TC-VAL-004",
+      "externalId": "XLSX::TC-VAL-004",
+      "reason": "Repository case assigns single-prompt SKUs to channels; external journey handles invalid or changed channel-limit configuration."
+    }
+  ]
+}

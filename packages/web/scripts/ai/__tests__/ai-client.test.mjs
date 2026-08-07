@@ -8,16 +8,35 @@ import { spawnSync } from 'node:child_process';
 
 import {
   BRAIN_KINDS,
+  CODE_OUTPUT_SCHEMA,
+  GENERATION_USAGE_SCHEMA,
   REST_OUTPUT_CONTRACT,
+  STRUCTURED_REST_OUTPUT_CONTRACT,
+  buildCliEnvironment,
+  decodeCodexJsonlOutput,
   defaultDotEnvPath,
   extractCodeBlock,
   keySource,
+  isTrustedFlowSpecResult,
   parseDotEnv,
   resolveEnv,
   runBrain,
   selectBrain
 } from '../lib/ai-client.mjs';
-import { recordGenerationInManifest, resolveOutputPath } from '../ai-generate.mjs';
+import {
+  recordGenerationInManifest,
+  recordStandaloneGenerationManifest,
+  resolveOutputPath
+} from '../ai-generate.mjs';
+import { promoteGenerationCache } from '../lib/generation-cache.mjs';
+import {
+  FLOW_SPEC_DRAFT_SCHEMA,
+  flowSpecDraftTransportChars,
+  getOutputContract,
+  renderFlowSpecDraft
+} from '../lib/output-contracts.mjs';
+
+const ACCEPTED_QUALITY_FINGERPRINT = 'c'.repeat(64);
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const doctorPath = path.join(repoRoot, 'scripts', 'ai', 'ai-doctor.mjs');
@@ -26,12 +45,27 @@ const doctorPath = path.join(repoRoot, 'scripts', 'ai', 'ai-doctor.mjs');
 const noBinaries = { hasBinary: () => false };
 const allBinaries = { hasBinary: () => true };
 
+function providerArgs(call, binary) {
+  if (call.binary !== '/usr/bin/sandbox-exec') {
+    return call.args;
+  }
+  const binaryIndex = call.args.indexOf(binary);
+  assert.notEqual(binaryIndex, -1, `expected sandbox wrapper to invoke ${binary}`);
+  return call.args.slice(binaryIndex + 1);
+}
+
 function withTempDir(prefix, fn) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   try {
-    return fn(dir);
-  } finally {
+    const result = fn(dir);
+    if (result && typeof result.finally === 'function') {
+      return result.finally(() => fs.rmSync(dir, { recursive: true, force: true }));
+    }
     fs.rmSync(dir, { recursive: true, force: true });
+    return result;
+  } catch (error) {
+    fs.rmSync(dir, { recursive: true, force: true });
+    throw error;
   }
 }
 
@@ -45,12 +79,12 @@ function fakeResponse({ ok = true, status = 200, body = {}, headers = {} } = {})
   };
 }
 
-function anthropicBody({ text = 'import { test } from "fixtures/test";', stopReason = 'end_turn', usage = { input_tokens: 11, output_tokens: 22 } } = {}) {
-  return { content: [{ type: 'text', text }], stop_reason: stopReason, usage };
+function anthropicBody({ text = JSON.stringify({ code: 'import { test } from "fixtures/test";' }), stopReason = 'end_turn', usage = { input_tokens: 11, output_tokens: 22 } } = {}) {
+  return { id: 'msg_test_123', content: [{ type: 'text', text }], stop_reason: stopReason, usage };
 }
 
-function openaiBody({ text = 'const a = 1;', finishReason = 'stop', usage = { prompt_tokens: 7, completion_tokens: 9 } } = {}) {
-  return { choices: [{ message: { content: text }, finish_reason: finishReason }], usage };
+function openaiBody({ text = JSON.stringify({ code: 'const a = 1;' }), finishReason = 'stop', usage = { prompt_tokens: 7, completion_tokens: 9 } } = {}) {
+  return { id: 'chatcmpl_test_123', choices: [{ message: { content: text }, finish_reason: finishReason }], usage };
 }
 
 // Records each fetch call and replays the queued responses in order.
@@ -75,8 +109,65 @@ function recordingSleep() {
   return { sleeps, sleep };
 }
 
+function semanticFlowDraft(overrides = {}) {
+  return {
+    flowTitle: 'Checkout as a returning customer',
+    metadataRows: [
+      { field: 'Flow ID', value: 'FLOW-CHECKOUT-1' },
+      { field: 'Spec Version', value: '1.0.0' },
+      { field: 'Owner', value: 'qa@example.test' },
+      { field: 'Priority', value: 'P1' },
+      { field: 'Test Type', value: 'regression' },
+      { field: 'Auth', value: 'none' },
+      { field: 'Target Test File', value: 'tests/regression/checkout.spec.ts' },
+      { field: 'Base Path', value: '/checkout' },
+      { field: 'Tags', value: '@generated @regression' }
+    ],
+    userStory: { asA: 'returning customer', iWantTo: 'complete checkout', soThat: 'I can place an order' },
+    preconditions: ['A deterministic cart exists.'],
+    outOfScope: ['Live payment providers.'],
+    stabilityRows: [
+      { field: 'Parallel Safe', value: 'yes' },
+      { field: 'Data Isolation', value: 'per-test' },
+      { field: 'Allowed Retries', value: '0' }
+    ],
+    variants: { columns: ['Locale', 'Role', 'Plan'], rows: [{ values: ['en-US', 'guest', 'standard'] }] },
+    includes: ['none'],
+    businessRules: [{ ruleId: 'RULE-001', rule: 'Checkout validates the cart.', formula: 'cart total > 0', blockingBehavior: 'Show validation.' }],
+    dataCases: [{
+      caseId: 'DC-001',
+      inputs: [{ name: 'email', value: 'customer@example.test' }],
+      expected: [{ name: 'result', value: 'Confirmation is visible' }],
+      notes: 'Primary deterministic case'
+    }],
+    testData: [{ name: 'email', value: 'customer@example.test', notes: 'fake user only' }],
+    mocks: [{ method: 'POST', url: '/api/orders', scenario: 'Checkout succeeds', status: 201, bodyJson: '{"requestId":"REQ-999"}' }],
+    flowSteps: [
+      { step: '1', acIds: ['AC-001'], action: 'Open page', target: '/checkout', input: 'n/a', expectedResult: 'Checkout is visible', assertionHint: 'heading is visible' },
+      { step: '2', acIds: ['AC-002'], action: 'Fill email', target: 'Email field', input: 'customer@example.test', expectedResult: 'Email is accepted', assertionHint: 'field has value' },
+      { step: '3', acIds: ['AC-003'], action: 'Submit', target: 'Submit button', input: 'n/a', expectedResult: 'Confirmation is visible', assertionHint: 'confirmation heading visible' }
+    ],
+    negativeCases: [{ caseId: 'NEG-001', scenario: 'Missing email', expectedResult: 'Validation is visible' }],
+    acceptanceCriteria: [
+      { id: 'AC-001', text: 'The customer can open checkout.' },
+      { id: 'AC-002', text: 'The customer can enter an email.' },
+      { id: 'AC-003', text: 'The customer sees confirmation.' }
+    ],
+    notes: ['Fixture-only draft.'],
+    ...overrides
+  };
+}
+
 test('BRAIN_KINDS lists the supported kinds', () => {
   assert.deepEqual(BRAIN_KINDS, ['anthropic', 'openai', 'claude-cli', 'codex-cli', 'none']);
+});
+
+test('flow-spec transport budget counts the semantic suffix and CLI separator exactly once', () => {
+  const systemPrompt = 'SYSTEM';
+  const prompt = 'PROMPT';
+  const contractPromptLength = getOutputContract('flow-spec-draft').structuredSystemPrompt(systemPrompt).length;
+  assert.equal(flowSpecDraftTransportChars({ systemPrompt, prompt }), contractPromptLength + prompt.length);
+  assert.equal(flowSpecDraftTransportChars({ systemPrompt, prompt, isCli: true }), contractPromptLength + prompt.length + 2);
 });
 
 // --- selectBrain ---------------------------------------------------------
@@ -112,6 +203,45 @@ test('selectBrain honors AI_OPENAI_MODEL override', () => {
   );
 
   assert.equal(brain.model, 'gpt-5-mini');
+});
+
+test('selectBrain applies stage-specific brain and model overrides without changing global defaults', () => {
+  const env = {
+    ANTHROPIC_API_KEY: 'sk-ant-test',
+    OPENAI_API_KEY: 'sk-openai-test',
+    AI_BRAIN: 'openai',
+    AI_OPENAI_MODEL: 'gpt-global',
+    AI_SPEC_FIT_BRAIN: 'anthropic',
+    AI_SPEC_FIT_ANTHROPIC_MODEL: 'claude-fit'
+  };
+
+  assert.deepEqual(selectBrain(env, { ...noBinaries, stage: 'spec-fit' }), {
+    kind: 'anthropic',
+    label: 'Anthropic Messages API',
+    model: 'claude-fit'
+  });
+  assert.equal(selectBrain(env, { ...noBinaries, stage: 'test-generation' }).kind, 'openai');
+  assert.equal(selectBrain(env, { ...noBinaries, stage: 'test-generation' }).model, 'gpt-global');
+});
+
+test('runBrain honors stage-specific maximum output tokens', async () => {
+  const { calls, fetchImpl } = recordingFetch([fakeResponse({ body: openaiBody({
+    text: JSON.stringify(semanticFlowDraft({ flowTitle: 'Fitted flow' }))
+  }) })]);
+
+  await runBrain('fit this flow', {
+    env: {
+      OPENAI_API_KEY: 'sk-openai-test',
+      OPENAI_MAX_TOKENS: '4096',
+      AI_SPEC_FIT_OPENAI_MAX_TOKENS: '768'
+    },
+    stage: 'spec-fit',
+    outputKind: 'flow-spec-draft',
+    ...noBinaries,
+    fetchImpl
+  });
+
+  assert.equal(JSON.parse(calls[0].init.body).max_tokens, 768);
 });
 
 test('selectBrain prefers anthropic over openai when both keys are set', () => {
@@ -452,11 +582,13 @@ test('extractCodeBlock treats a ```lang line inside an open fence as content', (
 
 // --- runBrain: Anthropic REST --------------------------------------------
 
-test('runBrain anthropic pins the REST output contract and current-API request shape', async () => {
-  const { calls, fetchImpl } = recordingFetch([fakeResponse({ body: anthropicBody() })]);
+test('runBrain anthropic uses structured output, prompt caching, and normalized usage', async () => {
+  const { calls, fetchImpl } = recordingFetch([
+    fakeResponse({ body: anthropicBody(), headers: { 'x-request-id': 'req_anthropic_123' } })
+  ]);
 
   const result = await runBrain('TASK CONTENT', {
-    env: { ANTHROPIC_API_KEY: 'sk-ant-test' },
+    env: { ANTHROPIC_API_KEY: 'sk-ant-test', AI_PROMPT_CACHE: 'true' },
     ...noBinaries,
     fetchImpl
   });
@@ -470,16 +602,41 @@ test('runBrain anthropic pins the REST output contract and current-API request s
   const body = JSON.parse(calls[0].init.body);
   assert.equal(body.model, 'claude-opus-4-8');
   assert.equal(body.max_tokens, 16000);
-  assert.equal(body.system, REST_OUTPUT_CONTRACT);
+  assert.deepEqual(body.system, [{
+    type: 'text',
+    text: STRUCTURED_REST_OUTPUT_CONTRACT,
+    cache_control: { type: 'ephemeral', ttl: '5m' }
+  }]);
   assert.deepEqual(body.messages, [{ role: 'user', content: 'TASK CONTENT' }]);
+  assert.equal('cache_control' in body, false);
+  assert.deepEqual(body.output_config, {
+    format: { type: 'json_schema', schema: CODE_OUTPUT_SCHEMA }
+  });
   // Sampling params are removed on current Opus models and would return HTTP 400.
   assert.ok(!('temperature' in body));
   assert.ok(!('top_p' in body));
   assert.ok(!('top_k' in body));
 
-  assert.equal(result.text, 'import { test } from "fixtures/test";');
+  assert.equal(result.text, '```ts\nimport { test } from "fixtures/test";\n```');
   assert.equal(result.brain.kind, 'anthropic');
-  assert.deepEqual(result.usage, { model: 'claude-opus-4-8', inputTokens: 11, outputTokens: 22 });
+  assert.equal(result.usage.schemaVersion, GENERATION_USAGE_SCHEMA);
+  assert.equal(result.usage.provider, 'anthropic');
+  assert.equal(result.usage.model, 'claude-opus-4-8');
+  assert.equal(result.usage.requestId, 'req_anthropic_123');
+  assert.equal(result.usage.responseId, 'msg_test_123');
+  assert.equal(result.usage.inputTokens, 11);
+  assert.equal(result.usage.uncachedInputTokens, 11);
+  assert.equal(result.usage.outputTokens, 22);
+  assert.equal(result.usage.totalTokens, 33);
+  assert.equal(result.usage.cachedTokens, 0);
+  assert.equal(result.usage.cacheWriteTokens, 0);
+  assert.equal(result.usage.reasoningTokens, 0);
+  assert.equal(result.usage.retryCount, 0);
+  assert.equal(result.usage.retryTokens, 0);
+  assert.equal(result.usage.requestCount, 1);
+  assert.equal(result.usage.resultCacheHit, false);
+  assert.equal(result.usage.promptChars, 'TASK CONTENT'.length);
+  assert.equal(typeof result.usage.latencyMs, 'number');
 });
 
 test('runBrain anthropic honors ANTHROPIC_MAX_TOKENS', async () => {
@@ -532,7 +689,10 @@ test('runBrain retries 429 honoring Retry-After, then succeeds', async () => {
 
   assert.equal(calls.length, 2);
   assert.deepEqual(sleeps, [2000]);
-  assert.equal(result.text, 'import { test } from "fixtures/test";');
+  assert.equal(result.text, '```ts\nimport { test } from "fixtures/test";\n```');
+  assert.equal(result.usage.retryCount, 1);
+  assert.equal(result.usage.retryTokens, null);
+  assert.equal(result.usage.requestCount, 2);
 });
 
 test('runBrain retries 5xx with exponential backoff when Retry-After is absent', async () => {
@@ -583,11 +743,13 @@ test('runBrain does not retry non-retryable HTTP errors like 400', async () => {
 
 // --- runBrain: OpenAI REST -----------------------------------------------
 
-test('runBrain openai pins snapshot model, deterministic sampling and the contract', async () => {
-  const { calls, fetchImpl } = recordingFetch([fakeResponse({ body: openaiBody() })]);
+test('runBrain openai pins snapshot model, structured output, cache key, and usage', async () => {
+  const { calls, fetchImpl } = recordingFetch([
+    fakeResponse({ body: openaiBody(), headers: { 'x-request-id': 'req_openai_123' } })
+  ]);
 
   const result = await runBrain('TASK CONTENT', {
-    env: { OPENAI_API_KEY: 'sk-openai-test' },
+    env: { OPENAI_API_KEY: 'sk-openai-test', AI_PROMPT_CACHE: 'true' },
     ...noBinaries,
     fetchImpl
   });
@@ -601,12 +763,194 @@ test('runBrain openai pins snapshot model, deterministic sampling and the contra
   assert.equal(body.seed, 42);
   assert.equal(body.max_tokens, 16000);
   assert.deepEqual(body.messages, [
-    { role: 'system', content: REST_OUTPUT_CONTRACT },
+    { role: 'system', content: STRUCTURED_REST_OUTPUT_CONTRACT },
     { role: 'user', content: 'TASK CONTENT' }
   ]);
+  assert.match(body.messages[0].content, /Policy playwright-generation-policy\/v1/);
+  assert.deepEqual(body.response_format, {
+    type: 'json_schema',
+    json_schema: {
+      name: 'playwright_test_file',
+      strict: true,
+      schema: CODE_OUTPUT_SCHEMA
+    }
+  });
+  assert.match(body.prompt_cache_key, /^playwright-test-generation-v3:[a-f0-9]{24}$/);
 
-  assert.equal(result.text, 'const a = 1;');
-  assert.deepEqual(result.usage, { model: 'gpt-4o-2024-11-20', inputTokens: 7, outputTokens: 9 });
+  assert.equal(result.text, '```ts\nconst a = 1;\n```');
+  assert.equal(result.usage.schemaVersion, GENERATION_USAGE_SCHEMA);
+  assert.equal(result.usage.provider, 'openai');
+  assert.equal(result.usage.model, 'gpt-4o-2024-11-20');
+  assert.equal(result.usage.requestId, 'req_openai_123');
+  assert.equal(result.usage.responseId, 'chatcmpl_test_123');
+  assert.equal(result.usage.inputTokens, 7);
+  assert.equal(result.usage.uncachedInputTokens, 7);
+  assert.equal(result.usage.outputTokens, 9);
+  assert.equal(result.usage.totalTokens, 16);
+});
+
+test('flow-spec drafts use semantic named fields and deterministically project one data-case collection', () => {
+  const draft = semanticFlowDraft({
+    dataCases: [{
+      caseId: 'DC-042',
+      inputs: [{ name: 'quantity', value: '2|3' }],
+      expected: [{ name: 'message', value: 'Saved\nwith confirmation' }],
+      notes: 'Canonical projection'
+    }]
+  });
+  const rendered = renderFlowSpecDraft(draft);
+
+  assert.deepEqual(FLOW_SPEC_DRAFT_SCHEMA.required, [
+    'flowTitle', 'metadataRows', 'userStory', 'preconditions', 'outOfScope',
+    'stabilityRows', 'variants', 'includes', 'businessRules', 'dataCases',
+    'testData', 'mocks', 'flowSteps', 'negativeCases', 'acceptanceCriteria', 'notes'
+  ]);
+  assert.equal('sections' in FLOW_SPEC_DRAFT_SCHEMA.properties, false);
+  assert.match(rendered, /^## Metadata$/m);
+  assert.match(rendered, /^## Stability Requirements$/m);
+  assert.match(rendered, /^## Variants$/m);
+  assert.match(rendered, /^## Business Rules$/m);
+  assert.match(rendered, /^## Data Cases$/m);
+  assert.match(rendered, /^## Data Cases as JSON$/m);
+  assert.match(rendered, /^## Test Data$/m);
+  assert.match(rendered, /^## Mocks$/m);
+  assert.match(rendered, /^## Flow Steps$/m);
+  assert.match(rendered, /^## Negative Cases$/m);
+  assert.match(rendered, /^## Acceptance Criteria$/m);
+  assert.match(rendered, /\| DC-042 \| \{&quot;quantity&quot;:&quot;2\\\|3&quot;\} \| \{&quot;message&quot;:&quot;Saved\\nwith confirmation&quot;\} \| Canonical projection \|/);
+  assert.match(rendered, /```json\n\[\n  \{\n    "caseId": "DC-042",\n    "expected": \{\n      "message": "Saved\\nwith confirmation"\n    \},\n    "inputs": \{\n      "quantity": "2\|3"/);
+  assert.match(rendered, /"quantity": "2\|3"/, 'machine JSON retains the raw semantic value');
+  assert.equal((rendered.match(/DC-042/g) ?? []).length, 2, 'the one semantic case is projected only to the table and JSON');
+  assert.ok(rendered.indexOf('## Metadata') < rendered.indexOf('## Stability Requirements'));
+  assert.ok(rendered.indexOf('## Data Cases') < rendered.indexOf('## Data Cases as JSON'));
+});
+
+test('runBrain openai uses the semantic flow-spec contract without Playwright or TypeScript instructions', async () => {
+  const draft = semanticFlowDraft();
+  const { calls, fetchImpl } = recordingFetch([
+    fakeResponse({ body: openaiBody({ text: JSON.stringify(draft) }) })
+  ]);
+
+  const result = await runBrain('rough manual QA notes', {
+    env: { OPENAI_API_KEY: 'sk-openai-test' },
+    ...noBinaries,
+    fetchImpl,
+    outputKind: 'flow-spec-draft',
+    systemPrompt: 'Convert the notes into a strict flow spec.'
+  });
+
+  const body = JSON.parse(calls[0].init.body);
+  assert.doesNotMatch(body.messages[0].content, /TypeScript|Playwright/i);
+  assert.ok(body.response_format.json_schema.schema.properties.flowTitle);
+  assert.equal(body.response_format.json_schema.name, 'flow_spec_draft');
+  assert.match(result.text, /^# Flow: Checkout as a returning customer$/m);
+  assert.match(result.text, /^\| Flow ID \| FLOW-CHECKOUT-1 \|$/m);
+  assert.match(result.text, /^## Acceptance Criteria$/m);
+  assert.match(result.text, /```json/);
+  assert.equal(isTrustedFlowSpecResult(result), true);
+  assert.doesNotMatch(JSON.stringify(result), /provenance/i);
+});
+
+test('unstructured REST flow drafts decode semantic JSON and reject provider Markdown', async () => {
+  const draft = semanticFlowDraft();
+  const { calls, fetchImpl } = recordingFetch([fakeResponse({ body: openaiBody({ text: JSON.stringify(draft) }) })]);
+  const result = await runBrain('rough notes', {
+    env: { OPENAI_API_KEY: 'sk-openai-test', AI_STRUCTURED_OUTPUT: 'false' },
+    ...noBinaries, fetchImpl, outputKind: 'flow-spec-draft', systemPrompt: 'Fit the source.'
+  });
+  assert.equal(result.text, renderFlowSpecDraft(draft));
+  assert.equal('response_format' in JSON.parse(calls[0].init.body), false);
+
+  const markdown = recordingFetch([fakeResponse({ body: openaiBody({ text: '# Flow: Provider Markdown' }) })]);
+  await assert.rejects(
+    runBrain('rough notes', {
+      env: { OPENAI_API_KEY: 'sk-openai-test', AI_STRUCTURED_OUTPUT: 'false' },
+      ...noBinaries, fetchImpl: markdown.fetchImpl, outputKind: 'flow-spec-draft', systemPrompt: 'Fit the source.'
+    }),
+    /structured output was not valid JSON/i
+  );
+});
+
+test('Claude and Codex CLI flow drafts decode semantic JSON through the shared renderer', async () => {
+  const draft = semanticFlowDraft();
+  const expected = renderFlowSpecDraft(draft);
+  const claude = await runBrain('rough notes', {
+    env: { AI_BRAIN: 'claude-cli', AI_RESULT_CACHE: 'false' }, hasBinary: () => true,
+    spawnSyncImpl: () => ({ status: 0, stdout: JSON.stringify(draft), stderr: '' }),
+    outputKind: 'flow-spec-draft', systemPrompt: 'Fit the source.'
+  });
+  assert.equal(claude.text, expected);
+  assert.equal(isTrustedFlowSpecResult(claude), true);
+
+  const codex = await runBrain('rough notes', {
+    env: { AI_BRAIN: 'codex-cli', AI_RESULT_CACHE: 'false' }, hasBinary: () => true,
+    spawnSyncImpl: () => ({ status: 0, stdout: JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: JSON.stringify(draft) } }), stderr: '' }),
+    outputKind: 'flow-spec-draft', systemPrompt: 'Fit the source.'
+  });
+  assert.equal(codex.text, expected);
+  assert.equal(isTrustedFlowSpecResult(codex), true);
+});
+
+test('runBrain never promotes a flow-spec draft into the exact-result cache before UI validation', async (context) => {
+  const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-result-cache-'));
+  context.after(() => fs.rmSync(cacheDir, { recursive: true, force: true }));
+  const incompleteDraft = semanticFlowDraft({ flowTitle: 'Incomplete flow', metadataRows: [], dataCases: [] });
+  const { calls, fetchImpl } = recordingFetch([
+    fakeResponse({ body: openaiBody({ text: JSON.stringify(incompleteDraft) }) }),
+    fakeResponse({ body: openaiBody({ text: JSON.stringify(incompleteDraft) }) })
+  ]);
+  const options = {
+    env: { OPENAI_API_KEY: 'sk-openai-test' },
+    ...noBinaries,
+    fetchImpl,
+    cacheDir,
+    outputKind: 'flow-spec-draft',
+    systemPrompt: 'Convert source notes into a strict flow spec.'
+  };
+
+  await runBrain('rough notes', options);
+  await runBrain('rough notes', options);
+
+  assert.equal(calls.length, 2);
+});
+
+test('runBrain sends REST providers only dynamic task context while CLI keeps the raw task', async () => {
+  const task = `# Codex Generation Task: FLOW-1
+
+## Target
+
+- Target test file: tests/generated/flow.spec.ts
+
+## Contract
+
+Repeated static contract boilerplate that belongs in the system prompt.
+
+## Exact Implementation Instructions
+
+Run npm commands that a REST call cannot execute.
+
+## Original Flow Spec
+
+# Flow: Checkout
+
+## Acceptance Criteria
+
+- AC-1: checkout succeeds.
+`;
+  const { calls, fetchImpl } = recordingFetch([fakeResponse({ body: openaiBody() })]);
+
+  const result = await runBrain(task, {
+    env: { OPENAI_API_KEY: 'sk-openai-test' },
+    ...noBinaries,
+    fetchImpl
+  });
+
+  const sentPrompt = JSON.parse(calls[0].init.body).messages[1].content;
+  assert.match(sentPrompt, /Target test file/);
+  assert.match(sentPrompt, /AC-1: checkout succeeds/);
+  assert.doesNotMatch(sentPrompt, /Repeated static contract boilerplate|Run npm commands/);
+  assert.ok(result.usage.compactionSavedChars > 0);
+  assert.equal(result.usage.promptChars, sentPrompt.length);
 });
 
 test('runBrain openai honors OPENAI_MAX_TOKENS', async () => {
@@ -632,38 +976,636 @@ test('runBrain openai fails fast on finish_reason=length with an actionable mess
   );
 });
 
+test('runBrain records OpenAI cached and reasoning token details without double counting', async () => {
+  const { fetchImpl } = recordingFetch([fakeResponse({ body: openaiBody({
+    usage: {
+      prompt_tokens: 100,
+      completion_tokens: 30,
+      total_tokens: 130,
+      prompt_tokens_details: { cached_tokens: 70, cache_write_tokens: 5 },
+      completion_tokens_details: { reasoning_tokens: 12 }
+    }
+  }) })]);
+
+  const result = await runBrain('task', {
+    env: { OPENAI_API_KEY: 'sk-openai-test' },
+    ...noBinaries,
+    fetchImpl
+  });
+
+  assert.equal(result.usage.inputTokens, 100);
+  assert.equal(result.usage.uncachedInputTokens, 25);
+  assert.equal(result.usage.cachedTokens, 70);
+  assert.equal(result.usage.cacheWriteTokens, 5);
+  assert.equal(result.usage.reasoningTokens, 12);
+  assert.equal(result.usage.outputTokens, 30);
+  assert.equal(result.usage.totalTokens, 130);
+});
+
+test('runBrain records Anthropic cache-read and cache-write input as logical input tokens', async () => {
+  const { fetchImpl } = recordingFetch([fakeResponse({ body: anthropicBody({
+    usage: {
+      input_tokens: 10,
+      cache_read_input_tokens: 60,
+      cache_creation_input_tokens: 20,
+      output_tokens: 15
+    }
+  }) })]);
+
+  const result = await runBrain('task', {
+    env: { ANTHROPIC_API_KEY: 'sk-ant-test' },
+    ...noBinaries,
+    fetchImpl
+  });
+
+  assert.equal(result.usage.inputTokens, 90);
+  assert.equal(result.usage.uncachedInputTokens, 10);
+  assert.equal(result.usage.cachedTokens, 60);
+  assert.equal(result.usage.cacheWriteTokens, 20);
+  assert.equal(result.usage.totalTokens, 105);
+});
+
+test('runBrain configures GPT-5.6 for low-token non-reasoning generation', async () => {
+  const { calls, fetchImpl } = recordingFetch([fakeResponse({ body: openaiBody() })]);
+
+  await runBrain('task', {
+    env: { OPENAI_API_KEY: 'sk-openai-test', AI_OPENAI_MODEL: 'gpt-5.6-terra', AI_PROMPT_CACHE: 'true' },
+    ...noBinaries,
+    fetchImpl
+  });
+
+  const body = JSON.parse(calls[0].init.body);
+  assert.equal(body.max_completion_tokens, 16000);
+  assert.equal(body.reasoning_effort, 'none');
+  assert.equal(body.verbosity, 'low');
+  assert.deepEqual(body.prompt_cache_options, { mode: 'explicit', ttl: '30m' });
+  assert.match(body.prompt_cache_key, /^playwright-test-generation-v3:[a-f0-9]{24}$/);
+  assert.deepEqual(body.messages[0], {
+    role: 'system',
+    content: [{
+      type: 'text',
+      text: STRUCTURED_REST_OUTPUT_CONTRACT,
+      prompt_cache_breakpoint: { mode: 'explicit' }
+    }]
+  });
+  assert.ok(!('max_tokens' in body));
+  assert.ok(!('temperature' in body));
+  assert.ok(!('seed' in body));
+});
+
+test('GPT-5.6 disables its billable implicit cache breakpoint when provider caching is off', async () => {
+  const { calls, fetchImpl } = recordingFetch([fakeResponse({ body: openaiBody() })]);
+
+  await runBrain('changing task', {
+    env: { OPENAI_API_KEY: 'sk-openai-test', AI_OPENAI_MODEL: 'gpt-5.6-terra' },
+    ...noBinaries,
+    fetchImpl
+  });
+
+  const body = JSON.parse(calls[0].init.body);
+  assert.deepEqual(body.prompt_cache_options, { mode: 'explicit' });
+  assert.equal('prompt_cache_key' in body, false);
+  assert.equal(typeof body.messages[0].content, 'string');
+});
+
+test('runBrain can disable structured output and provider prompt caching explicitly', async () => {
+  const text = '```ts\nconst legacy = true;\n```';
+  const { calls, fetchImpl } = recordingFetch([fakeResponse({ body: openaiBody({ text }) })]);
+
+  const result = await runBrain('task', {
+    env: {
+      OPENAI_API_KEY: 'sk-openai-test',
+      AI_STRUCTURED_OUTPUT: 'false',
+      AI_PROMPT_CACHE: 'false'
+    },
+    ...noBinaries,
+    fetchImpl
+  });
+
+  const body = JSON.parse(calls[0].init.body);
+  assert.equal(body.messages[0].content, REST_OUTPUT_CONTRACT);
+  assert.ok(!('response_format' in body));
+  assert.ok(!('prompt_cache_key' in body));
+  assert.equal(result.text, text);
+});
+
+test('runBrain exact-result cache is reusable only after downstream acceptance', async (t) => {
+  const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-result-cache-'));
+  t.after(() => fs.rmSync(cacheDir, { recursive: true, force: true }));
+  const { calls, fetchImpl } = recordingFetch([fakeResponse({ body: openaiBody() })]);
+  const options = {
+    env: { OPENAI_API_KEY: 'sk-openai-test' },
+    ...noBinaries,
+    fetchImpl,
+    cacheDir,
+    currentTargetSha256: null
+  };
+
+  const first = await runBrain('same task', options);
+  assert.ok(first.cacheCandidate);
+  await promoteGenerationCache(first.cacheCandidate, {
+    qualityFingerprint: ACCEPTED_QUALITY_FINGERPRINT,
+    outputSha256: 'b'.repeat(64)
+  });
+  const second = await runBrain('same task', options);
+
+  assert.equal(calls.length, 1);
+  assert.equal(first.usage.resultCacheHit, false);
+  assert.equal(second.usage.resultCacheHit, true);
+  assert.equal(second.usage.requestCount, 0);
+  assert.equal(second.usage.totalTokens, 0);
+  assert.equal(second.usage.savedTokens, 16);
+  assert.equal(second.text, first.text);
+});
+
+test('runBrain treats omitted target state as unknown and cannot reuse an explicit missing-target entry', async (t) => {
+  const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-result-cache-unknown-target-'));
+  t.after(() => fs.rmSync(cacheDir, { recursive: true, force: true }));
+  const { calls, fetchImpl } = recordingFetch([
+    fakeResponse({ body: openaiBody({ text: JSON.stringify({ code: 'const missing = true;' }) }) }),
+    fakeResponse({ body: openaiBody({ text: JSON.stringify({ code: 'const unknown = true;' }) }) })
+  ]);
+  const base = {
+    env: { OPENAI_API_KEY: 'sk-openai-test' },
+    ...noBinaries,
+    fetchImpl,
+    cacheDir
+  };
+  const missing = await runBrain('same state-sensitive task', { ...base, currentTargetSha256: null });
+  await promoteGenerationCache(missing.cacheCandidate, {
+    qualityFingerprint: ACCEPTED_QUALITY_FINGERPRINT,
+    outputSha256: 'b'.repeat(64)
+  });
+  const unknown = await runBrain('same state-sensitive task', base);
+
+  assert.equal(calls.length, 2);
+  assert.equal(unknown.usage.resultCacheStatus, 'disabled');
+  assert.equal(unknown.cacheCandidate, undefined);
+  assert.match(unknown.text, /const unknown = true;/);
+  assert.doesNotMatch(unknown.text, /const missing = true;/);
+});
+
+test('runBrain coalesces concurrent identical cache misses into one provider request', async (t) => {
+  const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-result-single-flight-'));
+  t.after(() => fs.rmSync(cacheDir, { recursive: true, force: true }));
+  let release;
+  let callCount = 0;
+  const fetchImpl = async () => {
+    callCount += 1;
+    await new Promise((resolve) => {
+      release = resolve;
+    });
+    return fakeResponse({ body: openaiBody() });
+  };
+  const options = {
+    env: { OPENAI_API_KEY: 'sk-openai-test' },
+    ...noBinaries,
+    fetchImpl,
+    cacheDir,
+    currentTargetSha256: null
+  };
+
+  const first = runBrain('same concurrent task', options);
+  const second = runBrain('same concurrent task', options);
+  while (!release) await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(callCount, 1);
+  release();
+  const [firstResult, secondResult] = await Promise.all([first, second]);
+
+  assert.equal(callCount, 1);
+  assert.equal(firstResult.text, secondResult.text);
+  assert.equal(firstResult.cacheCandidate.key, secondResult.cacheCandidate.key);
+});
+
+test('runBrain never joins flights across distinct result-cache directories', async (t) => {
+  const firstDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-flight-one-'));
+  const secondDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-flight-two-'));
+  t.after(() => fs.rmSync(firstDir, { recursive: true, force: true }));
+  t.after(() => fs.rmSync(secondDir, { recursive: true, force: true }));
+  const releases = [];
+  let calls = 0;
+  const fetchImpl = async () => {
+    calls += 1;
+    await new Promise((resolve) => releases.push(resolve));
+    return fakeResponse({ body: openaiBody() });
+  };
+  const options = { env: { OPENAI_API_KEY: 'sk-openai-test' }, ...noBinaries, fetchImpl, currentTargetSha256: null };
+  const first = runBrain('same task, isolated caches', { ...options, cacheDir: firstDir });
+  const second = runBrain('same task, isolated caches', { ...options, cacheDir: secondDir });
+  while (releases.length < 2) await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(calls, 2);
+  releases.forEach((release) => release());
+  const [firstResult, secondResult] = await Promise.all([first, second]);
+  assert.equal(firstResult.cacheCandidate.cacheDir, path.resolve(firstDir));
+  assert.equal(secondResult.cacheCandidate.cacheDir, path.resolve(secondDir));
+  await promoteGenerationCache(firstResult.cacheCandidate, { qualityFingerprint: ACCEPTED_QUALITY_FINGERPRINT, outputSha256: 'b'.repeat(64) });
+  assert.equal(fs.existsSync(path.join(secondDir, `${secondResult.cacheCandidate.key}.json`)), false);
+});
+
+test('runBrain enforces an explicit prompt character budget before calling a provider', async () => {
+  const { calls, fetchImpl } = recordingFetch([]);
+
+  await assert.rejects(
+    runBrain('too large', {
+      env: { OPENAI_API_KEY: 'sk-openai-test', AI_MAX_PROMPT_CHARS: '10' },
+      ...noBinaries,
+      fetchImpl
+    }),
+    /above the effective AI_MAX_PROMPT_CHARS=10/
+  );
+  assert.equal(calls.length, 0);
+});
+
+test('runBrain enforces a conservative default prompt budget before REST dispatch', async () => {
+  const { calls, fetchImpl } = recordingFetch([]);
+
+  await assert.rejects(
+    runBrain('x'.repeat(200_001), {
+      env: { OPENAI_API_KEY: 'sk-openai-test' },
+      ...noBinaries,
+      fetchImpl
+    }),
+    /above the effective AI_MAX_PROMPT_CHARS=200000/
+  );
+  assert.equal(calls.length, 0);
+});
+
+test('runBrain applies stage-specific prompt budgets before REST dispatch', async () => {
+  const { calls, fetchImpl } = recordingFetch([]);
+
+  await assert.rejects(
+    runBrain('fit this flow', {
+      env: {
+        OPENAI_API_KEY: 'sk-openai-test',
+        AI_MAX_PROMPT_CHARS: '200000',
+        AI_SPEC_FIT_MAX_PROMPT_CHARS: '12'
+      },
+      stage: 'spec-fit',
+      outputKind: 'flow-spec-draft',
+      ...noBinaries,
+      fetchImpl
+    }),
+    /above the effective AI_MAX_PROMPT_CHARS=12/
+  );
+  assert.equal(calls.length, 0);
+});
+
+test('runBrain rejects malformed or excessive prompt budget settings', async () => {
+  for (const value of ['10junk', '0', '2000001']) {
+    await assert.rejects(
+      runBrain('task', {
+        env: { OPENAI_API_KEY: 'sk-openai-test', AI_MAX_PROMPT_CHARS: value },
+        ...noBinaries,
+        fetchImpl: async () => {
+          assert.fail('provider must not be called for an invalid prompt budget');
+        }
+      }),
+      /AI_MAX_PROMPT_CHARS must be a whole number between 1 and 2000000/
+    );
+  }
+});
+
 // --- runBrain: CLI brains --------------------------------------------------
 
-test('runBrain passes the RAW task to CLI brains with timeout and SIGKILL', async () => {
+test('decodeCodexJsonlOutput accepts the final assistant message and normalizes usage', () => {
+  const output = decodeCodexJsonlOutput([
+    '{"type":"thread.started","thread_id":"thread_test"}',
+    '{"type":"item.completed","item":{"type":"agent_message","text":"{\\"code\\":\\"const generated = true;\\"}"}}',
+    '{"type":"turn.completed","usage":{"input_tokens":20,"cached_input_tokens":5,"output_tokens":7,"reasoning_output_tokens":2}}'
+  ].join('\n'), 'playwright-typescript');
+
+  assert.deepEqual(output, {
+    text: '```ts\nconst generated = true;\n```',
+    usage: {
+      inputTokens: 20,
+      uncachedInputTokens: 15,
+      outputTokens: 7,
+      cachedTokens: 5,
+      cacheWriteTokens: 0,
+      reasoningTokens: 2,
+      totalTokens: 27
+    }
+  });
+});
+
+test('decodeCodexJsonlOutput rejects malformed JSONL and missing final assistant messages', () => {
+  assert.throws(
+    () => decodeCodexJsonlOutput('{"type":"turn.started"}\nnot-json', 'playwright-typescript'),
+    /Codex CLI JSONL line 2 is not valid JSON/
+  );
+  assert.throws(
+    () => decodeCodexJsonlOutput('{"type":"turn.completed"}', 'playwright-typescript'),
+    /final assistant message/
+  );
+  assert.throws(
+    () => decodeCodexJsonlOutput([
+      '{"type":"item.completed","item":{"type":"agent_message","text":"{\\"code\\":\\"const first = true;\\"}"}}',
+      '{"type":"item.completed","item":{"type":"agent_message","text":"{\\"code\\":\\"const second = true;\\"}"}}'
+    ].join('\n'), 'playwright-typescript'),
+    /multiple final assistant messages/
+  );
+});
+
+test('decodeCodexJsonlOutput preserves null usage when Codex omits it', () => {
+  const output = decodeCodexJsonlOutput(
+    '{"type":"item.completed","item":{"type":"agent_message","text":"{\\"code\\":\\"const noUsage = true;\\"}"}}',
+    'playwright-typescript'
+  );
+
+  assert.deepEqual(output, {
+    text: '```ts\nconst noUsage = true;\n```',
+    usage: null
+  });
+});
+
+test('runBrain gives Codex CLI accepted-result cache and explicit model parity', async (t) => {
+  const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-cli-result-cache-'));
+  t.after(() => fs.rmSync(cacheDir, { recursive: true, force: true }));
   const calls = [];
+  let version = 'codex-cli 1.2.3';
   const spawnSyncImpl = (binary, args, options) => {
-    calls.push({ binary, args, options });
+    const actualArgs = providerArgs({ binary, args }, 'codex');
+    if (!actualArgs.includes('exec')) {
+      return { status: 0, stdout: version, stderr: '' };
+    }
+    const schemaPath = actualArgs[actualArgs.indexOf('--output-schema') + 1];
+    calls.push({ providerArgs: actualArgs, schema: JSON.parse(fs.readFileSync(schemaPath, 'utf8')), options });
+    return {
+      status: 0,
+      stdout: [
+        '{"type":"item.completed","item":{"type":"agent_message","text":"{\\"code\\":\\"const cached = true;\\"}"}}',
+        '{"type":"turn.completed","usage":{"input_tokens":8,"output_tokens":4}}'
+      ].join('\n'),
+      stderr: ''
+    };
+  };
+  const baseOptions = {
+    env: { AI_BRAIN: 'codex-cli', AI_CODEX_CLI_MODEL: 'codex-test-model' },
+    hasBinary: () => true,
+    spawnSyncImpl,
+    cacheDir,
+    currentTargetSha256: null
+  };
+
+  const first = await runBrain('same Codex task', baseOptions);
+  await promoteGenerationCache(first.cacheCandidate, { qualityFingerprint: ACCEPTED_QUALITY_FINGERPRINT, outputSha256: 'b'.repeat(64) });
+  const sameModel = await runBrain('same Codex task', baseOptions);
+  const changedModel = await runBrain('same Codex task', {
+    ...baseOptions,
+    env: { ...baseOptions.env, AI_CODEX_CLI_MODEL: 'codex-other-model' }
+  });
+  version = 'codex-cli 1.2.4';
+  const changedVersion = await runBrain('same Codex task', baseOptions);
+
+  assert.equal(calls.length, 3, 'the accepted same-model entry must avoid a second Codex transport');
+  assert.deepEqual(calls[0].schema, CODE_OUTPUT_SCHEMA);
+  assert.ok(calls[0].providerArgs.includes('--json'));
+  assert.deepEqual(
+    calls[0].providerArgs.slice(calls[0].providerArgs.indexOf('--model'), calls[0].providerArgs.indexOf('--model') + 2),
+    ['--model', 'codex-test-model']
+  );
+  assert.equal(first.usage.resultCacheHit, false);
+  assert.equal(first.usage.model, 'codex-test-model');
+  assert.equal(sameModel.usage.resultCacheHit, true);
+  assert.equal(sameModel.usage.model, 'codex-test-model');
+  assert.equal(sameModel.text, first.text);
+  assert.equal(changedModel.usage.resultCacheHit, false);
+  assert.notEqual(changedModel.cacheCandidate.key, first.cacheCandidate.key);
+  assert.equal(changedVersion.brain.model, 'codex-test-model');
+  assert.equal(changedVersion.usage.resultCacheHit, false);
+  assert.notEqual(changedVersion.cacheCandidate.key, first.cacheCandidate.key);
+});
+
+test('runBrain explains how to recover from a Codex version-probe failure', async (t) => {
+  const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-version-failure-'));
+  t.after(() => fs.rmSync(cacheDir, { recursive: true, force: true }));
+  await assert.rejects(runBrain('task', {
+    env: { AI_BRAIN: 'codex-cli', AI_CODEX_CLI_MODEL: 'codex-test-model' }, hasBinary: () => true, cacheDir,
+    currentTargetSha256: null,
+    spawnSyncImpl: () => ({ status: 1, stdout: '', stderr: 'broken' })
+  }), /Verify the configured Codex binary supports `codex --version`, or set AI_RESULT_CACHE=false/);
+});
+
+test('runBrain invalidates a default Codex cache entry when its CLI version changes', async (t) => {
+  const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-cli-version-cache-'));
+  t.after(() => fs.rmSync(cacheDir, { recursive: true, force: true }));
+  let version = 'codex-cli 1.2.3';
+  let providerCalls = 0;
+  let versionCalls = 0;
+  const probes = [];
+  const spawnSyncImpl = (binary, args, options) => {
+    if (!args.includes('exec')) {
+      versionCalls += 1;
+      probes.push({ binary, args, options, cwdExistedDuringSpawn: fs.existsSync(options.cwd) });
+      return { status: 0, stdout: version, stderr: '' };
+    }
+    providerCalls += 1;
+    return {
+      status: 0,
+      stdout: '{"type":"item.completed","item":{"type":"agent_message","text":"{\\"code\\":\\"const versioned = true;\\"}"}}',
+      stderr: ''
+    };
+  };
+  const options = {
+    env: { AI_BRAIN: 'codex-cli' },
+    hasBinary: () => true,
+    spawnSyncImpl,
+    cacheDir,
+    currentTargetSha256: null
+  };
+
+  const first = await runBrain('same default Codex task', options);
+  await promoteGenerationCache(first.cacheCandidate, { qualityFingerprint: ACCEPTED_QUALITY_FINGERPRINT, outputSha256: 'b'.repeat(64) });
+  const sameVersion = await runBrain('same default Codex task', options);
+  version = 'codex-cli 1.2.4';
+  const changedVersion = await runBrain('same default Codex task', options);
+
+  assert.equal(providerCalls, 2, 'only the changed CLI version may dispatch another provider transport');
+  assert.equal(versionCalls, 3, 'each cache lookup verifies the installed default identity');
+  assert.equal(probes[0].cwdExistedDuringSpawn, true);
+  assert.match(path.basename(probes[0].options.cwd), /^ai-cli-version-/);
+  assert.equal(fs.existsSync(probes[0].options.cwd), false);
+  assert.equal(probes[0].options.env.HOME, undefined);
+  assert.equal(probes[0].options.env.CODEX_HOME, undefined);
+  assert.equal(probes[0].options.env.OPENAI_API_KEY, undefined);
+  assert.equal(probes[0].options.env.HTTPS_PROXY, undefined);
+  assert.equal(first.brain.model, 'codex-cli-default');
+  assert.equal(sameVersion.usage.resultCacheHit, true);
+  assert.equal(changedVersion.brain.model, 'codex-cli-default');
+  assert.notEqual(changedVersion.cacheCandidate.key, first.cacheCandidate.key);
+});
+
+test('runBrain disables exact caching for Claude until it has a versioned identity', async (t) => {
+  const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-cli-no-cache-'));
+  t.after(() => fs.rmSync(cacheDir, { recursive: true, force: true }));
+  let calls = 0;
+  const options = {
+    env: { AI_BRAIN: 'claude-cli' }, hasBinary: () => true, cacheDir,
+    spawnSyncImpl: () => { calls += 1; return { status: 0, stdout: 'raw Claude output', stderr: '' }; }
+  };
+  const first = await runBrain('same Claude task', options);
+  const second = await runBrain('same Claude task', options);
+  assert.equal(calls, 2);
+  assert.equal(first.cacheCandidate, undefined);
+  assert.equal(second.cacheCandidate, undefined);
+});
+
+test('runBrain records malformed Codex JSONL once with the resolved model', async () => {
+  const attempts = [];
+  await assert.rejects(runBrain('task', {
+    env: { AI_BRAIN: 'codex-cli', AI_CODEX_CLI_MODEL: 'codex-test-model' }, hasBinary: () => true,
+    spawnSyncImpl: () => ({ status: 0, stdout: 'not-json', stderr: '' }),
+    onAttempt: (attempt) => attempts.push(attempt)
+  }), /not valid JSON/);
+  assert.deepEqual(attempts.map(({ status, failureReason, model }) => ({ status, failureReason, model })), [{
+    status: 'malformed', failureReason: 'malformed-output', model: 'codex-test-model'
+  }]);
+});
+
+test('runBrain uses exact CLI bytes for wrapped budgets and preserves Codex totals and latency', async () => {
+  let tick = 0;
+  const now = () => (tick += 17);
+  const systemPrompt = 'SYSTEM';
+  const task = 'TASK';
+  const result = await runBrain(task, {
+    env: { AI_BRAIN: 'codex-cli', AI_CODEX_CLI_MODEL: 'codex-test', AI_MAX_PROMPT_CHARS: '89' },
+    hasBinary: () => true, systemPrompt, now,
+    spawnSyncImpl: () => ({ status: 0, stdout: [
+      '{"type":"item.completed","item":{"type":"agent_message","text":"{\\"code\\":\\"const measured = true;\\"}"}}',
+      '{"type":"turn.completed","usage":{"input_tokens":2,"output_tokens":3,"total_tokens":99}}'
+    ].join('\n'), stderr: '' })
+  });
+  assert.equal(result.usage.systemPromptChars + result.usage.promptChars, 89);
+  assert.equal(result.usage.latencyMs, 17);
+  assert.equal(result.usage.totalTokens, 99);
+});
+
+test('runBrain enforces the default prompt budget before CLI dispatch', async () => {
+  const calls = [];
+
+  await assert.rejects(
+    runBrain('x'.repeat(200_001), {
+      env: { AI_BRAIN: 'claude-cli' },
+      hasBinary: () => true,
+      spawnSyncImpl: (...args) => calls.push(args)
+    }),
+    /above the effective AI_MAX_PROMPT_CHARS=200000/
+  );
+  assert.equal(calls.length, 0);
+});
+
+test('runBrain passes the raw task to CLI brains over stdin with timeout and SIGKILL', async () => {
+  const calls = [];
+  const attempts = [];
+  const spawnSyncImpl = (binary, args, options) => {
+    calls.push({ binary, args, options, cwdExistedDuringSpawn: fs.existsSync(options.cwd) });
     return { status: 0, stdout: 'cli output', stderr: '' };
   };
 
   const result = await runBrain('RAW TASK', {
-    env: { AI_BRAIN: 'claude-cli' },
+    env: {
+      AI_BRAIN: 'claude-cli',
+      HOME: '/tmp/cli-home',
+      PATH: '/usr/bin:/bin',
+      CLAUDE_CONFIG_DIR: '/tmp/cli-home/.claude',
+      ANTHROPIC_API_KEY: 'claude-secret',
+      OPENAI_API_KEY: 'unrelated-provider-secret',
+      E2E_USER_PASSWORD: 'test-secret',
+      PWD: repoRoot
+    },
     hasBinary: () => true,
-    spawnSyncImpl
+    spawnSyncImpl,
+    onAttempt: (attempt) => attempts.push(attempt)
   });
 
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].binary, 'claude');
-  // No REST envelope: the CLI agent receives the task verbatim (it can run commands).
-  assert.deepEqual(calls[0].args, ['-p', 'RAW TASK']);
+  // No REST envelope: the CLI agent receives the task verbatim, but never in process argv.
+  assert.deepEqual(providerArgs(calls[0], 'claude'), [
+    '-p',
+    '--safe-mode',
+    '--tools',
+    '',
+    '--strict-mcp-config',
+    '--permission-mode',
+    'plan',
+    '--no-session-persistence',
+    '--no-chrome'
+  ]);
+  assert.equal(calls[0].options.input, 'RAW TASK');
+  assert.doesNotMatch(calls[0].args.join(' '), /RAW TASK/);
   assert.equal(calls[0].options.shell, false);
   assert.equal(calls[0].options.timeout, 120000);
   assert.equal(calls[0].options.killSignal, 'SIGKILL');
+  assert.equal(calls[0].cwdExistedDuringSpawn, true);
+  assert.match(path.basename(calls[0].options.cwd), /^ai-cli-provider-/);
+  assert.equal(fs.existsSync(calls[0].options.cwd), false, 'isolated CLI workspace must be removed after exit');
+  assert.equal(calls[0].options.env.HOME, '/tmp/cli-home');
+  assert.equal(calls[0].options.env.CLAUDE_CONFIG_DIR, '/tmp/cli-home/.claude');
+  assert.equal(calls[0].options.env.ANTHROPIC_API_KEY, 'claude-secret');
+  assert.equal(calls[0].options.env.OPENAI_API_KEY, undefined);
+  assert.equal(calls[0].options.env.E2E_USER_PASSWORD, undefined);
+  assert.equal(calls[0].options.env.AI_BRAIN, undefined);
+  assert.equal(calls[0].options.env.PWD, undefined);
   assert.equal(result.text, 'cli output');
   assert.equal(result.brain.kind, 'claude-cli');
-  assert.equal(result.usage, undefined);
+  assert.equal(result.usage.inputTokens, null);
+  assert.equal(attempts.length, 1);
+  assert.equal(attempts[0].provider, 'claude-cli');
+  assert.equal(attempts[0].status, 'succeeded');
+  assert.equal(attempts[0].usage.inputTokens, null);
+});
+
+test('runBrain records failed CLI attempts with unknown token usage', async () => {
+  const attempts = [];
+
+  await assert.rejects(
+    runBrain('task', {
+      env: { AI_BRAIN: 'codex-cli' },
+      hasBinary: () => true,
+      spawnSyncImpl: () => ({ status: 1, stdout: '', stderr: 'failed' }),
+      onAttempt: (attempt) => attempts.push(attempt)
+    }),
+    /codex CLI exited with status 1/
+  );
+
+  assert.equal(attempts.length, 1);
+  assert.equal(attempts[0].provider, 'codex-cli');
+  assert.equal(attempts[0].status, 'failed');
+  assert.equal(attempts[0].usage, null);
+  assert.equal(attempts[0].failureReason, 'cli-failed');
+});
+
+test('runBrain includes a custom Playwright system contract for CLI repair stages', async () => {
+  const calls = [];
+  await runBrain('PREVIOUS TYPESCRIPT SOURCE', {
+    env: { AI_BRAIN: 'codex-cli' },
+    hasBinary: () => true,
+    spawnSyncImpl: (binary, args, options) => {
+      calls.push({ binary, args, options });
+      return {
+        status: 0,
+        stdout: '{"type":"item.completed","item":{"type":"agent_message","text":"{\\"code\\":\\"const repaired = true;\\"}"}}',
+        stderr: ''
+      };
+    },
+    stage: 'repair',
+    systemPrompt: 'REPAIR ONLY THE LISTED DIAGNOSTICS'
+  });
+
+  assert.match(calls[0].options.input, /REPAIR ONLY THE LISTED DIAGNOSTICS/);
+  assert.match(calls[0].options.input, /PREVIOUS TYPESCRIPT SOURCE/);
+  assert.match(calls[0].options.input, /TypeScript/i);
 });
 
 test('runBrain honors AI_BRAIN_TIMEOUT_MS for CLI brains', async () => {
   const calls = [];
   const spawnSyncImpl = (binary, args, options) => {
     calls.push({ binary, args, options });
-    return { status: 0, stdout: 'ok', stderr: '' };
+    return {
+      status: 0,
+      stdout: '{"type":"item.completed","item":{"type":"agent_message","text":"{\\"code\\":\\"const timed = true;\\"}"}}',
+      stderr: ''
+    };
   };
 
   await runBrain('task', {
@@ -672,9 +1614,110 @@ test('runBrain honors AI_BRAIN_TIMEOUT_MS for CLI brains', async () => {
     spawnSyncImpl
   });
 
-  assert.equal(calls[0].binary, 'codex');
-  assert.deepEqual(calls[0].args, ['exec', 'task']);
+  const isolatedWorkspace = calls[0].options.cwd;
+  const codexArgs = providerArgs(calls[0], 'codex');
+  assert.deepEqual(codexArgs, [
+    'exec',
+    '--sandbox',
+    'read-only',
+    '--cd',
+    isolatedWorkspace,
+    '--skip-git-repo-check',
+    '--ephemeral',
+    '--ignore-user-config',
+    '--ignore-rules',
+    '--color',
+    'never',
+    '-c',
+    'shell_environment_policy.inherit=none',
+    '--json',
+    '--output-schema',
+    path.join(isolatedWorkspace, 'output-schema.json'),
+    '-'
+  ]);
+  assert.equal(calls[0].options.input, 'task');
   assert.equal(calls[0].options.timeout, 5000);
+  assert.equal(fs.existsSync(isolatedWorkspace), false);
+});
+
+test('buildCliEnvironment exposes only common runtime settings and the selected provider auth', () => {
+  const source = {
+    PATH: '/usr/bin:/bin',
+    HOME: '/tmp/home',
+    LANG: 'en_US.UTF-8',
+    HTTPS_PROXY: 'http://proxy.invalid',
+    CODEX_HOME: '/tmp/home/.codex',
+    CLAUDE_CONFIG_DIR: '/tmp/home/.claude',
+    OPENAI_API_KEY: 'openai-secret',
+    ANTHROPIC_API_KEY: 'anthropic-secret',
+    CLAUDE_CODE_OAUTH_TOKEN: 'claude-oauth-secret',
+    DATABASE_URL: 'database-secret',
+    API_TOKEN: 'test-secret',
+    E2E_USER_PASSWORD: 'password-secret',
+    npm_config_user_agent: 'npm-secret-ish',
+    PWD: repoRoot
+  };
+
+  assert.deepEqual(buildCliEnvironment('codex-cli', source), {
+    PATH: '/usr/bin:/bin',
+    HOME: '/tmp/home',
+    LANG: 'en_US.UTF-8',
+    HTTPS_PROXY: 'http://proxy.invalid',
+    CODEX_HOME: '/tmp/home/.codex',
+    OPENAI_API_KEY: 'openai-secret'
+  });
+  assert.deepEqual(buildCliEnvironment('claude-cli', source), {
+    PATH: '/usr/bin:/bin',
+    HOME: '/tmp/home',
+    LANG: 'en_US.UTF-8',
+    HTTPS_PROXY: 'http://proxy.invalid',
+    CLAUDE_CONFIG_DIR: '/tmp/home/.claude',
+    ANTHROPIC_API_KEY: 'anthropic-secret',
+    CLAUDE_CODE_OAUTH_TOKEN: 'claude-oauth-secret'
+  });
+});
+
+test('Darwin CLI containment blocks target and unrelated repository writes', {
+  skip: process.platform !== 'darwin' || !fs.existsSync('/usr/bin/sandbox-exec')
+}, async () => {
+  await withTempDir('ai-cli-containment-', async (dir) => {
+    const protectedRepo = path.join(dir, 'repo');
+    const targetPath = path.join(protectedRepo, 'tests', 'generated.spec.ts');
+    const unrelatedPath = path.join(protectedRepo, 'src', 'unrelated.ts');
+    const fakeCliPath = path.join(dir, 'fake-claude');
+    fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+    fs.mkdirSync(path.dirname(unrelatedPath), { recursive: true });
+    fs.writeFileSync(targetPath, 'ORIGINAL TARGET\n');
+    fs.writeFileSync(unrelatedPath, 'ORIGINAL UNRELATED\n');
+    const shellQuote = (value) => `'${String(value).replaceAll("'", `'\"'\"'`)}'`;
+    fs.writeFileSync(fakeCliPath, [
+      '#!/bin/sh',
+      `printf 'MUTATED TARGET\\n' > ${shellQuote(targetPath)}`,
+      `printf 'MUTATED UNRELATED\\n' > ${shellQuote(unrelatedPath)}`,
+      "printf '```ts\\nconst safe = true;\\n```\\n'",
+      ''
+    ].join('\n'));
+    fs.chmodSync(fakeCliPath, 0o755);
+
+    const before = {
+      target: fs.readFileSync(targetPath, 'utf8'),
+      unrelated: fs.readFileSync(unrelatedPath, 'utf8')
+    };
+    const result = await runBrain('return stdout only', {
+      env: {
+        AI_BRAIN: 'claude-cli',
+        AI_BRAIN_CLAUDE_PATH: fakeCliPath,
+        PATH: '/usr/bin:/bin',
+        HOME: path.join(dir, 'home')
+      },
+      hasBinary: () => true,
+      cliProtectedRoot: protectedRepo
+    });
+
+    assert.equal(result.text, '```ts\nconst safe = true;\n```\n');
+    assert.equal(fs.readFileSync(targetPath, 'utf8'), before.target);
+    assert.equal(fs.readFileSync(unrelatedPath, 'utf8'), before.unrelated);
+  });
 });
 
 test('runBrain surfaces a CLI timeout as an actionable error', async () => {
@@ -720,7 +1763,33 @@ test('recordGenerationInManifest adds brain/model/usage to the sibling run manif
       model: 'claude-opus-4-8',
       outPath: 'tests/regression/x.spec.ts',
       completedAt: '2026-06-11T00:00:00.000Z',
-      usage: { inputTokens: 12, outputTokens: 34 }
+      usage: {
+        schemaVersion: 'generation-usage/v1',
+        provider: 'anthropic',
+        requestId: null,
+        responseId: null,
+        serviceTier: null,
+        inputTokens: 12,
+        uncachedInputTokens: null,
+        outputTokens: 34,
+        cachedTokens: 0,
+        cacheWriteTokens: 0,
+        reasoningTokens: 0,
+        totalTokens: null,
+        retryCount: 0,
+        retryTokens: null,
+        requestCount: null,
+        successfulRequests: null,
+        latencyMs: null,
+        resultCacheHit: false,
+        savedTokens: 0,
+        sourceTotalTokens: null,
+        originalPromptChars: null,
+        promptChars: null,
+        systemPromptChars: null,
+        compactedPromptChars: null,
+        compactionSavedChars: null
+      }
     });
   });
 });
@@ -738,6 +1807,28 @@ test('recordGenerationInManifest is a no-op when no manifest exists', () => {
     });
 
     assert.equal(updated, false);
+  });
+});
+
+test('recordStandaloneGenerationManifest stores prompt-free telemetry with private permissions', () => {
+  withTempDir('ai-generate-standalone-', (dir) => {
+    const manifestPath = recordStandaloneGenerationManifest({
+      promptPath: '/sensitive/path/private-flow.md',
+      outPath: 'tests/generated/private-flow.spec.ts',
+      brain: { kind: 'openai', model: 'gpt-test' },
+      usage: { inputTokens: 12, outputTokens: 8, totalTokens: 20 },
+      telemetryRoot: dir,
+      now: () => new Date('2026-08-01T12:00:00.000Z'),
+      id: () => 'fixed-id'
+    });
+
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    assert.equal(manifest.schemaVersion, 'standalone-generation/v1');
+    assert.equal(manifest.promptFile, 'private-flow.md');
+    assert.equal(manifest.generation.usage.totalTokens, 20);
+    assert.doesNotMatch(fs.readFileSync(manifestPath, 'utf8'), /sensitive\/path/);
+    assert.equal(fs.statSync(path.dirname(manifestPath)).mode & 0o777, 0o700);
+    assert.equal(fs.statSync(manifestPath).mode & 0o777, 0o600);
   });
 });
 
@@ -820,6 +1911,56 @@ test('ai-doctor selects anthropic from a temp .env and reports source=.env witho
   });
 });
 
+test('ai-doctor reports each canonical stage route and the setting sources without secrets', () => {
+  withTempDir('ai-doctor-stage-routes-', (dir) => {
+    const dotEnvPath = path.join(dir, '.env');
+    fs.writeFileSync(dotEnvPath, [
+      'ANTHROPIC_API_KEY=sk-ant-stage-secret',
+      'OPENAI_API_KEY=sk-openai-stage-secret',
+      'AI_BRAIN=openai',
+      'AI_OPENAI_MODEL=gpt-global',
+      'AI_SPEC_FIT_BRAIN=anthropic',
+      'AI_SPEC_FIT_ANTHROPIC_MODEL=claude-fit',
+      'AI_REPAIR_BRAIN=auto',
+      ''
+    ].join('\n'));
+
+    const result = spawnSync(process.execPath, [doctorPath], {
+      encoding: 'utf8',
+      timeout: 30000,
+      env: { PATH: '', AI_DOTENV_PATH: dotEnvPath }
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(
+      result.stdout,
+      /spec-fit: anthropic \/ claude-fit \(brain: AI_SPEC_FIT_BRAIN from \.env; model: AI_SPEC_FIT_ANTHROPIC_MODEL from \.env\)/
+    );
+    for (const stage of ['test-generation', 'recording-generation']) {
+      assert.match(
+        result.stdout,
+        new RegExp(`${stage}: openai \\/ gpt-global \\(brain: AI_BRAIN from \\.env; model: AI_OPENAI_MODEL from \\.env\\)`)
+      );
+    }
+    assert.match(
+      result.stdout,
+      /repair: anthropic \/ claude-opus-4-8 \(brain: ANTHROPIC_API_KEY from \.env \(auto\); model: built-in default\)/
+    );
+    assert.doesNotMatch(result.stdout + result.stderr, /sk-(?:ant|openai)-stage-secret/);
+  });
+});
+
+test('ai-doctor help states provider prompt caching is opt-in', () => {
+  const result = spawnSync(process.execPath, [doctorPath, '--help'], {
+    encoding: 'utf8',
+    timeout: 30000,
+    env: { PATH: '', AI_DOTENV_PATH: path.join(os.tmpdir(), 'definitely-missing-dir', '.env') }
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /AI_PROMPT_CACHE\s+provider prompt caching \(default false\)/);
+});
+
 test('ai-doctor reports environment as the source when the real env wins over .env', () => {
   withTempDir('ai-doctor-dotenv-', (dir) => {
     const dotEnvPath = path.join(dir, '.env');
@@ -857,9 +1998,9 @@ test('ai-doctor reports a clear error for a forced-but-unavailable brain', () =>
 // --- POM locator-policy convention -----------------------------------------
 
 // locator-policy.md: positional picks (.first()/.last()/.nth(n)) in Page Objects
-// and Component Objects are enforced through human review, not the static test
-// reviewers — this self-test pins the comment convention so a POM positional
-// pick can never land silently without a documented reason.
+// and Component Objects are enforced by this deterministic repository scan. It
+// pins the exception-comment convention so a POM positional pick cannot land
+// silently without a documented reason.
 test('POM positional picks carry a locator-policy:exception comment on the previous line', () => {
   const positionalPick = /\.(?:first|last)\(\)|\.nth\(\s*\d/;
   const pomDirs = ['pages', 'components'];

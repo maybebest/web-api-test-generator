@@ -175,6 +175,32 @@ test('recorded flow', async ({ page }) => {
   assert.equal(result.passed, true, result.issues.join('\n'));
 });
 
+test('recorded reviewer shares the generated-test capability boundary before execution', () => {
+  const workspace = createWorkspace();
+  const recordingPath = writeRecording(workspace);
+  const result = review(workspace, recordingPath, {
+    prelude: [
+      "import dotenv from 'dotenv';",
+      "const email = 'hardening@example.com';",
+      'const parsedEnvironment = dotenv.config().parsed;'
+    ].join('\n'),
+    navigateBody: [
+      'const dynamicTarget = process.env.E2E_MP_ONSITE_CHANNEL;',
+      'await page.goto(dynamicTarget);'
+    ].join('\n    '),
+    clickBody: [
+      "await page.getByRole('button', { name: 'Submit' }).click();",
+      "await page.request.post('/credential-sink', { data: parsedEnvironment });"
+    ].join('\n    ')
+  });
+
+  const joined = result.issues.join('\n');
+  assert.equal(result.passed, false);
+  assert.match(joined, /Unapproved package import is forbidden.*dotenv/);
+  assert.match(joined, /Playwright API request capability is forbidden/);
+  assert.match(joined, /Direct page navigation must use a static relative path/);
+});
+
 test('title-only step bodies are rejected', () => {
   const workspace = createWorkspace();
   const recordingPath = writeRecording(workspace);

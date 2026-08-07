@@ -11,8 +11,8 @@ import {
 } from '../support/apiTestUtils.js';
 
 test.describe('scenarios', () => {
-  // origin: inferred | category: crud | confidence: medium | execution: fixme | mutationRisk: unsafe | isolated: false
-  test.fixme('crud: stageautomation.heartpace.dev user/preferences read-update flow @extended @profile @mutating', async ({ request }, testInfo) => {
+  // origin: inferred | category: crud | confidence: medium | execution: skip | mutationRisk: unsafe | correlation: static | isolated: false
+  test.skip('crud: stageautomation.heartpace.dev user/preferences read-update flow @extended @profile @mutating', async ({ request }, testInfo) => {
     const { response: step1Response, elapsedMs: step1ElapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://stageautomation.heartpace.dev',
@@ -27,7 +27,7 @@ test.describe('scenarios', () => {
     expect(step1Response.headers()['content-type'] ?? '').toContain('text/html');
     assertResponseTime(step1ElapsedMs, 2000);
 
-    const step2Body = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-preferences-param-515439e5.crud-read-update-step-2.request.json'));
+    const step2Body = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-preferences-param-199fdfb1.crud-read-update-step-2.request.json'));
     const { response: step2Response, elapsedMs: step2ElapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://stageautomation.heartpace.dev',
@@ -35,7 +35,7 @@ test.describe('scenarios', () => {
       method: 'POST',
       headers: {
         "accept": "application/json, text/javascript, */*; q=0.01",
-        "content-type": "multipart/form-data; boundary=----WebKitFormBoundaryfeOhkK5lt4PBEQno",
+        "content-type": "multipart/form-data; boundary=----WebKitFormBoundarymey1D7jErBWRiBiP",
         "x-csrf-token": "${CSRF_TOKEN}",
         "x-requested-with": "XMLHttpRequest"
       },

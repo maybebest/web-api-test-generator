@@ -6,18 +6,18 @@ import {
   assertNoSensitiveFieldsInJsonResponse,
   assertResponseTime,
   assertStatusCode,
-  inferredTest,
   sendApiRequest
 } from '../support/apiTestUtils.js';
 
 test.describe('stageautomation.heartpace.dev /me/account/oauth', () => {
-  // origin: inferred | category: security | confidence: high | execution: fixme | mutationRisk: guarded | calibration: lenient
-  inferredTest('security: GET /me/account/oauth rejects invalid x-csrf-token @extended @auth @mutating @calibrate', async ({ request }, testInfo) => {
+  // origin: inferred | category: security | confidence: high | execution: skip | mutationRisk: guarded | calibration: lenient
+  test.skip('security: GET /me/account/oauth rejects invalid x-csrf-token @extended @auth @mutating', async ({ request }, testInfo) => {
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://stageautomation.heartpace.dev',
       path: '/me/account/oauth',
       method: 'GET',
+      suppressGeneratedAuth: true,
       headers: {
         "accept": "application/json, text/plain, */*",
         "x-csrf-token": "invalid-csrf-token",
@@ -32,13 +32,14 @@ test.describe('stageautomation.heartpace.dev /me/account/oauth', () => {
   });
 
 
-  // origin: inferred | category: security | confidence: high | execution: fixme | mutationRisk: guarded | calibration: lenient
-  inferredTest('security: GET /me/account/oauth rejects missing x-csrf-token @extended @auth @mutating @calibrate', async ({ request }, testInfo) => {
+  // origin: inferred | category: security | confidence: high | execution: skip | mutationRisk: guarded | calibration: lenient
+  test.skip('security: GET /me/account/oauth rejects missing x-csrf-token @extended @auth @mutating', async ({ request }, testInfo) => {
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://stageautomation.heartpace.dev',
       path: '/me/account/oauth',
       method: 'GET',
+      suppressGeneratedAuth: true,
       headers: {
         "accept": "application/json, text/plain, */*",
         "x-requested-with": "XMLHttpRequest",

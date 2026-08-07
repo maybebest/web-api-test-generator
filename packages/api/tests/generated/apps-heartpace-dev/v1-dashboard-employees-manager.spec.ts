@@ -13,7 +13,7 @@ import {
 test.describe('apps.heartpace.dev /v1/dashboard/employees/manager', () => {
   // origin: observed | category: smoke | confidence: high | execution: active | mutationRisk: guarded
   test('smoke: POST /v1/dashboard/employees/manager returns 200 @smoke @dashboard @mutating', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-apps-heartpace-dev-v1-dashboard-employees-manager-18babcd9.request.json'));
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-apps-heartpace-dev-v1-dashboard-employees-manager-d1ebfc2a.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://apps.heartpace.dev',

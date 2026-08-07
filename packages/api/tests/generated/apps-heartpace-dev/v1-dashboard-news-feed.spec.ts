@@ -6,15 +6,40 @@ import {
   assertNoSensitiveFieldsInJsonResponse,
   assertResponseTime,
   assertStatusCode,
+  calibrationTest,
   sendApiRequest,
   loadJsonFromTestFile,
   resolvePayload
 } from '../support/apiTestUtils.js';
 
 test.describe('apps.heartpace.dev /v1/dashboard/news-feed', () => {
+  // origin: inferred | category: negative | confidence: medium | execution: calibrate | mutationRisk: guarded | calibration: pending
+  calibrationTest('negative: POST /v1/dashboard/news-feed rejects invalid type for perspective @extended @dashboard @mutating @calibrate', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-apps-heartpace-dev-v1-dashboard-news-feed-1a3ad258.invalid-type-perspective.request.json'));
+    const { response, elapsedMs } = await sendApiRequest({
+      request,
+      defaultBaseUrl: 'https://apps.heartpace.dev',
+      path: '/v1/dashboard/news-feed',
+      method: 'POST',
+      headers: {
+        "accept": "application/json, text/plain, */*",
+        "content-type": "application/json",
+        "x-requested-with": "XMLHttpRequest",
+        "x-site-uuid": "${X_SITE_UUID}",
+        "x-subdomain": "stageautomation"
+      },
+      payload: requestBody
+    });
+
+    assertStatusCode(response.status(), {"kind":"family","family":"4xx"}, 'negative: POST /v1/dashboard/news-feed rejects invalid type for perspective', 'apps.heartpace.dev');
+    assertResponseTime(elapsedMs, 2000);
+    await assertNoSensitiveFieldsInJsonResponse(response, 'negative: POST /v1/dashboard/news-feed rejects invalid type for perspective');
+  });
+
+
   // origin: inferred | category: negative | confidence: high | execution: active | mutationRisk: guarded | calibration: confirmed
   test('negative: POST /v1/dashboard/news-feed rejects missing perspective @extended @dashboard @mutating', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-apps-heartpace-dev-v1-dashboard-news-feed-ec6db588.missing-perspective.request.json'));
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-apps-heartpace-dev-v1-dashboard-news-feed-1a3ad258.missing-field-perspective.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://apps.heartpace.dev',
@@ -38,7 +63,7 @@ test.describe('apps.heartpace.dev /v1/dashboard/news-feed', () => {
 
   // origin: observed | category: smoke | confidence: high | execution: active | mutationRisk: guarded
   test('smoke: POST /v1/dashboard/news-feed returns 200 @smoke @dashboard @mutating', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-apps-heartpace-dev-v1-dashboard-news-feed-ec6db588.request.json'));
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-apps-heartpace-dev-v1-dashboard-news-feed-1a3ad258.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://apps.heartpace.dev',

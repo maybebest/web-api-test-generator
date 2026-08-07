@@ -1,14 +1,37 @@
 #!/usr/bin/env node
 
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { GENERATION_MODES, resolveGenerationMode, specGenerationMode, specSha256 } from './lib/spec-parser.mjs';
-import { reviewDomDiscoveryArtifact } from './review-dom-discovery.mjs';
-import { validateSpecFile } from './validate-flow-spec.mjs';
+import { GENERATION_MODES, specSha256 } from './lib/spec-parser.mjs';
+import { buildGenerationInput } from './lib/generation-input.mjs';
+import { sanitizeGenerationContext } from './lib/generation-context.mjs';
+import { renderGenerationContextPack } from './lib/generation-context-pack.mjs';
+import { GENERATION_POLICY_VERSION } from './lib/generation-policy.mjs';
+import { readBoundedDirectoryEntries, readVerifiedFile, verifiedDirectory } from './lib/verified-file-read.mjs';
+import { MAX_DOM_DISCOVERY_ENTRIES, reviewDomDiscoveryArtifact } from './review-dom-discovery.mjs';
 
 export { GENERATION_MODES };
+
+export function createAutomationPolicy(validation) {
+  const issues = Array.isArray(validation?.issues) ? validation.issues : [];
+  const content = String(validation?.content ?? '');
+  const checks = {
+    specValidation: validation?.valid !== false && issues.length === 0,
+    unresolvedPlaceholders: !/\bNEEDS_REVIEW\b/.test(content),
+    acceptanceCriteriaPresent: (validation?.acceptanceCriteria ?? []).length > 0,
+    flowStepsPresent: (validation?.flowSteps ?? []).length > 0
+  };
+
+  return {
+    schemaVersion: 1,
+    engine: 'deterministic-spec-policy',
+    decision: Object.values(checks).every(Boolean) ? 'allow' : 'deny',
+    checks
+  };
+}
 
 export function parseArgs(args) {
   const result = {
@@ -75,12 +98,22 @@ Optional NEG tests must contain their \`NEG-###\` ID in the test title and every
 The final assertion step must name the primary \`AC-###\` or \`NEG-###\` ID.`;
 }
 
-export function createTaskContent({ specPath, targetTestFile, validation, domArtifactPath, generationMode = 'single' }) {
+export function createTaskContent({
+  specPath,
+  targetTestFile,
+  validation,
+  domArtifactPath,
+  generationMode = 'single',
+  contextPack,
+  specHash
+}) {
   const flowId = validation.metadata['Flow ID'];
   const specVersion = validation.metadata['Spec Version'];
   const specTags = String(validation.metadata.Tags ?? '').split(/\s+/).filter(Boolean);
   const acIds = validation.acceptanceCriteria;
-  const sha256 = specSha256(specPath);
+  const sha256 = specHash ?? specSha256(specPath);
+  const policy = createAutomationPolicy(validation);
+  const specContext = sanitizeGenerationContext(validation.content);
 
   return `# Codex Generation Task: ${flowId}
 
@@ -90,6 +123,8 @@ export function createTaskContent({ specPath, targetTestFile, validation, domArt
 - Target test file: \`${targetTestFile}\`
 - Flow ID: \`${flowId}\`
 - Spec version: \`${specVersion}\`
+- Automated policy verdict: \`${policy.decision}\`
+- Policy engine: \`${policy.engine}\`
 - Generation mode: \`${generationMode}\`
 - AC IDs to cover: ${acIds.map((id) => `\`${id}\``).join(', ')}
 - Spec hash: \`sha256:${sha256}\`
@@ -143,23 +178,11 @@ Cross-browser generated-test execution is opt-in.
 - The framework selector policy chooses final Playwright locators.
 - CSS selectors require \`// locator-policy:exception <reason>\` immediately before the fallback.
 
-## DOM Discovery Evidence
+## DOM and Repository Context
 
-${domArtifactPath
-  ? `A pre-generation agent-browser discovery artifact is available at:
-
-- \`${domArtifactPath}\`
-
-Read it before choosing locators. Treat it as evidence from the current UI only. Use its \`candidateLocators\` as framework-scored candidates, but keep the Markdown spec as the behavioral contract.`
-  : `No matching DOM discovery artifact was found for this spec hash.
-
-Recommended first step before implementation:
-
-\`\`\`bash
-npm run ai:dom:discover -- --spec ${specPath} --url <target-url>
-\`\`\`
-
-Then re-run \`npm run ai:generate-test -- ${specPath}\` so this task links the artifact.`}
+${contextPack
+  ? renderGenerationContextPack(contextPack)
+  : `Context pack unavailable. DOM artifact provenance: ${domArtifactPath ?? 'none'}. Do not invent locators or repository interfaces.`}
 
 ## Page Object and Reuse Policy
 
@@ -220,44 +243,116 @@ Then re-run \`npm run ai:generate-test -- ${specPath}\` so this task links the a
 
 ## Original Flow Spec
 
-${validation.content}
+${specContext}
 `;
 }
 
 export function createManifest({
   specPath,
+  targetTestFile,
   sha256,
   flowId,
   specVersion,
   domArtifactPath,
   validation,
   generationMode,
+  agentTaskSha256,
+  agentTaskBytes,
+  providerInputPath,
+  providerInputSha256,
+  providerInputBytes,
+  policyVersion,
+  contextFingerprint,
+  generationFingerprint,
   createdAt
 }) {
   return {
     specPath,
+    targetTestFile,
     specSha256: sha256,
     specHashScope: 'behavioral',
     flowId,
     specVersion,
+    policyVerdict: createAutomationPolicy(validation),
     generationMode,
+    ...(agentTaskSha256 ? { agentTaskSha256 } : {}),
+    ...(Number.isSafeInteger(agentTaskBytes) ? { agentTaskBytes } : {}),
+    ...(providerInputPath ? { providerInputPath } : {}),
+    ...(providerInputSha256 ? { providerInputSha256 } : {}),
+    ...(Number.isSafeInteger(providerInputBytes) ? { providerInputBytes } : {}),
+    ...(policyVersion ? { policyVersion } : {}),
+    contextFingerprint: contextFingerprint ?? null,
+    generationFingerprint: generationFingerprint ?? null,
     domDiscoveryArtifact: domArtifactPath,
-    acIds: validation.acceptanceCriteria,
-    dataCaseIds: (validation.dataCasesJson ?? []).map((dataCase) => dataCase.caseId),
+    acIds: validation?.acceptanceCriteria ?? [],
+    dataCaseIds: (validation?.dataCasesJson ?? []).map((dataCase) => dataCase.caseId),
     createdAt
   };
 }
 
-function findLatestDomDiscoveryArtifact(specPath) {
-  const discoveryRoot = path.join('.ai-runs', 'dom-discovery');
+function sha256(value) {
+  return crypto.createHash('sha256').update(value).digest('hex');
+}
+
+export function writeGenerationTaskArtifacts({
+  runDir,
+  specPath,
+  generationInput,
+  createdAt,
+  fileSystem = fs
+}) {
+  if (!generationInput?.validation?.valid || !generationInput?.prompt || !generationInput?.agentTask) {
+    throw new Error('Generation task artifacts require a complete validated generation input.');
+  }
+  const providerInputName = 'provider-input.md';
+  const agentTask = String(generationInput.agentTask);
+  const providerInput = String(generationInput.prompt);
+  const providerInputBytes = Buffer.byteLength(providerInput, 'utf8');
+  const manifest = createManifest({
+    specPath,
+    targetTestFile: generationInput.targetTestFile,
+    sha256: generationInput.specSha256,
+    flowId: generationInput.validation.metadata['Flow ID'],
+    specVersion: generationInput.validation.metadata['Spec Version'],
+    domArtifactPath: generationInput.domArtifactPath,
+    validation: generationInput.validation,
+    generationMode: generationInput.generationMode,
+    agentTaskSha256: sha256(agentTask),
+    agentTaskBytes: Buffer.byteLength(agentTask, 'utf8'),
+    providerInputPath: providerInputName,
+    providerInputSha256: sha256(providerInput),
+    providerInputBytes,
+    policyVersion: GENERATION_POLICY_VERSION,
+    contextFingerprint: generationInput.contextPack.fingerprint,
+    generationFingerprint: generationInput.ir.fingerprint,
+    createdAt
+  });
+  const taskPath = path.join(runDir, 'generation-task.md');
+  const providerInputPath = path.join(runDir, providerInputName);
+  const manifestPath = path.join(runDir, 'manifest.json');
+
+  fileSystem.mkdirSync(runDir, { recursive: true, mode: 0o700 });
+  fileSystem.writeFileSync(taskPath, agentTask, { mode: 0o600 });
+  fileSystem.writeFileSync(providerInputPath, providerInput, { mode: 0o600 });
+  fileSystem.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
+  return { taskPath, providerInputPath, manifestPath, manifest };
+}
+
+export function findLatestDomDiscoveryArtifact(specPath, rootDir = process.cwd(), expectedHash = specSha256(specPath)) {
+  const discoveryRoot = path.join(rootDir, '.ai-runs', 'dom-discovery');
   if (!fs.existsSync(discoveryRoot)) {
     return undefined;
   }
-
-  const expectedHash = specSha256(specPath);
+  verifiedDirectory(discoveryRoot, 'DOM discovery root');
+  const expectedSpec = path.isAbsolute(specPath) ? path.resolve(specPath) : path.resolve(rootDir, specPath);
   const candidates = [];
-  for (const entry of fs.readdirSync(discoveryRoot, { withFileTypes: true })) {
-    if (!entry.isDirectory()) {
+  const entries = readBoundedDirectoryEntries({
+    directory: discoveryRoot,
+    maxEntries: MAX_DOM_DISCOVERY_ENTRIES,
+    label: 'DOM discovery scan'
+  });
+  for (const entry of entries) {
+    if (entry.isSymbolicLink() || !entry.isDirectory()) {
       continue;
     }
 
@@ -267,9 +362,18 @@ function findLatestDomDiscoveryArtifact(specPath) {
     }
 
     try {
-      const artifact = JSON.parse(fs.readFileSync(artifactPath, 'utf8'));
-      if (artifact.specPath === specPath && artifact.specSha256 === expectedHash) {
-        candidates.push({ artifactPath, mtimeMs: fs.statSync(artifactPath).mtimeMs });
+      const read = readVerifiedFile({
+        filePath: artifactPath,
+        rootPath: discoveryRoot,
+        maxBytes: 4 * 1024 * 1024,
+        label: 'DOM discovery candidate'
+      });
+      const artifact = JSON.parse(read.content);
+      const artifactSpec = path.isAbsolute(String(artifact.specPath ?? ''))
+        ? path.resolve(artifact.specPath)
+        : path.resolve(rootDir, String(artifact.specPath ?? ''));
+      if (artifactSpec === expectedSpec && artifact.specSha256 === expectedHash) {
+        candidates.push({ artifactPath, mtimeMs: read.mtimeMs });
       }
     } catch {
       // Ignore malformed artifacts here; explicit review reports those issues.
@@ -279,13 +383,17 @@ function findLatestDomDiscoveryArtifact(specPath) {
   return candidates.sort((left, right) => right.mtimeMs - left.mtimeMs)[0]?.artifactPath;
 }
 
-function resolveDomArtifactPath(specPath, explicitPath) {
-  const artifactPath = explicitPath ?? findLatestDomDiscoveryArtifact(specPath);
+export function resolveDomArtifactPath(specPath, explicitPath, rootDir = process.cwd(), expectedSpecSha256 = specSha256(specPath)) {
+  const artifactPath = explicitPath ?? findLatestDomDiscoveryArtifact(specPath, rootDir, expectedSpecSha256);
   if (!artifactPath) {
     return undefined;
   }
 
-  const review = reviewDomDiscoveryArtifact(artifactPath);
+  const review = reviewDomDiscoveryArtifact(artifactPath, {
+    rootDir,
+    expectedSpecPath: specPath,
+    expectedSpecSha256
+  });
   if (!review.passed) {
     throw new Error(
       [
@@ -318,71 +426,29 @@ function runCli() {
     process.exit(1);
   }
 
-  const validation = validateSpecFile(args.specPath);
-  if (!validation.valid) {
-    console.error(`Cannot create generation task because spec validation failed: ${args.specPath}`);
-    for (const issue of validation.issues) {
-      console.error(`- ${issue}`);
-    }
-    process.exit(1);
-  }
-
-  // Explicit --mode wins; a flag that contradicts the spec's Generation Mode
-  // metadata is a hard error; otherwise the spec metadata (default single).
-  let generationMode;
+  let generationInput;
   try {
-    generationMode = resolveGenerationMode({ cliMode: args.mode, specMode: specGenerationMode(validation.metadata) });
+    generationInput = buildGenerationInput({
+      specPath: args.specPath,
+      targetTestFile: args.target,
+      domArtifactPath: args.domArtifact,
+      mode: args.mode
+    });
   } catch (error) {
     console.error(error.message);
     process.exit(1);
   }
-
-  let domArtifactPath;
-  try {
-    domArtifactPath = resolveDomArtifactPath(args.specPath, args.domArtifact);
-  } catch (error) {
-    console.error(error.message);
-    process.exit(1);
-  }
-
-  const targetTestFile = args.target ?? validation.metadata['Target Test File'];
+  const { validation } = generationInput;
   const flowId = validation.metadata['Flow ID'];
-  const specVersion = validation.metadata['Spec Version'];
-  const sha256 = specSha256(args.specPath);
   const createdAt = new Date().toISOString();
   const timestamp = createdAt.replace(/[:.]/g, '-');
   const runDir = path.join('.ai-runs', `${timestamp}-${slugify(flowId)}`);
-  const taskPath = path.join(runDir, 'generation-task.md');
-  const manifestPath = path.join(runDir, 'manifest.json');
-
-  fs.mkdirSync(runDir, { recursive: true });
-  fs.writeFileSync(
-    taskPath,
-    createTaskContent({
-      specPath: args.specPath,
-      targetTestFile,
-      validation,
-      domArtifactPath,
-      generationMode
-    })
-  );
-  fs.writeFileSync(
-    manifestPath,
-    `${JSON.stringify(
-      createManifest({
-        specPath: args.specPath,
-        sha256,
-        flowId,
-        specVersion,
-        domArtifactPath,
-        validation,
-        generationMode,
-        createdAt
-      }),
-      null,
-      2
-    )}\n`
-  );
+  const { taskPath } = writeGenerationTaskArtifacts({
+    runDir,
+    specPath: args.specPath,
+    generationInput,
+    createdAt
+  });
 
   console.log('Created generation task:');
   console.log(taskPath);
@@ -397,7 +463,7 @@ function printHelp() {
   node scripts/ai/create-generation-task.mjs <spec-path> --target <test-file> [--mode single|suite]
   node scripts/ai/create-generation-task.mjs <spec-path> --dom-artifact <selector-candidates.json> [--mode single|suite]
 
-Creates a deterministic Codex generation task and manifest from a valid flow spec.`);
+Creates a deterministic human-readable task, canonical provider input, and manifest from a valid flow spec.`);
 }
 
 const currentFile = fileURLToPath(import.meta.url);

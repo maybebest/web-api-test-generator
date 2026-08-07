@@ -11,8 +11,8 @@ import {
 } from '../support/apiTestUtils.js';
 
 test.describe('scenarios', () => {
-  // origin: inferred | category: crud | confidence: medium | execution: fixme | mutationRisk: unsafe | isolated: false
-  test.fixme('crud: stageautomation.heartpace.dev user/talk-settings read-update flow @extended @profile @mutating', async ({ request }, testInfo) => {
+  // origin: inferred | category: crud | confidence: medium | execution: skip | mutationRisk: unsafe | correlation: static | isolated: false
+  test.skip('crud: stageautomation.heartpace.dev user/talk-settings read-update flow @extended @profile @mutating', async ({ request }, testInfo) => {
     const { response: step1Response, elapsedMs: step1ElapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://stageautomation.heartpace.dev',
@@ -27,7 +27,7 @@ test.describe('scenarios', () => {
     expect(step1Response.headers()['content-type'] ?? '').toContain('text/html');
     assertResponseTime(step1ElapsedMs, 2000);
 
-    const step2Body = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-talk-settings-param-68190a0a.crud-read-update-step-2.request.json'));
+    const step2Body = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-talk-settings-param-4d145823.crud-read-update-step-2.request.json'));
     const { response: step2Response, elapsedMs: step2ElapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://stageautomation.heartpace.dev',

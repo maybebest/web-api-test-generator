@@ -1,14 +1,9 @@
-# Web E2E suite (packages/web). Relocated from packages/web/.github/workflows/playwright.yml
-# and adapted for the npm-workspaces monorepo: deps install once at the repo root, all
-# package scripts run with working-directory: packages/web, and `uses:` action paths (cache,
-# artifacts, github-script) are repo-root-relative so they carry the packages/web/ prefix.
+# Web quality and E2E suite. Local quality uses the committed deterministic fixture;
+# authenticated regression is a separate opt-in job against an explicit external environment.
 name: Web E2E
 
 on:
-  # Manual re-run button for flake investigation / on-demand cross-browser runs (set the
-  # PW_PROJECTS repo variable). No `schedule:` here on purpose: the web suite's
-  # smoke/accessibility/regression need a live SUT (PLAYWRIGHT_TEST_BASE_URL), so a cron would
-  # go red without a persistent environment — add one once that environment is wired.
+  # Manual re-run button for deterministic local quality and configured authenticated regression.
   workflow_dispatch: {}
   pull_request:
     paths:
@@ -28,7 +23,6 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -43,20 +37,22 @@ defaults:
 jobs:
   quality:
     name: Playwright quality gates
+    permissions:
+      contents: read
+      pull-requests: write
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      PLAYWRIGHT_TEST_BASE_URL: ${{ secrets.PLAYWRIGHT_TEST_BASE_URL }}
       CI: true
       # Capture front-end perf during any browser test that runs (opt-in, never fails a test). The
       # performance/ artifact only materialises when live tests actually execute against a SUT.
       COLLECT_PERF: 'true'
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
@@ -71,7 +67,7 @@ jobs:
         run: echo "version=$(node -p 'require("@playwright/test/package.json").version')" >> "$GITHUB_OUTPUT"
 
       - name: Cache Playwright browsers
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-chromium-${{ steps.pw-version.outputs.version }}-${{ hashFiles('package-lock.json') }}
@@ -81,18 +77,51 @@ jobs:
       - name: Install Playwright browsers (chromium)
         run: npx playwright install --with-deps chromium
 
-      - name: Audit dependencies (advisory)
+      - name: Audit dependencies
         working-directory: ${{ github.workspace }}
-        run: npm audit --audit-level=high || true
+        run: npm audit --audit-level=high
 
       - name: Typecheck
         run: npm run typecheck --if-present
 
+      - name: Lint TypeScript and Playwright tests
+        run: npm run lint
+
+      - name: Statically review all generated spec/test pairs before Playwright imports them
+        run: npm run ai:test:review:all
+
+      - name: Statically review all recorded pairs before Playwright imports them
+        run: npm run ai:recording:review:all
+
+      - name: Run deterministic local browser suite
+        run: npm run test:e2e:local
+
+      - name: Upload deterministic local Playwright report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: web-local-playwright-report
+          path: packages/web/playwright-report/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload deterministic local test results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: web-local-test-results
+          path: packages/web/test-results/
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Run AI script self-tests
         run: npm run ai:test:self
 
+      - name: Run offline golden evaluation
+        run: npm run ai:eval
+
       - name: Check tree is free of runtime artifacts
-        run: npm run ai:clean:check
+        run: npm run ai:clean:check:tracked
 
       - name: Report selected AI brain
         run: npm run ai:brain:doctor
@@ -118,36 +147,11 @@ jobs:
       - name: Check recording drift
         run: npm run ai:recording:drift
 
-      - name: Gate all generated spec/test pairs
-        run: npm run ai:test:gate:all
+      - name: Select and gate deterministic local generated pairs (honest runtime summary)
+        run: npm run ai:test:gate:local-generated
 
       - name: Gate all recorded test pairs
         run: npm run ai:recording:gate:all
-
-      - name: Skip live browser tests when SUT URL is not configured
-        if: ${{ env.PLAYWRIGHT_TEST_BASE_URL == '' }}
-        run: echo "PLAYWRIGHT_TEST_BASE_URL is not configured; static AI/spec gates ran, live smoke/accessibility skipped."
-
-      # tests/smoke and tests/accessibility are not committed yet; running playwright against a missing
-      # dir hard-errors ("No tests found"). Guard on suite existence and warn loudly when absent so the
-      # gate's claim matches the repo instead of failing or pretending.
-      - name: Run smoke tests
-        if: ${{ env.PLAYWRIGHT_TEST_BASE_URL != '' }}
-        run: |
-          if [ -d tests/smoke ]; then
-            npm run test:e2e:smoke
-          else
-            echo "::warning::tests/smoke suite is not present — smoke gate skipped."
-          fi
-
-      - name: Run accessibility tests
-        if: ${{ env.PLAYWRIGHT_TEST_BASE_URL != '' }}
-        run: |
-          if [ -d tests/accessibility ]; then
-            npm run test:e2e:accessibility
-          else
-            echo "::warning::tests/accessibility suite is not present — accessibility gate skipped."
-          fi
 
       # Generate only when results exist (a failed gate can stop the suite before
       # any test runs); a real generate failure must fail the step, not be masked.
@@ -157,7 +161,7 @@ jobs:
 
       - name: Upload Allure results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: web-allure-results
           path: packages/web/allure-results/
@@ -166,7 +170,7 @@ jobs:
 
       - name: Upload Allure report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: web-allure-report
           path: packages/web/allure-report/
@@ -179,7 +183,7 @@ jobs:
 
       - name: Upload spec coverage catalog
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: web-ai-spec-coverage
           path: packages/web/docs/ai-testing/coverage.md
@@ -191,7 +195,7 @@ jobs:
       - name: Post PR coverage summary
         if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         continue-on-error: true
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
             const fs = require('fs');
@@ -233,7 +237,7 @@ jobs:
 
       - name: Upload Playwright report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: web-playwright-report
           path: packages/web/playwright-report/
@@ -242,7 +246,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: web-test-results
           path: packages/web/test-results/
@@ -253,7 +257,7 @@ jobs:
       # perf reporter to packages/web/performance/ (summary.json / samples.jsonl / summary.md).
       - name: Upload performance metrics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: web-performance
           path: packages/web/performance/
@@ -264,35 +268,27 @@ jobs:
       # gate runs overwrite playwright-report/ — this is the only durable copy.
       - name: Upload gate failure evidence
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: web-ai-gate-evidence
           path: packages/web/.ai-runs/
           if-no-files-found: ignore
           retention-days: 7
 
-  regression-matrix:
-    name: Regression ${{ matrix.project }}
+
+  authenticated-regression:
+    name: Authenticated regression
+    if: ${{ vars.E2E_AUTH_ENABLED == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
     needs: quality
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        # Chromium-only by default to match the generated-test execution policy.
-        # Cross-browser is opt-in: set the repo variable PW_PROJECTS to e.g.
-        # ["chromium","firefox","webkit"].
-        project: ${{ fromJSON(vars.PW_PROJECTS || '["chromium"]') }}
+    # Individual deletion-dialog cases are capped at 6–8 minutes and execute once each.
+    # 120 minutes leaves headroom for the rest of the serialized external regression suite.
+    timeout-minutes: 120
     env:
       PLAYWRIGHT_TEST_BASE_URL: ${{ secrets.PLAYWRIGHT_TEST_BASE_URL }}
+      E2E_AUTH_ALLOWED_HOSTS: ${{ secrets.E2E_AUTH_ALLOWED_HOSTS }}
       CI: true
-      COLLECT_PERF: 'true'
-      # tests/regression is entirely *.authenticated.spec.ts, which only run in the chromium-auth
-      # project. Set this repo variable to 'true' AND provision the auth secrets below to execute
-      # them: with E2E_AUTH_REUSE_STATE unset, playwright.config.ts adds the `setup` login project,
-      # which needs the credential/selector secrets. Alternatively set E2E_AUTH_REUSE_STATE=true and
-      # materialise playwright/.auth/user.json in a prior step.
-      E2E_AUTH_ENABLED: ${{ vars.E2E_AUTH_ENABLED }}
+      E2E_AUTH_ENABLED: 'true'
       E2E_LOGIN_PATH: ${{ secrets.E2E_LOGIN_PATH }}
       E2E_USER_EMAIL: ${{ secrets.E2E_USER_EMAIL }}
       E2E_USER_PASSWORD: ${{ secrets.E2E_USER_PASSWORD }}
@@ -301,12 +297,14 @@ jobs:
       E2E_LOGIN_SUBMIT_SELECTOR: ${{ secrets.E2E_LOGIN_SUBMIT_SELECTOR }}
       E2E_AUTH_SUCCESS_SELECTOR: ${{ secrets.E2E_AUTH_SUCCESS_SELECTOR }}
       E2E_AUTH_SUCCESS_URL_REGEX: ${{ secrets.E2E_AUTH_SUCCESS_URL_REGEX }}
+      NECTAR_PLANNING_SESSION_ID: ${{ secrets.NECTAR_PLANNING_SESSION_ID }}
+      NECTAR_AUTH_ALLOWED_ISSUERS: ${{ secrets.NECTAR_AUTH_ALLOWED_ISSUERS }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
@@ -316,101 +314,23 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: npm ci
 
-      - name: Get Playwright version
-        id: pw-version
-        run: echo "version=$(node -p 'require("@playwright/test/package.json").version')" >> "$GITHUB_OUTPUT"
-
-      # Map the Playwright project name to its browser engine so derived
-      # projects (mobile-chrome, chromium-auth, ...) install the right binary.
-      - name: Resolve browser engine
-        id: engine
-        env:
-          PROJECT: ${{ matrix.project }}
+      - name: Validate external auth configuration
+        shell: bash
         run: |
-          case "$PROJECT" in
-            chromium|chromium-*|mobile-chrome) engine=chromium ;;
-            firefox|firefox-*) engine=firefox ;;
-            webkit|webkit-*|mobile-safari) engine=webkit ;;
-            *) engine="$PROJECT" ;;
-          esac
-          echo "engine=$engine" >> "$GITHUB_OUTPUT"
-
-      - name: Cache Playwright browsers
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ steps.engine.outputs.engine }}-${{ steps.pw-version.outputs.version }}-${{ hashFiles('package-lock.json') }}
-
-      # Install only the matrix project's engine instead of all three browsers.
-      - name: Skip regression tests when SUT URL is not configured
-        if: ${{ env.PLAYWRIGHT_TEST_BASE_URL == '' }}
-        run: echo "::warning::PLAYWRIGHT_TEST_BASE_URL is not configured; regression matrix skipped."
-
-      - name: Install Playwright browsers (${{ steps.engine.outputs.engine }})
-        if: ${{ env.PLAYWRIGHT_TEST_BASE_URL != '' }}
-        run: npx playwright install --with-deps ${{ steps.engine.outputs.engine }}
-
-      # tests/regression is entirely *.authenticated.spec.ts and runs ONLY in the chromium-auth
-      # project — a chromium-engine suite. Non-chromium matrix legs install only their own engine
-      # (engine-keyed cache, no chromium binary), so they must not attempt the run; only the
-      # chromium leg executes it, and only when E2E_AUTH_ENABLED=true. Everything else skips LOUDLY
-      # so a green means "regression actually ran" and a warning says exactly why it didn't.
-      - name: Run regression tests
-        if: ${{ env.PLAYWRIGHT_TEST_BASE_URL != '' }}
-        run: |
-          if [ "${{ matrix.project }}" != "chromium" ]; then
-            echo "::warning::Regression suite runs only on the chromium matrix leg (tests/regression is all *.authenticated.spec.ts -> chromium-auth); skipped for '${{ matrix.project }}'."
-          elif [ "${E2E_AUTH_ENABLED}" = "true" ]; then
-            npx playwright test tests/regression --project=chromium-auth
-          else
-            echo "::warning::Regression suite not executed: set the E2E_AUTH_ENABLED repo variable to 'true' and provision the E2E_* auth secrets to run it."
+          missing=()
+          for name in PLAYWRIGHT_TEST_BASE_URL E2E_USER_EMAIL E2E_USER_PASSWORD NECTAR_PLANNING_SESSION_ID NECTAR_AUTH_ALLOWED_ISSUERS; do
+            if [ -z "${!name}" ]; then missing+=("$name"); fi
+          done
+          if [ -z "$E2E_AUTH_SUCCESS_SELECTOR" ] && [ -z "$E2E_AUTH_SUCCESS_URL_REGEX" ]; then
+            missing+=("E2E_AUTH_SUCCESS_SELECTOR or E2E_AUTH_SUCCESS_URL_REGEX")
+          fi
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::Authenticated regression is enabled but required configuration is missing: ${missing[*]}"
+            exit 1
           fi
 
-      - name: Generate Allure report
-        if: ${{ always() && hashFiles('packages/web/allure-results/**') != '' }}
-        run: npm run allure:generate
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
 
-      - name: Upload Allure results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: web-allure-results-${{ matrix.project }}
-          path: packages/web/allure-results/
-          if-no-files-found: ignore
-          retention-days: 14
-
-      - name: Upload Allure report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: web-allure-report-${{ matrix.project }}
-          path: packages/web/allure-report/
-          if-no-files-found: ignore
-          retention-days: 14
-
-      - name: Upload Playwright report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: web-playwright-report-${{ matrix.project }}
-          path: packages/web/playwright-report/
-          if-no-files-found: ignore
-          retention-days: 14
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: web-test-results-${{ matrix.project }}
-          path: packages/web/test-results/
-          if-no-files-found: ignore
-          retention-days: 14
-
-      - name: Upload performance metrics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: web-performance-${{ matrix.project }}
-          path: packages/web/performance/
-          if-no-files-found: ignore
-          retention-days: 14
+      - name: Run serialized authenticated regression
+        run: npx playwright test tests/regression --project=chromium-auth --workers=1 --retries=0

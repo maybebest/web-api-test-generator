@@ -2,7 +2,7 @@
   "name": "web-api-test-generator",
   "version": "1.0.0",
   "private": true,
-  "description": "Monorepo combining an AI-assisted Playwright web E2E suite (packages/web, CommonJS) that generates UI tests from Markdown specs and Chrome DevTools Recorder exports, and a HAR-based API test generator (packages/api, ESM). npm workspaces keep each suite fully modular and independent; the root only orchestrates.",
+  "description": "Three-workspace monorepo: AI-assisted Playwright web testing, HAR-based API test generation, and a local browser UI that wraps both generation workflows.",
   "workspaces": [
     "packages/*"
   ],
@@ -11,11 +11,15 @@
   },
   "scripts": {
     "typecheck": "npm run web:typecheck && npm run api:lint && npm run ui:typecheck",
-    "verify": "npm run web:typecheck && npm run api:lint && npm run ui:typecheck && npm run ui:test && npm run api:build && npm run api:test && npm run api:secrets",
-    "test": "npm run api:test",
+    "verify": "npm run api:ci && npm run api:test:replay && npm run ui:typecheck && npm run ui:test && npm run web:verify:quality",
+    "test": "npm run ui:test && npm run api:test && npm run api:test:replay && npm run web:test:local",
     "web:typecheck": "npm run -w packages/web typecheck",
+    "web:lint": "npm run -w packages/web lint",
+    "web:verify:static": "npm run -w packages/web verify:static",
+    "web:verify:quality": "npm run -w packages/web verify:quality",
     "web:browsers:install": "npm run -w packages/web pw:install",
     "web:test": "npm run -w packages/web test:e2e",
+    "web:test:local": "npm run -w packages/web test:e2e:local",
     "web:test:list": "npm run -w packages/web test:e2e:list",
     "web:test:smoke": "npm run -w packages/web test:e2e:smoke",
     "web:test:regression": "npm run -w packages/web test:e2e:regression",
@@ -23,10 +27,14 @@
     "web:report": "npm run -w packages/web test:e2e:report",
     "web:ai:generate": "npm run -w packages/web ai:generate-test --",
     "web:ai:gate": "npm run -w packages/web ai:test:gate:all",
+    "web:ai:inventory": "npm run -w packages/web ai:test:inventory --",
     "web:ai:recording:validate": "npm run -w packages/web ai:recording:validate --",
     "web:ai:recording:generate": "npm run -w packages/web ai:recording:generate-test --",
     "web:ai:recording:gate": "npm run -w packages/web ai:recording:gate:all",
     "web:ai:self": "npm run -w packages/web ai:test:self",
+    "web:ai:eval": "npm run -w packages/web ai:eval",
+    "web:ai:tokens": "npm run -w packages/web ai:tokens:report --",
+    "web:ai:mcp": "npm run -w packages/web ai:mcp",
     "web:ai:brain:doctor": "npm run -w packages/web ai:brain:doctor",
     "ui:dev": "npm run -w packages/ui dev",
     "ui:typecheck": "npm run -w packages/ui typecheck",
@@ -34,11 +42,15 @@
     "api:build": "npm run -w packages/api build",
     "api:lint": "npm run -w packages/api lint",
     "api:test": "npm run -w packages/api test:unit",
+    "api:test:replay": "npm run -w packages/api test:api:replay",
     "api:ci": "npm run -w packages/api ci",
     "api:secrets": "npm run -w packages/api scan:secrets",
     "api:generate": "npm run -w packages/api generate --",
     "api:test:generated": "npm run -w packages/api test:api:generated",
     "api:test:smoke": "npm run -w packages/api test:api:smoke",
     "api:calibrate:report": "npm run -w packages/api calibrate:report"
+  },
+  "devDependencies": {
+    "dotenv": "^17.4.2"
   }
 }

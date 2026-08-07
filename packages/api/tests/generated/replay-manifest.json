@@ -3,224 +3,485 @@
     {
       "method": "POST",
       "pathPattern": "/v1/dashboard/activities/employees-stats/subordinates",
+      "pathWithQuery": "/v1/dashboard/activities/employees-stats/subordinates",
       "hostname": "apps.heartpace.dev",
+      "requestHeaders": {
+        "accept": "application/json, text/plain, */*",
+        "content-type": "application/json",
+        "x-requested-with": "XMLHttpRequest",
+        "x-site-uuid": "${X_SITE_UUID}",
+        "x-subdomain": "stageautomation"
+      },
+      "requestContentType": "application/json",
+      "requestBody": {
+        "perspective": "personal"
+      },
       "status": 200,
       "contentType": "application/json"
     },
     {
       "method": "POST",
       "pathPattern": "/v1/dashboard/activities/overall/tasks",
+      "pathWithQuery": "/v1/dashboard/activities/overall/tasks",
       "hostname": "apps.heartpace.dev",
+      "requestHeaders": {
+        "accept": "application/json, text/plain, */*",
+        "content-type": "application/json",
+        "x-requested-with": "XMLHttpRequest",
+        "x-site-uuid": "${X_SITE_UUID}",
+        "x-subdomain": "stageautomation"
+      },
+      "requestContentType": "application/json",
+      "requestBody": {
+        "page": 0,
+        "per_page": 5,
+        "period": "month",
+        "perspective": "personal"
+      },
       "status": 200,
       "contentType": "application/json"
     },
     {
       "method": "POST",
       "pathPattern": "/v1/dashboard/employees/celebrations",
+      "pathWithQuery": "/v1/dashboard/employees/celebrations",
       "hostname": "apps.heartpace.dev",
+      "requestHeaders": {
+        "accept": "application/json, text/plain, */*",
+        "content-type": "application/json",
+        "x-requested-with": "XMLHttpRequest",
+        "x-site-uuid": "${X_SITE_UUID}",
+        "x-subdomain": "stageautomation"
+      },
+      "requestContentType": "application/json",
+      "requestBody": {
+        "page": 0,
+        "per_page": 1,
+        "perspective": "personal",
+        "today": true
+      },
       "status": 200,
       "contentType": "application/json"
     },
     {
       "method": "POST",
       "pathPattern": "/v1/dashboard/employees/manager",
+      "pathWithQuery": "/v1/dashboard/employees/manager",
       "hostname": "apps.heartpace.dev",
+      "requestHeaders": {
+        "accept": "application/json, text/plain, */*",
+        "content-type": "application/json",
+        "x-requested-with": "XMLHttpRequest",
+        "x-site-uuid": "${X_SITE_UUID}",
+        "x-subdomain": "stageautomation"
+      },
+      "requestContentType": "application/json",
+      "requestBody": null,
       "status": 200,
       "contentType": "application/json"
     },
     {
       "method": "POST",
       "pathPattern": "/v1/dashboard/employees/team",
+      "pathWithQuery": "/v1/dashboard/employees/team",
       "hostname": "apps.heartpace.dev",
+      "requestHeaders": {
+        "accept": "application/json, text/plain, */*",
+        "content-type": "application/json",
+        "x-requested-with": "XMLHttpRequest",
+        "x-site-uuid": "${X_SITE_UUID}",
+        "x-subdomain": "stageautomation"
+      },
+      "requestContentType": "application/json",
+      "requestBody": {
+        "level": "subordinates",
+        "page": 0,
+        "per_page": 9
+      },
       "status": 200,
       "contentType": "application/json"
     },
     {
       "method": "POST",
       "pathPattern": "/v1/dashboard/meta",
+      "pathWithQuery": "/v1/dashboard/meta",
       "hostname": "apps.heartpace.dev",
+      "requestHeaders": {
+        "accept": "application/json, text/plain, */*",
+        "x-requested-with": "XMLHttpRequest",
+        "x-site-uuid": "${X_SITE_UUID}",
+        "x-subdomain": "stageautomation"
+      },
       "status": 200,
       "contentType": "application/json"
     },
     {
       "method": "POST",
       "pathPattern": "/v1/dashboard/meta/links",
+      "pathWithQuery": "/v1/dashboard/meta/links",
       "hostname": "apps.heartpace.dev",
+      "requestHeaders": {
+        "accept": "application/json, text/plain, */*",
+        "x-requested-with": "XMLHttpRequest",
+        "x-site-uuid": "${X_SITE_UUID}",
+        "x-subdomain": "stageautomation"
+      },
       "status": 200,
       "contentType": "application/json"
     },
     {
       "method": "POST",
       "pathPattern": "/v1/dashboard/news-feed",
+      "pathWithQuery": "/v1/dashboard/news-feed",
       "hostname": "apps.heartpace.dev",
+      "requestHeaders": {
+        "accept": "application/json, text/plain, */*",
+        "content-type": "application/json",
+        "x-requested-with": "XMLHttpRequest",
+        "x-site-uuid": "${X_SITE_UUID}",
+        "x-subdomain": "stageautomation"
+      },
+      "requestContentType": "application/json",
+      "requestBody": {
+        "perspective": "personal"
+      },
       "status": 200,
       "contentType": "application/json"
     },
     {
       "method": "POST",
       "pathPattern": "/v1/dashboard/talks/insights",
+      "pathWithQuery": "/v1/dashboard/talks/insights",
       "hostname": "apps.heartpace.dev",
+      "requestHeaders": {
+        "accept": "application/json, text/plain, */*",
+        "content-type": "application/json",
+        "x-requested-with": "XMLHttpRequest",
+        "x-site-uuid": "${X_SITE_UUID}",
+        "x-subdomain": "stageautomation"
+      },
+      "requestContentType": "application/json",
+      "requestBody": {
+        "period": "month",
+        "perspective": "personal"
+      },
       "status": 200,
       "contentType": "application/json"
     },
     {
       "method": "GET",
       "pathPattern": "/v1/navigation/top",
+      "pathWithQuery": "/v1/navigation/top",
       "hostname": "apps.heartpace.dev",
+      "requestHeaders": {
+        "accept": "application/json, text/plain, */*",
+        "x-requested-with": "XMLHttpRequest",
+        "x-site-uuid": "${X_SITE_UUID}",
+        "x-subdomain": "stageautomation"
+      },
       "status": 200,
       "contentType": "application/json"
     },
     {
       "method": "GET",
       "pathPattern": "/v1/navigation/top/meta",
+      "pathWithQuery": "/v1/navigation/top/meta",
       "hostname": "apps.heartpace.dev",
+      "requestHeaders": {
+        "accept": "application/json, text/plain, */*",
+        "x-requested-with": "XMLHttpRequest",
+        "x-site-uuid": "${X_SITE_UUID}",
+        "x-subdomain": "stageautomation"
+      },
       "status": 200,
       "contentType": "application/json"
     },
     {
       "method": "GET",
       "pathPattern": "/auth/main/login",
+      "pathWithQuery": "/auth/main/login",
       "hostname": "stageautomation.heartpace.dev",
+      "requestHeaders": {
+        "accept": "application/json, text/plain, */*"
+      },
       "status": 200,
       "contentType": "application/json; charset=UTF-8"
     },
     {
       "method": "POST",
       "pathPattern": "/auth/main/login",
+      "pathWithQuery": "/auth/main/login",
       "hostname": "stageautomation.heartpace.dev",
+      "requestHeaders": {
+        "accept": "application/json, text/plain, */*",
+        "content-type": "application/json"
+      },
+      "requestContentType": "application/json",
+      "requestBody": {
+        "email": "${TEST_EMAIL}",
+        "password": "${TEST_PASSWORD}"
+      },
       "status": 200,
       "contentType": "application/json; charset=UTF-8"
     },
     {
       "method": "GET",
       "pathPattern": "/me/account",
+      "pathWithQuery": "/me/account",
       "hostname": "stageautomation.heartpace.dev",
+      "requestHeaders": {
+        "accept": "application/json, text/plain, */*",
+        "x-site-uuid": "${X_SITE_UUID}"
+      },
       "status": 200,
       "contentType": "application/json; charset=UTF-8"
     },
     {
       "method": "GET",
       "pathPattern": "/me/account/oauth",
+      "pathWithQuery": "/me/account/oauth",
       "hostname": "stageautomation.heartpace.dev",
+      "requestHeaders": {
+        "accept": "application/json, text/plain, */*",
+        "x-csrf-token": "${CSRF_TOKEN}",
+        "x-requested-with": "XMLHttpRequest",
+        "x-site-uuid": "${X_SITE_UUID}"
+      },
       "status": 200,
       "contentType": "application/json; charset=UTF-8"
     },
     {
       "method": "GET",
       "pathPattern": "/me/account/settings/{param}",
+      "pathWithQuery": "/me/account/settings/${USER_ID}",
       "hostname": "stageautomation.heartpace.dev",
+      "requestHeaders": {
+        "accept": "application/json, text/plain, */*"
+      },
       "status": 200,
       "contentType": "application/json; charset=UTF-8"
     },
     {
       "method": "GET",
       "pathPattern": "/me/account/token",
+      "pathWithQuery": "/me/account/token",
       "hostname": "stageautomation.heartpace.dev",
+      "requestHeaders": {
+        "accept": "application/json, text/plain, */*"
+      },
       "status": 200,
       "contentType": "application/json; charset=UTF-8"
     },
     {
       "method": "GET",
       "pathPattern": "/user/activity/{param}",
+      "pathWithQuery": "/user/activity/${USER_ID}",
       "hostname": "stageautomation.heartpace.dev",
+      "requestHeaders": {
+        "accept": "application/json, text/plain, */*",
+        "x-requested-with": "XMLHttpRequest"
+      },
       "status": 200,
       "contentType": "text/html; charset=UTF-8"
     },
     {
       "method": "POST",
       "pathPattern": "/user/notifications/",
+      "pathWithQuery": "/user/notifications/?id=${QUERY_ID}",
       "hostname": "stageautomation.heartpace.dev",
+      "requestHeaders": {
+        "accept": "*/*",
+        "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+        "x-csrf-token": "${CSRF_TOKEN}",
+        "x-requested-with": "XMLHttpRequest"
+      },
+      "requestContentType": "application/x-www-form-urlencoded; charset=UTF-8",
+      "requestBody": "_csrf=${CSRF_TOKEN}&NotificationsForm3%5Btype%5D=3&NotificationsForm3%5Benabled%5D=0&NotificationsForm3%5Benabled%5D=1&NotificationsForm3%5Bfrequency%5D=6&NotificationsForm3%5BrepeatYearlyOnMonth%5D=1&NotificationsForm3%5ByearlyNumeration%5D=1&NotificationsForm3%5BrepeatOnYearly%5D=1&NotificationsForm3%5BmonthlyRepeatType%5D=1&NotificationsForm3%5Bnumeration%5D=1&NotificationsForm3%5BrepeatOnMonthly%5D=1&NotificationsForm3%5BrepeatOnMonthDay%5D=1&NotificationsForm3%5BrepeatOnWeekly%5D=1&NotificationsForm3%5BrepeatAt%5D=8%3A00&NotificationsForm3%5Bevents%5D%5Btalk%5D%5Bverification%5D%5Benabled%5D=0&NotificationsForm3%5Bevents%5D%5Btalk%5D%5Boverdue%5D%5Benabled%5D=0&NotificationsForm3%5Bevents%5D%5Btalk%5D%5Bupcoming%5D%5Benabled%5D=0&NotificationsForm3%5Bevents%5D%5Bactivity%5D%5Boverdue%5D%5Benabled%5D=0&NotificationsForm3%5Bevents%5D%5Bactivity%5D%5Bupcoming%5D%5Benabled%5D=0&NotificationsForm3%5Bevents%5D%5Bgoal%5D%5Boverdue%5D%5Benabled%5D=0&NotificationsForm3%5Bevents%5D%5Bgoal%5D%5Bupcoming%5D%5Benabled%5D=${API_TOKEN}&NotificationsForm4%5Btype%5D=4&NotificationsForm4%5Benabled%5D=0&NotificationsForm4%5Benabled%5D=1&NotificationsForm4%5Bfrequency%5D=7&NotificationsForm4%5BrepeatYearlyOnMonth%5D=1&NotificationsForm4%5ByearlyNumeration%5D=1&NotificationsForm4%5BrepeatOnYearly%5D=1&NotificationsForm4%5Bnumeration%5D=0&NotificationsForm4%5BrepeatOnMonthly%5D=8&NotificationsForm4%5BmonthlyRepeatType%5D=2&NotificationsForm4%5BrepeatOnMonthDay%5D=6&NotificationsForm4%5BrepeatOnWeekly%5D=1&NotificationsForm4%5BrepeatAt%5D=08%3A30&NotificationsForm4%5Bevents%5D%5Bcustom%5D%5Bbirthday%5D%5Benabled%5D=0&NotificationsForm4%5Bevents%5D%5Bcustom%5D%5Bbirthday%5D%5Benabled%5D=1",
       "status": 200,
       "contentType": "application/json; charset=UTF-8"
     },
     {
       "method": "GET",
       "pathPattern": "/user/notifications/{param}",
+      "pathWithQuery": "/user/notifications/${USER_ID}",
       "hostname": "stageautomation.heartpace.dev",
+      "requestHeaders": {
+        "accept": "application/json, text/plain, */*",
+        "x-requested-with": "XMLHttpRequest"
+      },
       "status": 200,
       "contentType": "text/html; charset=UTF-8"
     },
     {
       "method": "GET",
       "pathPattern": "/user/password/{param}",
+      "pathWithQuery": "/user/password/${USER_ID}",
       "hostname": "stageautomation.heartpace.dev",
+      "requestHeaders": {
+        "accept": "application/json, text/plain, */*",
+        "x-requested-with": "XMLHttpRequest"
+      },
       "status": 200,
       "contentType": "text/html; charset=UTF-8"
     },
     {
       "method": "GET",
       "pathPattern": "/user/preferences/{param}",
+      "pathWithQuery": "/user/preferences/${USER_ID}",
       "hostname": "stageautomation.heartpace.dev",
+      "requestHeaders": {
+        "accept": "application/json, text/plain, */*",
+        "x-requested-with": "XMLHttpRequest"
+      },
       "status": 200,
       "contentType": "text/html; charset=UTF-8"
     },
     {
       "method": "POST",
       "pathPattern": "/user/preferences/{param}",
+      "pathWithQuery": "/user/preferences/${USER_ID}",
       "hostname": "stageautomation.heartpace.dev",
+      "requestHeaders": {
+        "accept": "application/json, text/javascript, */*; q=0.01",
+        "content-type": "multipart/form-data; boundary=----WebKitFormBoundaryfeOhkK5lt4PBEQno",
+        "x-csrf-token": "${CSRF_TOKEN}",
+        "x-requested-with": "XMLHttpRequest"
+      },
+      "requestContentType": "multipart/form-data; boundary=----WebKitFormBoundaryfeOhkK5lt4PBEQno",
+      "requestBody": "------WebKitFormBoundaryfeOhkK5lt4PBEQno\r\nContent-Disposition: form-data; name=\"_csrf\"\r\n\r\n${CSRF_TOKEN}\r\n------WebKitFormBoundaryfeOhkK5lt4PBEQno\r\nContent-Disposition: form-data; name=\"PreferencesForm[language]\"\r\n\r\nen-US\r\n------WebKitFormBoundaryfeOhkK5lt4PBEQno\r\nContent-Disposition: form-data; name=\"PreferencesForm[timeZone]\"\r\n\r\n\r\n------WebKitFormBoundaryfeOhkK5lt4PBEQno\r\nContent-Disposition: form-data; name=\"PreferencesForm[dateFormat]\"\r\n\r\n\r\n------WebKitFormBoundaryfeOhkK5lt4PBEQno\r\nContent-Disposition: form-data; name=\"PreferencesForm[timeFormat]\"\r\n\r\n\r\n------WebKitFormBoundaryfeOhkK5lt4PBEQno--\r\n",
       "status": 200,
       "contentType": "application/json; charset=UTF-8"
     },
     {
       "method": "GET",
       "pathPattern": "/user/security/{param}",
+      "pathWithQuery": "/user/security/${USER_ID}",
       "hostname": "stageautomation.heartpace.dev",
+      "requestHeaders": {
+        "accept": "application/json, text/plain, */*",
+        "x-requested-with": "XMLHttpRequest"
+      },
       "status": 200,
       "contentType": "text/html; charset=UTF-8"
     },
     {
       "method": "POST",
       "pathPattern": "/user/security/{param}",
+      "pathWithQuery": "/user/security/${USER_ID}",
       "hostname": "stageautomation.heartpace.dev",
+      "requestHeaders": {
+        "accept": "application/json, text/javascript, */*; q=0.01",
+        "content-type": "multipart/form-data; boundary=----WebKitFormBoundaryNHuVil7XLzIlCSnA",
+        "x-csrf-token": "${CSRF_TOKEN}",
+        "x-requested-with": "XMLHttpRequest"
+      },
+      "requestContentType": "multipart/form-data; boundary=----WebKitFormBoundaryNHuVil7XLzIlCSnA",
+      "requestBody": "------WebKitFormBoundaryNHuVil7XLzIlCSnA\r\nContent-Disposition: form-data; name=\"_csrf\"\r\n\r\n${CSRF_TOKEN}\r\n------WebKitFormBoundaryNHuVil7XLzIlCSnA\r\nContent-Disposition: form-data; name=\"Security[support_can_login]\"\r\n\r\n0\r\n------WebKitFormBoundaryNHuVil7XLzIlCSnA\r\nContent-Disposition: form-data; name=\"Security[support_can_login]\"\r\n\r\n1\r\n------WebKitFormBoundaryNHuVil7XLzIlCSnA--\r\n",
       "status": 200,
       "contentType": "application/json; charset=UTF-8"
     },
     {
       "method": "GET",
       "pathPattern": "/user/session",
+      "pathWithQuery": "/user/session?_=${CACHE_BUSTER}",
       "hostname": "stageautomation.heartpace.dev",
+      "requestHeaders": {
+        "accept": "application/json, text/javascript, */*; q=0.01",
+        "x-csrf-token": "${CSRF_TOKEN}",
+        "x-requested-with": "XMLHttpRequest"
+      },
       "status": 200,
       "contentType": "application/json; charset=UTF-8"
     },
     {
       "method": "GET",
       "pathPattern": "/user/support/{param}",
+      "pathWithQuery": "/user/support/${USER_ID}",
       "hostname": "stageautomation.heartpace.dev",
+      "requestHeaders": {
+        "accept": "application/json, text/plain, */*",
+        "x-requested-with": "XMLHttpRequest"
+      },
       "status": 200,
       "contentType": "text/html; charset=UTF-8"
     },
     {
       "method": "GET",
       "pathPattern": "/user/talk-settings/{param}",
+      "pathWithQuery": "/user/talk-settings/${USER_ID}",
       "hostname": "stageautomation.heartpace.dev",
+      "requestHeaders": {
+        "accept": "application/json, text/plain, */*",
+        "x-requested-with": "XMLHttpRequest"
+      },
       "status": 200,
       "contentType": "text/html; charset=UTF-8"
     },
     {
       "method": "POST",
       "pathPattern": "/user/talk-settings/{param}",
+      "pathWithQuery": "/user/talk-settings/${USER_ID}",
       "hostname": "stageautomation.heartpace.dev",
+      "requestHeaders": {
+        "accept": "application/json, text/javascript, */*; q=0.01",
+        "content-type": "multipart/form-data; boundary=----WebKitFormBoundaryVKk2ASAqxsxqeKQN",
+        "x-csrf-token": "${CSRF_TOKEN}",
+        "x-requested-with": "XMLHttpRequest"
+      },
+      "requestContentType": "multipart/form-data; boundary=----WebKitFormBoundaryVKk2ASAqxsxqeKQN",
+      "requestBody": "------WebKitFormBoundaryVKk2ASAqxsxqeKQN\r\nContent-Disposition: form-data; name=\"_csrf\"\r\n\r\n${CSRF_TOKEN}\r\n------WebKitFormBoundaryVKk2ASAqxsxqeKQN\r\nContent-Disposition: form-data; name=\"TalkSettingsForm[talkDuration]\"\r\n\r\n50\r\n------WebKitFormBoundaryVKk2ASAqxsxqeKQN--\r\n",
       "status": 200,
       "contentType": "application/json; charset=UTF-8"
     },
     {
       "method": "GET",
       "pathPattern": "/user/twostepauthsettings/{param}",
+      "pathWithQuery": "/user/twostepauthsettings/${USER_ID}",
       "hostname": "stageautomation.heartpace.dev",
+      "requestHeaders": {
+        "accept": "application/json, text/plain, */*",
+        "x-requested-with": "XMLHttpRequest"
+      },
       "status": 200,
       "contentType": "text/html; charset=UTF-8"
     },
     {
       "method": "GET",
       "pathPattern": "/users/user/{param}",
+      "pathWithQuery": "/users/user/${USER_ID}",
       "hostname": "stageautomation.heartpace.dev",
+      "requestHeaders": {
+        "accept": "application/json, text/plain, */*"
+      },
       "status": 200,
       "contentType": "application/json; charset=UTF-8"
     },
     {
       "method": "POST",
       "pathPattern": "/v1/approval/my-team/running-chains/requests",
+      "pathWithQuery": "/v1/approval/my-team/running-chains/requests",
       "hostname": "workforce.heartpace.dev",
+      "requestHeaders": {
+        "accept": "application/json, text/plain, */*",
+        "content-type": "application/json",
+        "x-requested-with": "XMLHttpRequest",
+        "x-site-uuid": "${X_SITE_UUID}",
+        "x-subdomain": "stageautomation"
+      },
+      "requestContentType": "application/json",
+      "requestBody": {
+        "current_approver_uuid": null,
+        "order_by": {
+          "column": "requested_date",
+          "direction": "desc"
+        },
+        "page": 0,
+        "per_page": 5,
+        "perspective": "my",
+        "process_type": null,
+        "query": "",
+        "status": "todo"
+      },
       "status": 200,
       "contentType": "application/json"
     }

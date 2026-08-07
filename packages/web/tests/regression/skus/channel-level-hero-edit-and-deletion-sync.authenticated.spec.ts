@@ -4,20 +4,21 @@
 import { test, expect } from '../../../fixtures/test';
 import { PlanningPage } from '../../../pages/PlanningPage';
 
-// 7 automatable Data Cases (of 30 source cases; the rest are declared
-// under "Pending Automation" in the spec — E2E-only policy, no placeholder tests). Each row seeds
-// REAL catalogue skuIds (specs/skus/.sku-pools.json) into a live planningAI session and asserts the
-// summary counters the UI actually renders.
+// 7 Data Cases (of 30 source cases; the rest are declared under "Pending Automation" in the spec —
+// E2E-only policy, no placeholder tests). The captured planningAI_updateState SET_SKUS contract is
+// session-wide (no channel dimension), so each row seeds REAL catalogue skuIds
+// (specs/skus/.sku-pools.json) into a live planningAI session and asserts the session-level Hero
+// counter the UI actually renders — the per-channel isolation/deletion outcomes of the source
+// cases remain pending automation per the spec.
 type SkuDataCase = {
   caseId: string;
   sourceId: string;
   heroSkus: string[];
   measurementSkus: string[];
-  // Real catalogue pool the ids come from ('persil' / 'big:<brand>'); 'none' seeds an empty set.
+  // Real catalogue pool the ids come from (specs/skus/.sku-pools.json).
   skuPool: string;
   expected: {
-    heroCount: number | null;
-    measurementCount: number | null;
+    heroCount: number;
   };
 };
 
@@ -33,8 +34,7 @@ const dataCases: SkuDataCase[] = [
     "measurementSkus": [],
     "skuPool": "persil",
     "expected": {
-      "heroCount": 3,
-      "measurementCount": null
+      "heroCount": 3
     }
   },
   {
@@ -47,8 +47,7 @@ const dataCases: SkuDataCase[] = [
     "measurementSkus": [],
     "skuPool": "persil",
     "expected": {
-      "heroCount": 2,
-      "measurementCount": null
+      "heroCount": 2
     }
   },
   {
@@ -62,8 +61,7 @@ const dataCases: SkuDataCase[] = [
     "measurementSkus": [],
     "skuPool": "persil",
     "expected": {
-      "heroCount": 3,
-      "measurementCount": null
+      "heroCount": 3
     }
   },
   {
@@ -76,8 +74,7 @@ const dataCases: SkuDataCase[] = [
     "measurementSkus": [],
     "skuPool": "persil",
     "expected": {
-      "heroCount": 2,
-      "measurementCount": null
+      "heroCount": 2
     }
   },
   {
@@ -90,8 +87,7 @@ const dataCases: SkuDataCase[] = [
     "measurementSkus": [],
     "skuPool": "persil",
     "expected": {
-      "heroCount": 2,
-      "measurementCount": null
+      "heroCount": 2
     }
   },
   {
@@ -104,8 +100,7 @@ const dataCases: SkuDataCase[] = [
     "measurementSkus": [],
     "skuPool": "persil",
     "expected": {
-      "heroCount": 2,
-      "measurementCount": null
+      "heroCount": 2
     }
   },
   {
@@ -118,57 +113,52 @@ const dataCases: SkuDataCase[] = [
     "measurementSkus": [],
     "skuPool": "persil",
     "expected": {
-      "heroCount": 2,
-      "measurementCount": null
+      "heroCount": 2
     }
   }
 ];
 
-// Live DOM contract (observed 2026-07-03): plan-hero-skus / plan-measurement-skus resolve to the
-// whole summary row, whose textContent concatenates children WITHOUT whitespace
+// Live DOM contract (observed 2026-07-03 on the sibling FLOW-SKU-IND suite): plan-hero-skus
+// resolves to the whole summary row, whose textContent concatenates children WITHOUT whitespace
 // ("ProductHero SKUs2 SKUsEdit…") — so \b never exists around the numeral; a digit lookbehind
-// keeps "12 SKUs" from satisfying "2 SKUs". An empty counter renders "To be defined".
+// keeps "12 SKUs" from satisfying "2 SKUs". An empty counter renders "To be defined" (RULE-002).
 const countPattern = (count: number): RegExp =>
   count === 0 ? new RegExp('(?<!\\d)0 SKUs?|To be defined') : new RegExp(`(?<!\\d)${count} SKUs?`);
 
 // Spec Stability Requirements declare Parallel Safe = no, so the suite runs serially.
-test.describe.serial("Channel-level Hero edit, per-channel SKU definition and deletion sync", () => {
+test.describe.serial('Channel-level Hero edit, per-channel SKU definition and deletion sync', () => {
   for (const dataCase of dataCases) {
     test(
       `${dataCase.caseId} ${dataCase.sourceId}`,
       { tag: ['@generated', '@regression', '@media-planner', '@authenticated', '@channel-level-hero-edit-and-deletion-sync'] },
       async ({ page, dataManager }) => {
         const planningPage = new PlanningPage(page);
+
         await test.step('seed the session with the case SKU sets and open it', async () => {
           const sessionId = await dataManager.ensurePlanningSession();
-          if (dataCase.heroSkus.length > 0) {
-            await dataManager.setPlanHeroSkus(sessionId, 'offsite', dataCase.heroSkus);
-          }
-          if (dataCase.measurementSkus.length > 0) {
-            await dataManager.setPlanMeasurementSkus(sessionId, 'offsite', dataCase.measurementSkus);
-          }
+          await dataManager.setPlanHeroSkus(sessionId, 'offsite', dataCase.heroSkus);
+          await dataManager.setPlanMeasurementSkus(sessionId, 'offsite', dataCase.measurementSkus);
           await planningPage.gotoSession(sessionId);
         });
-        await test.step('Assert AC-004: seeded Hero/Measurement counter matches the data case', async () => {
-          if (dataCase.expected.heroCount !== null) {
-            await expect(planningPage.summaryHeroCount()).toContainText(countPattern(dataCase.expected.heroCount));
-          } else {
-            await expect(planningPage.summaryMeasurementCount()).toContainText(countPattern(dataCase.expected.measurementCount as number));
-          }
+
+        await test.step('Assert AC-004: the seeded Hero counter matches the data case', async () => {
+          await expect(planningPage.summaryHeroCount()).toContainText(countPattern(dataCase.expected.heroCount));
         });
       }
     );
   }
 
   test(
-    "AC-001 channel-level-hero-edit-and-deletion-sync",
+    'AC-001 channel-level-hero-edit-and-deletion-sync',
     { tag: ['@generated', '@regression', '@media-planner', '@authenticated', '@channel-level-hero-edit-and-deletion-sync'] },
     async ({ page }) => {
       const planningPage = new PlanningPage(page);
+
       await test.step('walk the planner entry path', async () => {
         await planningPage.goto();
         await planningPage.startNectarAiPlanner();
       });
+
       await test.step('Assert AC-001: the guided objective-and-budget flow is reachable', async () => {
         await expect(planningPage.buildByObjectiveButton()).toBeVisible();
       });
@@ -176,14 +166,16 @@ test.describe.serial("Channel-level Hero edit, per-channel SKU definition and de
   );
 
   test(
-    "AC-002 channel-level-hero-edit-and-deletion-sync",
+    'AC-002 channel-level-hero-edit-and-deletion-sync',
     { tag: ['@generated', '@regression', '@media-planner', '@authenticated', '@channel-level-hero-edit-and-deletion-sync'] },
     async ({ page, dataManager }) => {
       const planningPage = new PlanningPage(page);
+
       await test.step('open the live planning session directly', async () => {
         const sessionId = await dataManager.ensurePlanningSession();
         await planningPage.gotoSession(sessionId);
       });
+
       await test.step('Assert AC-002: the seeded session hydrates to its summary panel', async () => {
         await expect(planningPage.summaryPanel()).toBeVisible();
       });
@@ -191,15 +183,17 @@ test.describe.serial("Channel-level Hero edit, per-channel SKU definition and de
   );
 
   test(
-    "AC-003 channel-level-hero-edit-and-deletion-sync",
+    'AC-003 channel-level-hero-edit-and-deletion-sync',
     { tag: ['@generated', '@regression', '@media-planner', '@authenticated', '@channel-level-hero-edit-and-deletion-sync'] },
     async ({ page, dataManager }) => {
       const planningPage = new PlanningPage(page);
+
       await test.step('seed exactly two Hero SKUs from the real catalogue pool', async () => {
         const sessionId = await dataManager.ensurePlanningSession();
-        await dataManager.setPlanHeroSkus(sessionId, 'offsite', ["7096764","7304367"]);
+        await dataManager.setPlanHeroSkus(sessionId, 'offsite', ['7096764', '7304367']);
         await planningPage.gotoSession(sessionId);
       });
+
       await test.step('Assert AC-003: the Hero counter equals the seeded Hero count', async () => {
         await expect(planningPage.summaryHeroCount()).toContainText(countPattern(2));
       });
@@ -207,16 +201,19 @@ test.describe.serial("Channel-level Hero edit, per-channel SKU definition and de
   );
 
   test(
-    "NEG-001 channel-level-hero-edit-and-deletion-sync",
+    'NEG-001 channel-level-hero-edit-and-deletion-sync',
     { tag: ['@generated', '@regression', '@media-planner', '@authenticated', '@channel-level-hero-edit-and-deletion-sync'] },
     async ({ page, dataManager }) => {
       const planningPage = new PlanningPage(page);
+
       await test.step('clear the session SKU selection via API and open it', async () => {
         const sessionId = await dataManager.ensurePlanningSession();
         await dataManager.setPlanHeroSkus(sessionId, 'offsite', []);
+        await dataManager.setPlanMeasurementSkus(sessionId, 'offsite', []);
         await planningPage.gotoSession(sessionId);
       });
-      await test.step('Assert NEG-001: no SKU edit control renders for an empty selection', async () => {
+
+      await test.step('Assert NEG-001: no Measurement SKU edit control renders for an empty selection', async () => {
         await expect(planningPage.summaryEditMeasurementButton()).toBeHidden();
       });
     }

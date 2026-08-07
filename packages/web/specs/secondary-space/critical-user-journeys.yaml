@@ -1,0 +1,195 @@
+journeys:
+  - id: JOURNEY-001
+    title: "NUP-20399: NUP-20399 — Detect secondary space configuration (assume internal user) - Test only"
+    type: e2e
+    priority: low
+    modules:
+      - ChannelManagement
+    states:
+      - NUP20399Context
+      - NUP20399Scenario1Outcome
+      - ChannelAccepted
+    transitions:
+      - CHANNELM-TR-001
+      - CHANNELM-TR-002
+    sourceRefs:
+      - NUP-20399.md#L27-L33
+      - NUP-20399.md#L34-L48
+    testCases:
+      - CHANNELM-E2E-001
+      - CHANNELM-E2E-002
+    openQuestions: []
+  - id: JOURNEY-002
+    title: "NUP-20400: NUP-20400 — Prompt and validate mandatory secondary space elements"
+    type: e2e
+    priority: critical
+    modules:
+      - ChannelManagement
+    states:
+      - NUP20400Context
+      - NUP20400Scenario1Outcome
+      - NUP20400Scenario2Outcome
+      - NUP20400Scenario3Outcome
+      - NUP20400Scenario4Outcome
+      - ValidationError
+    transitions:
+      - CHANNELM-TR-003
+      - CHANNELM-TR-004
+      - CHANNELM-TR-005
+      - CHANNELM-TR-006
+      - CHANNELM-TR-007
+    sourceRefs:
+      - NUP-20400.md#L26-L32
+      - NUP-20400.md#L33-L45
+      - NUP-20400.md#L46-L52
+      - NUP-20400.md#L53-L59
+      - NUP-20400.md#L66-L85
+    testCases:
+      - CHANNELM-E2E-003
+      - CHANNELM-E2E-004
+      - CHANNELM-E2E-005
+      - CHANNELM-E2E-006
+      - CHANNELM-E2E-007
+    openQuestions: []
+  - id: JOURNEY-003
+    title: "NUP-20401: NUP-20401 — Select or skip optional secondary space elements"
+    type: e2e
+    priority: high
+    modules:
+      - ChannelManagement
+    states:
+      - NUP20401Context
+      - ChannelAccepted
+      - NUP20401Scenario3Outcome
+      - NUP20401Scenario4Outcome
+    transitions:
+      - CHANNELM-TR-008
+      - CHANNELM-TR-009
+      - CHANNELM-TR-010
+      - CHANNELM-TR-011
+      - CHANNELM-TR-012
+    sourceRefs:
+      - NUP-20401.md#L27-L39
+      - NUP-20401.md#L40-L60
+      - NUP-20401.md#L61-L69
+      - NUP-20401.md#L70-L75
+      - NUP-20401.md#L80-L101
+    testCases:
+      - CHANNELM-E2E-008
+      - CHANNELM-E2E-009
+      - CHANNELM-E2E-010
+      - CHANNELM-E2E-011
+      - CHANNELM-E2E-012
+    openQuestions: []
+  - id: JOURNEY-004
+    title: "NUP-20402: NUP-20402 — Save secondary space data for future booking"
+    type: e2e
+    priority: high
+    modules:
+      - ChannelManagement
+    states:
+      - NUP20402Context
+      - NUP20402Scenario1Outcome
+      - NUP20402Scenario2Outcome
+      - ChannelConfiguration
+    transitions:
+      - CHANNELM-TR-013
+      - CHANNELM-TR-014
+      - CHANNELM-TR-015
+    sourceRefs:
+      - NUP-20402.md#L24-L28
+      - NUP-20402.md#L29-L34
+      - NUP-20402.md#L35-L46
+    testCases:
+      - CHANNELM-E2E-013
+      - CHANNELM-E2E-014
+      - CHANNELM-E2E-015
+    openQuestions: []
+  - id: JOURNEY-005
+    title: "NUP-20403: NUP-20403 — Process and validate multiple channels in a single user input (test only)"
+    type: e2e
+    priority: critical
+    modules:
+      - ChannelManagement
+    states:
+      - NUP20403Context
+      - ValidationError
+      - NUP20403Scenario2Outcome
+      - ChannelAccepted
+    transitions:
+      - CHANNELM-TR-016
+      - CHANNELM-TR-017
+      - CHANNELM-TR-018
+    sourceRefs:
+      - NUP-20403.md#L19-L30
+      - NUP-20403.md#L31-L38
+      - NUP-20403.md#L39-L52
+    testCases:
+      - CHANNELM-E2E-016
+      - CHANNELM-E2E-017
+      - CHANNELM-E2E-018
+    openQuestions: []
+  - id: JOURNEY-006
+    title: "NUP-20739: NUP-20739 — Edit Secondary Space elements via summary panel modal"
+    type: e2e
+    priority: high
+    modules:
+      - ChannelManagement
+    states:
+      - NUP20739Context
+      - NUP20739Scenario1Outcome
+      - NUP20739Scenario2Outcome
+    transitions:
+      - CHANNELM-TR-019
+      - CHANNELM-TR-020
+    sourceRefs:
+      - NUP-20739.md#L21-L28
+      - NUP-20739.md#L29-L43
+    testCases:
+      - CHANNELM-E2E-019
+      - CHANNELM-E2E-020
+    openQuestions: []
+  - id: JOURNEY-007
+    title: "NUP-22595: NUP-22595 — Extend Secondary Space channel validation with user type and visibility logic"
+    type: e2e
+    priority: critical
+    modules:
+      - ChannelManagement
+    states:
+      - NUP22595Context
+      - NUP22595Scenario1Outcome
+      - ValidationError
+      - NUP22595Scenario3Outcome
+      - ChannelAccepted
+    transitions:
+      - CHANNELM-TR-021
+      - CHANNELM-TR-022
+      - CHANNELM-TR-023
+      - CHANNELM-TR-024
+    sourceRefs:
+      - NUP-22595.md#L23-L30
+      - NUP-22595.md#L31-L39
+      - NUP-22595.md#L40-L47
+      - NUP-22595.md#L48-L61
+    testCases:
+      - CHANNELM-E2E-021
+      - CHANNELM-E2E-022
+      - CHANNELM-E2E-023
+      - CHANNELM-E2E-024
+    openQuestions: []
+  - id: JOURNEY-008
+    title: "NUP-24049: NUP-24049 — Remove Feature Flag in Production"
+    type: e2e
+    priority: critical
+    modules:
+      - SecondarySpace
+    states:
+      - NUP24049Context
+      - NUP24049Scenario1Outcome
+    transitions:
+      - SECONDAR-TR-001
+    sourceRefs:
+      - NUP-24049.md#L14-L19
+    testCases:
+      - SECONDAR-E2E-001
+    openQuestions: []

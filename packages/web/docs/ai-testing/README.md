@@ -4,6 +4,16 @@ This repository contains a reusable AI-assisted web automated testing framework 
 
 For a simple human-readable overview, start with [START_HERE.md](START_HERE.md).
 
+The non-negotiable design principles for the generation agent live in
+[AGENT_GROUND_RULES.md](AGENT_GROUND_RULES.md) (rules R1–R17 + an evidence-based compliance
+matrix); check every pipeline change against them.
+
+The deterministic golden evaluator is documented in [EVALS.md](EVALS.md). The bounded stdio
+facade for reviewed plans, browser steps, and generation-task artifacts is documented in
+[MCP_SERVER.md](MCP_SERVER.md).
+Prompt compaction, provider/exact caching, structured output, token telemetry, and CI budgets are
+documented in [TOKEN_ECONOMY.md](TOKEN_ECONOMY.md).
+
 ## Execution Truth
 
 Playwright Test is the deterministic execution framework. AI can explore, draft, triage, and suggest repairs, but committed tests must be normal Playwright Test specs that run locally and in CI.
@@ -39,7 +49,7 @@ Prompts are guidance. Templates, scripts, gates, and CI are controls.
 npm run ai:spec:import -- --input docs/manual/login.md --out specs/login.draft.md
 ```
 
-Review every `NEEDS_REVIEW` value, confirm business rules/data cases, then change `Review Status` from `ai-draft` to `human-reviewed`.
+Resolve every `NEEDS_REVIEW` value and provide deterministic business rules/data cases. Normal validation fails closed while a marker remains; behavioral SHA-256 drift checks invalidate generated tests after later contract changes.
 
 2. Or create a flow spec from the strict template:
 
@@ -57,7 +67,7 @@ npm run ai:spec:validate -- specs/login.md
 5. Optionally capture current UI evidence for selector candidates:
 
 ```bash
-npm run ai:dom:discover -- --spec specs/login.md --url http://localhost:3000/login
+npm run ai:dom:discover -- --spec specs/example-flow.md --url http://127.0.0.1:3000/recorded-example/checkout
 npm run ai:dom:discover:review -- --spec specs/login.md
 ```
 
@@ -87,7 +97,7 @@ npm run ai:spec:drift
 npm run ai:spec:catalog
 ```
 
-The catalog (`docs/ai-testing/coverage.md`) includes a `NEG Coverage` column: covered/total spec `NEG-###` ids found in the target test (`none` when a spec declares no NEG cases). The two delivered flows currently report `1/1`; a pending-generation spec reports `0/<n>` until its test lands.
+The catalog (`docs/ai-testing/coverage.md`) includes a `NEG Coverage` column: covered/total spec `NEG-###` ids found in the target test (`none` when a spec declares no NEG cases). A pending-generation spec reports `0/<n>` until its test lands.
 
 11. Open generated/spec-bound tests in Playwright UI mode without framework healthcheck tests:
 
@@ -130,4 +140,4 @@ Spec drift uses a behavioral hash: changes to ACs, steps, data cases, mocks, rul
 
 ## Auth Projects
 
-Default browser projects are unauthenticated and do not use `storageState`. Set `E2E_AUTH_ENABLED=true` only for authenticated runs. When enabled, auth setup requires non-production credentials plus `E2E_AUTH_SUCCESS_SELECTOR` or `E2E_AUTH_SUCCESS_URL_REGEX`, asserts login success, and saves `playwright/.auth/user.json` only after success.
+Default browser projects are unauthenticated and do not use `storageState`. Set `E2E_AUTH_ENABLED=true` only for authenticated runs. When enabled, auth setup requires non-production credentials plus `E2E_AUTH_SUCCESS_SELECTOR` or `E2E_AUTH_SUCCESS_URL_REGEX`, asserts login success, and saves `playwright/.auth/user.json` with owner-only permissions only after success.

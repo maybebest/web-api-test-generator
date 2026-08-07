@@ -11,16 +11,16 @@ npx playwright install --with-deps
 Set the target app URL:
 
 ```bash
-export PLAYWRIGHT_TEST_BASE_URL=http://localhost:3000
+npm run fixture:start
 ```
 
-Then verify the app is running before starting tests. For the bundled demo app, start it with:
+For local discovery, verify the deterministic fixture is running:
 
 ```bash
-npm run demo:start
+npm run fixture:start
 ```
 
-It serves `http://localhost:3000` (the default `PLAYWRIGHT_TEST_BASE_URL`). `playwright test` runs start it automatically via `webServer`; discovery commands and manual exploration do not.
+It serves `http://127.0.0.1:3000`. Playwright starts it automatically via `webServer`; discovery commands and manual exploration do not. `PLAYWRIGHT_TEST_BASE_URL` is external-only.
 
 ## Generated Test Gate Fails
 
@@ -38,7 +38,7 @@ npm run ai:test:review -- --spec specs/login.md --test tests/regression/login.sp
 
 Common causes:
 
-- Spec is still marked `Review Status | ai-draft`.
+- Spec still contains one or more `NEEDS_REVIEW` markers.
 - Missing required spec section.
 - Placeholder-only content.
 - Missing AC coverage marker.
@@ -101,14 +101,14 @@ Drift hashing is behavioral. Editing Notes alone should not require a new header
 
 ## Manual Import Produces A Draft Spec
 
-Imported specs intentionally fail normal validation until reviewed:
+Imported specs intentionally fail normal validation until deterministic contract values replace every marker:
 
 ```bash
 npm run ai:spec:import -- --input docs/manual/scenario.md --out specs/scenario.draft.md
 npm run ai:spec:validate -- specs/scenario.draft.md --allow-draft
 ```
 
-Replace `NEEDS_REVIEW` values, confirm rule semantics and boundary data, then set `Review Status` to `human-reviewed`.
+Replace `NEEDS_REVIEW` values, confirm rule semantics and boundary data, then run normal validation. No sign-off metadata is required.
 
 ## Auth State Is Missing
 
@@ -138,6 +138,10 @@ export E2E_AUTH_STATE_PATH=playwright/.auth/user.json
 npx playwright test tests/regression/media-planner-minimum-campaign-duration.authenticated.spec.ts --project=chromium-auth
 ```
 
+If the reviewed non-production hostname does not contain a `dev`, `test`, `stage`, `qa`, `uat`,
+`sandbox`, or `preview` label, also export its exact hostname through
+`E2E_AUTH_ALLOWED_HOSTS`. Production-like unclassified hosts fail before test collection.
+
 Specs with `Auth | required` must name their `Target Test File` `<name>.authenticated.spec.ts` (a hard validation error otherwise, and non-auth specs must not use the suffix — see "Auth | required spec must target *.authenticated.spec.ts" above): the `chromium-auth` project selects tests by `/.*\.authenticated\.spec\.ts/` and every non-auth browser project ignores that pattern, so an old non-`.authenticated` filename can never match `chromium-auth`.
 
 Auth-required generated specs run on `chromium-auth`. When `E2E_AUTH_ENABLED` is not true, `npm run ai:test:gate:all` still validates and statically reviews those specs, then skips live browser execution with an explicit message.
@@ -150,7 +154,7 @@ export E2E_AUTH_ENABLED=true
 export E2E_MP_DD_COMPETITION_PAGE_MIN_DURATION_DAYS=<configured-channel-minimum>
 ```
 
-The Media Planner spec is `Generation Status | pending-generation`: it is human-reviewed but its test is generated against the live authenticated environment, so `ai:test:gate:all` and strict validation skip it until that test is committed.
+Any Media Planner spec still marked `Generation Status | pending-generation` has no claimed target test. The normal `ai:test:gate:all` and strict validation fail closed until the required live contract and preconditions are available and the target test is committed. Use `--allow-draft` only for an explicitly structural, non-release validation.
 
 Then provide the normal auth setup variables or a valid non-committed storage state through the authenticated project workflow.
 

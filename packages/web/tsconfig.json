@@ -18,6 +18,7 @@
     "components/**/*.ts",
     "fixtures/**/*.ts",
     "data/**/*.ts",
+    "automation/**/*.ts",
     "mocks/**/*.ts"
   ]
 }

@@ -249,8 +249,7 @@ export function extractSections(content) {
 
 // Returns section heading names that appear more than once. A duplicate
 // heading (especially Metadata) lets a later section silently overwrite an
-// earlier one, which is exactly how a fenced-block injection would smuggle a
-// human-reviewed status into an ai-draft. Validation treats duplicates as an error.
+// earlier contract value. Validation treats duplicates as an error.
 export function findDuplicateSectionHeadings(content) {
   const counts = new Map();
   for (const heading of content.matchAll(/^##\s+(.+?)\s*$/gm)) {
@@ -277,18 +276,43 @@ export function parseMetadataTable(sectionContent) {
   return metadata;
 }
 
+export function findDuplicateMetadataFields(sectionContent) {
+  const counts = new Map();
+  for (const [field, value] of parseMarkdownTable(sectionContent)) {
+    if (!field || !value || field.toLowerCase() === 'field') {
+      continue;
+    }
+    counts.set(field, (counts.get(field) ?? 0) + 1);
+  }
+  return [...counts.entries()].filter(([, count]) => count > 1).map(([field]) => field);
+}
+
 export function parseMarkdownTable(sectionContent) {
   return sectionContent
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter((line) => line.startsWith('|') && line.endsWith('|'))
-    .map((line) =>
-      line
-        .slice(1, -1)
-        .split('|')
-        .map((cell) => cell.trim())
-    )
+    .map((line) => splitMarkdownTableRow(line.slice(1, -1)).map((cell) => cell.trim()))
     .filter((cells) => !cells.every((cell) => /^:?-{3,}:?$/.test(cell)));
+}
+
+function splitMarkdownTableRow(row) {
+  const cells = [];
+  let cell = '';
+  for (let index = 0; index < row.length; index += 1) {
+    const character = row[index];
+    if (character === '\\' && row[index + 1] === '|') {
+      cell += '|';
+      index += 1;
+    } else if (character === '|') {
+      cells.push(cell);
+      cell = '';
+    } else {
+      cell += character;
+    }
+  }
+  cells.push(cell);
+  return cells;
 }
 
 export function parseFlowSteps(sectionContent) {
@@ -469,9 +493,12 @@ export function parseJsonBlock(sectionContent, label) {
 
 export function listSpecFiles(specDir) {
   // Recursive: specs may be organised into subdirectories (e.g.
-  // specs/special-preconditions/). Template files (_template.md) are skipped at
-  // any depth. Returned paths stay relative to specDir's parent, matching the
-  // shape callers expect (e.g. "specs/special-preconditions/flow.md").
+  // specs/special-preconditions/). Only strict documents with a top-level
+  // "# Flow:" heading belong to this pipeline. The specs tree also contains
+  // narrative knowledge/QA documents and raw YAML catalogues; treating every
+  // Markdown file as a strict Flow makes validation fail on legitimate source
+  // material and still misses the YAML. Returned paths stay relative to
+  // specDir's parent, matching the shape callers expect.
   const root = path.resolve(specDir);
   const found = [];
   const walk = (dir) => {
@@ -479,8 +506,11 @@ export function listSpecFiles(specDir) {
       const absolute = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         walk(absolute);
-      } else if (entry.name.endsWith('.md') && entry.name !== '_template.md') {
-        found.push(path.join(specDir, path.relative(root, absolute)));
+      } else if (entry.name.endsWith('.md') && entry.name !== '_template.md' && entry.name !== 'README.md') {
+        const content = fs.readFileSync(absolute, 'utf8');
+        if (/^#\s+Flow:\s*.+$/m.test(content)) {
+          found.push(path.join(specDir, path.relative(root, absolute)));
+        }
       }
     }
   };

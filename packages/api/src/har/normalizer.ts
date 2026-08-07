@@ -48,18 +48,27 @@ export function normalizeHarEntry(
   const query = maskQuery(rawQuery);
   const { pattern, dynamicSegments } = inferPathPattern(url.pathname);
   const { maskedPath, placeholders } = maskDynamicPath(url.pathname);
-  const id = makeEndpointId(method, `${url.hostname}${pattern}${JSON.stringify(query)}`, entry.entryIndex);
+  const queryIdentity = config.generation.preserveDuplicateQueryParams ? maskQueryPairs(queryPairs) : query;
+  const id = makeEndpointId(method, `${url.hostname}${pattern}${JSON.stringify(queryIdentity)}`, entry.entryIndex);
   const groupSegment = firstStablePathSegment(pattern);
   const groupName = slugify(`${url.hostname}-${groupSegment}`);
   const testName = `${method} ${pattern} returns ${entry.response.status}`;
-  const requestBody = parseRequestBody(entry.request.postData?.text, entry.request.postData?.mimeType);
-  const responseBody = parseResponseBody(entry.response.content?.text, entry.response.content?.mimeType);
+  const requestBody = parseRequestBody(
+    requestBodyText(entry.request.postData?.text, entry.request.postData?.params, entry.request.postData?.mimeType),
+    entry.request.postData?.mimeType
+  );
+  const responseBody = parseResponseBody(
+    entry.response.content?.text,
+    entry.response.content?.mimeType,
+    entry.response.content?.encoding
+  );
   const responseContentType = contentTypeFromHeaders(entry.response.headers) ?? entry.response.content?.mimeType;
 
   return {
     id,
     sourceFile: entry.sourceFile,
     entryIndex: entry.entryIndex,
+    startedDateTime: entry.startedDateTime,
     method,
     originalUrl: entry.request.url,
     defaultBaseUrl: baseUrlOverride ?? toBaseUrl(url),
@@ -168,12 +177,46 @@ function parseRequestBody(text?: string, mimeType?: string): JsonValue | string 
   return text;
 }
 
-function parseResponseBody(text?: string, mimeType?: string): JsonValue | undefined {
+function requestBodyText(
+  text: string | undefined,
+  params: HarNameValue[] | undefined,
+  mimeType: string | undefined
+): string | undefined {
+  if (text !== undefined) {
+    if (mimeType?.includes('application/x-www-form-urlencoded')) {
+      const textPairs = parseUrlEncodedPairs(text);
+      if (params && params.length > 0 && !sameNameValuePairs(textPairs, params)) {
+        throw new Error(
+          'Ambiguous application/x-www-form-urlencoded HAR body: postData.text and postData.params describe different fields.'
+        );
+      }
+    }
+    return text;
+  }
+  if (!params || params.length === 0) {
+    return undefined;
+  }
+
+  if (mimeType?.includes('application/x-www-form-urlencoded')) {
+    return params
+      .map(({ name, value }) => `${encodeURIComponent(name)}=${encodeURIComponent(value)}`)
+      .join('&');
+  }
+
+  // HAR producers sometimes populate postData.params without text for form-like bodies. Preserve
+  // every pair deterministically rather than silently dropping the request body.
+  return params
+    .map(({ name, value }) => `${encodeURIComponent(name)}=${encodeURIComponent(value)}`)
+    .join('&');
+}
+
+function parseResponseBody(text?: string, mimeType?: string, encoding?: string): JsonValue | undefined {
   if (!text || !mimeType?.includes('json')) {
     return undefined;
   }
 
-  return parseJson(text);
+  const decoded = encoding?.toLowerCase() === 'base64' ? Buffer.from(text, 'base64').toString('utf8') : text;
+  return parseJson(decoded);
 }
 
 function parseJson(text: string): JsonValue {
@@ -209,13 +252,53 @@ function maskMultipartPayload(value: string, _config: HarApiTestConfig): string 
 }
 
 function maskUrlEncodedPayload(value: string, _config: HarApiTestConfig): string {
-  // Keep the body a urlencoded STRING so it stays consistent with the urlencoded content-type.
-  const params = new URLSearchParams(value);
-  const pairs: string[] = [];
-  for (const [key, paramValue] of params.entries()) {
-    pairs.push(`${encodeURIComponent(key)}=${encodeFormValue(maskString(paramValue, key))}`);
+  // Parse strictly before canonicalizing. URLSearchParams repairs invalid percent escapes and
+  // invalid UTF-8 with replacement characters, which would silently turn a malformed capture into
+  // a different, valid request.
+  return parseUrlEncodedPairs(value)
+    .map(({ name, value: paramValue }) =>
+      `${encodeURIComponent(name)}=${encodeFormValue(maskString(paramValue, name))}`
+    )
+    .join('&');
+}
+
+function parseUrlEncodedPairs(value: string): HarNameValue[] {
+  if (value === '') {
+    return [];
   }
-  return pairs.join('&');
+
+  return value.split('&').map((part) => {
+    const separatorIndex = part.indexOf('=');
+    const rawName = separatorIndex === -1 ? part : part.slice(0, separatorIndex);
+    const rawValue = separatorIndex === -1 ? '' : part.slice(separatorIndex + 1);
+    return {
+      name: decodeUrlEncodedComponent(rawName),
+      value: decodeUrlEncodedComponent(rawValue)
+    };
+  });
+}
+
+function decodeUrlEncodedComponent(value: string): string {
+  if (/%(?![0-9a-f]{2})/i.test(value)) {
+    throw new Error(
+      `Malformed application/x-www-form-urlencoded HAR body: invalid percent escape in ${JSON.stringify(value)}.`
+    );
+  }
+
+  try {
+    return decodeURIComponent(value.replace(/\+/g, ' '));
+  } catch {
+    throw new Error(
+      `Malformed application/x-www-form-urlencoded HAR body: invalid UTF-8 encoding in ${JSON.stringify(value)}.`
+    );
+  }
+}
+
+function sameNameValuePairs(left: HarNameValue[], right: HarNameValue[]): boolean {
+  return (
+    left.length === right.length &&
+    left.every((pair, index) => pair.name === right[index]?.name && pair.value === right[index]?.value)
+  );
 }
 
 function encodeFormValue(value: string): string {

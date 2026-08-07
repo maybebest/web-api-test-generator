@@ -1,40 +1,42 @@
-# Flow: Edit SKU list button visibility and modal
+# Flow: Edit SKU list controls and modal identity
 
 ## Metadata
 
 | Field | Value |
 |---|---|
 | Flow ID | FLOW-SKU-EDIT |
-| Spec Version | 2.0.0 |
+| Spec Version | 2.3.1 |
 | Owner | aqa-team@example.com |
 | Priority | P2 |
 | Test Type | regression |
 | Auth | required |
-| Target Test File | tests/regression/skus/edit-sku-list-button-and-modal.authenticated.spec.ts |
+| Target Test File | tests/regression/nectar-edit-sku-list.authenticated.spec.ts |
 | Base Path | /planning |
-| Tags | @generated @regression @media-planner @authenticated @edit-sku-list-button-and-modal |
+| Tags | @generated @regression @media-planner @authenticated @nectar-sku @edit-sku-list-button-and-modal |
 | Generation Mode | suite |
-| Review Status | human-reviewed |
-| Generation Source | manual-test-case |
+| Review Status | pending-review |
+| Review Sign-off | pending |
+| Generation Source | remediated-existing-suite |
 | Generation Status | generated |
 
 ## User Story
 
 As a media planner,
-I want the Nectar AI planner to enforce edit sku list button visibility and modal correctly,
-So that Hero/Measurement SKU selections behave deterministically (4 of the 15 documented cases are automated end-to-end today; the rest are enumerated under Pending Automation).
+I want the Measurement and Hero edit controls to open the correct SKU editor,
+So that I can inspect or cancel an edit without changing the confirmed SKU selection.
 
 ## Preconditions
 
 - A valid non-production authenticated Playwright storage state (`playwright/.auth/user.json`).
-- `PLAYWRIGHT_TEST_BASE_URL` points to `https://www.dev.pollen.js-devops.co.uk/`.
-- A plan with at least one channel and a known SKU selection is available.
-- The channel SKU selection can be seeded via the implemented dataManager.setPlanHeroSkus (planningAI_updateState SET_SKUS).
+- `PLAYWRIGHT_TEST_BASE_URL` points to an explicitly configured non-production Pollen environment.
+- The guided planner can reach a confirmed SKU summary through `buildToSkusConfirmed`.
+- The confirmed flow contains at least one Measurement SKU and one Hero SKU.
+- Each case starts a fresh, unsaved conversation. No case confirms an editor mutation, so no catalogue or saved-plan cleanup is required.
 
 ## Out-of-scope
 
-- Admin and channel configuration changes beyond the seeded preconditions are out of scope.
-- Booking-deadline and minimum campaign-duration validation are out of scope (other specs).
+- Confirming a changed SKU selection is not claimed by this suite; the cancellation cases make one tentative removal and then discard it.
+- Per-channel Hero persistence and catalogue deletion synchronization are covered by separate pending flows.
 - Production credentials and production user data are out of scope.
 
 ## Stability Requirements
@@ -49,7 +51,7 @@ So that Hero/Measurement SKU selections behave deterministically (4 of the 15 do
 
 | Locale | Role | Plan |
 |---|---|---|
-| en-GB | media planner | N360_Unilever_MS |
+| en-GB | media planner | guided Nectar AI plan |
 
 ## Includes
 
@@ -59,18 +61,22 @@ So that Hero/Measurement SKU selections behave deterministically (4 of the 15 do
 
 | Rule ID | Rule | Formula | Blocking Behavior |
 |---|---|---|---|
-| RULE-001 | Hero SKUs are a subset of the selected SKU set | heroCount = \|isHero:true\|; measurementCount = \|selected\| | A SKU listed as both Hero and Measurement stays Hero |
-| RULE-002 | Summary counters recompute from the seeded session state | counter text = "<n> SKUs"; an empty counter renders "To be defined" | A counter that does not reflect the seeded state is a defect |
-| RULE-003 | SKU edit controls render only when a selection exists | visible(editControl) == selection.length > 0 | An edit control on an empty selection (or a missing one on a non-empty selection) is a defect |
+| RULE-001 | The Measurement edit control opens the Measurement editor | measurement control => modal contains "Edit Measurement SKUs" | Opening the Hero editor from this control is a defect |
+| RULE-002 | The Hero edit control opens the Hero editor | hero control => modal contains "Hero" and not "Edit Measurement SKUs" | Opening the Measurement editor from this control is a defect |
+| RULE-003 | Cancelling either editor discards a tentative removal | tentative remove then cancel => modal hidden AND exact selected rows restored AND corresponding summary count unchanged | Any committed selection or count mutation on cancel is a defect |
+| RULE-004 | Each edit control and dialog is keyboard operable and has an accessible identity | edit control has an accessible name; activation moves focus into a role=dialog with an accessible name identifying Measurement or Hero; Cancel closes it and returns focus to the invoking control | A keyboard trap, unnamed control/dialog, or lost focus after cancellation is an accessibility defect |
 
 ## Data Cases
 
 | Case ID | Inputs | Expected Result | Notes |
 |---|---|---|---|
-| DC-001 | hero=[]; measurement=[7096764, 7304367] (pool: persil) | Measurement counter shows 2 SKUs | TC-EDIT-002 (E2E/Critical) |
-| DC-002 | hero=[]; measurement=[7096764, 7304367] (pool: persil) | Measurement counter shows 2 SKUs | TC-EDIT-004 (E2E/High) |
-| DC-003 | hero=[7096764, 7304367]; measurement=[7096764, 7304367] (pool: persil) | Hero counter shows 2 SKUs | TC-EDIT-014 (E2E/Medium) |
-| DC-004 | hero=[7096764, 7304367]; measurement=[] (pool: persil) | Hero counter shows 2 SKUs | TC-EDIT-015 (E2E/Medium) |
+| DC-001 | confirmed SKU summary; click Measurement edit | Measurement modal is visible with selected-SKU rows | source TC-ESL-002 |
+| DC-002 | confirmed SKU summary; click Hero edit | Hero modal is visible | source TC-ESL-007 |
+| DC-003 | open Measurement, cancel, then open Hero | Each control opens its distinct editor | source TC-ESL-020 |
+| DC-004 | open Measurement editor; capture selection; tentatively remove one row; click Cancel | Modal closes and the exact Measurement selection and summary count stay unchanged | source TC-ESL-005; AC-003 |
+| DC-005 | open Hero editor; capture selection; tentatively remove one row; click Cancel | Modal closes and the exact Hero selection and summary count stay unchanged | source TC-ESL-011; AC-003 |
+| DC-006 | open Measurement editor | At least one selected row has a remove control | source TC-ESL-004 |
+| DC-007 | focus each edit control; activate with keyboard; cancel with the labelled Cancel button | The requested editor is a named dialog, focus moves inside it, and focus returns to the invoking control after cancellation | Keyboard/focus accessibility contract; AC-004 |
 
 ## Data Cases as JSON
 
@@ -78,127 +84,45 @@ So that Hero/Measurement SKU selections behave deterministically (4 of the 15 do
 [
   {
     "caseId": "DC-001",
-    "inputs": {
-      "sourceCaseId": "TC-EDIT-002",
-      "title": "Measurement-table \"Edit SKU list\" button opens the Measurement edit modal",
-      "technique": [
-        "Positive"
-      ],
-      "preconditions": [
-        "Media plan in progress with Measurement SKU table rendered (per EDIT-001)"
-      ],
-      "testData": [
-        "Measurement SKUs = {12345, 234235}"
-      ],
-      "steps": [
-        "1. With the Measurement SKU table rendered, click the 'Edit SKU list' button beneath it.",
-        "2. Observe the modal that opens."
-      ],
-      "expectedText": [
-        "A modal opens scoped to editing the Measurement SKU list (the Measurement edit modal), NOT the Hero modal.",
-        "The modal lists the current Measurement SKUs {12345, 234235} as editable/selectable entries.",
-        "The modal exposes confirm and cancel controls."
-      ]
-    },
-    "expected": {
-      "outcome": "matches the documented case behaviour"
-    },
-    "notes": "TC-EDIT-002 E2E/Critical"
+    "inputs": { "control": "Measurement edit", "sourceCaseId": "TC-ESL-002" },
+    "expected": { "modalCopy": "Edit Measurement SKUs", "selectedRowsVisible": true },
+    "notes": "Proves the Measurement control and current-selection structure"
   },
   {
     "caseId": "DC-002",
-    "inputs": {
-      "sourceCaseId": "TC-EDIT-004",
-      "title": "Cancelling the Measurement edit modal leaves the table unchanged",
-      "technique": [
-        "Negative",
-        "State-Recompute"
-      ],
-      "preconditions": [
-        "Measurement edit modal open (per EDIT-002) with Measurement SKUs {12345, 234235}"
-      ],
-      "testData": [
-        "Measurement = {12345, 234235}; attempt to add 99999 then cancel"
-      ],
-      "steps": [
-        "1. In the open Measurement edit modal, add SKU 99999 to the selection (do not confirm).",
-        "2. Click the cancel control (or dismiss the modal).",
-        "3. Observe the Measurement SKU table and summary count."
-      ],
-      "expectedText": [
-        "The modal closes without applying changes.",
-        "The Measurement SKU table still lists exactly {12345, 234235}; 99999 is NOT added.",
-        "The summary Measurement count is unchanged (= 2)."
-      ]
-    },
-    "expected": {
-      "outcome": "matches the documented case behaviour"
-    },
-    "notes": "TC-EDIT-004 E2E/High"
+    "inputs": { "control": "Hero edit", "sourceCaseId": "TC-ESL-007" },
+    "expected": { "modalCopy": "Hero", "visible": true },
+    "notes": "Proves the Hero control opens an editor"
   },
   {
     "caseId": "DC-003",
-    "inputs": {
-      "sourceCaseId": "TC-EDIT-014",
-      "title": "Editing Hero via the Hero modal updates the \"Hero SKU\" indicator in the Measurement table in real time",
-      "technique": [
-        "State-Recompute",
-        "Cross-Field"
-      ],
-      "preconditions": [
-        "Plan rendering both Measurement and Hero tables; Measurement = {1,2,3,4}, Hero = {3}"
-      ],
-      "testData": [
-        "Via Hero modal: assign SKU 4 as Hero (4 already in Measurement) -> Hero = {3,4}"
-      ],
-      "steps": [
-        "1. Open the Hero edit modal via its table's 'Edit SKU list' button.",
-        "2. Assign SKU 4 (already a Measurement SKU) as Hero and confirm.",
-        "3. Observe the 'Hero SKU' indicator next to SKU 4 in the Measurement SKU table."
-      ],
-      "expectedText": [
-        "Modal closes on confirm.",
-        "SKU 4 in the Measurement table now shows the 'Hero SKU' indicator, updated in real time without a chat turn.",
-        "SKU 4 remains a single Measurement entry (no duplicate) now marked Hero; Hero count = 2."
-      ]
-    },
-    "expected": {
-      "outcome": "matches the documented case behaviour"
-    },
-    "notes": "TC-EDIT-014 E2E/Medium"
+    "inputs": { "controls": ["Measurement edit", "Hero edit"], "sourceCaseId": "TC-ESL-020" },
+    "expected": { "distinctModalIdentity": true },
+    "notes": "Guards against the two controls being wired to the same editor"
   },
   {
     "caseId": "DC-004",
-    "inputs": {
-      "sourceCaseId": "TC-EDIT-015",
-      "title": "Unassigning a Hero SKU via the Hero modal removes its \"Hero SKU\" indicator and is_hero in real time",
-      "technique": [
-        "State-Recompute",
-        "Cross-Field",
-        "Data-Persistence"
-      ],
-      "preconditions": [
-        "Plan with Measurement = {1,2,3,4}, Hero = {3,5,6}; both tables and indicators rendered"
-      ],
-      "testData": [
-        "Via Hero modal: unassign SKU 3 from Hero -> Hero = {5,6}"
-      ],
-      "steps": [
-        "1. Open the Hero edit modal via its 'Edit SKU list' button.",
-        "2. Unassign SKU 3 from Hero and confirm.",
-        "3. Observe the Measurement table indicator for SKU 3 and the Hero count."
-      ],
-      "expectedText": [
-        "Modal closes on confirm.",
-        "The 'Hero SKU' indicator on SKU 3 in the Measurement table is removed in real time.",
-        "Hero count decreases to 2; SKU 3 remains a Measurement SKU (still listed) but no longer marked Hero.",
-        "is_hero flag for SKU 3 is set False once it is no longer used as Hero by any channel (per NUP-19140 sync)."
-      ]
-    },
-    "expected": {
-      "outcome": "matches the documented case behaviour"
-    },
-    "notes": "TC-EDIT-015 E2E/Medium"
+    "inputs": { "control": "Measurement edit", "tentativeAction": "remove first selected row", "action": "Cancel", "sourceCaseId": "TC-ESL-005" },
+    "expected": { "modalHidden": true, "exactSelectionRestored": true, "summaryCountUnchanged": true },
+    "notes": "AC-003 Measurement row"
+  },
+  {
+    "caseId": "DC-005",
+    "inputs": { "control": "Hero edit", "tentativeAction": "remove first selected row", "action": "Cancel", "sourceCaseId": "TC-ESL-011" },
+    "expected": { "modalHidden": true, "exactSelectionRestored": true, "summaryCountUnchanged": true },
+    "notes": "AC-003 Hero row"
+  },
+  {
+    "caseId": "DC-006",
+    "inputs": { "control": "Measurement edit", "sourceCaseId": "TC-ESL-004" },
+    "expected": { "selectedRowVisible": true, "removeControlVisible": true },
+    "notes": "Structural affordance only; this case does not click remove or confirm"
+  },
+  {
+    "caseId": "DC-007",
+    "inputs": { "controls": ["Measurement edit", "Hero edit"], "activation": "keyboard", "closeAction": "Cancel" },
+    "expected": { "controlAccessibleName": true, "namedDialog": true, "focusMovesInside": true, "focusReturnsToInvoker": true },
+    "notes": "Run once per editor; proves keyboard activation, dialog identity, and focus restoration without committing a change"
   }
 ]
 ```
@@ -207,17 +131,15 @@ So that Hero/Measurement SKU selections behave deterministically (4 of the 15 do
 
 | Name | Value | Notes |
 |---|---|---|
-| advertiser | N360_Unilever_MS | Non-production advertiser (data/media-planner.ts) |
-| brand | Unilever \| Knorr \| MS | Non-production brand |
-| dataManager | fixtures/test-data-manager.ts | API helpers to seed session/SKU preconditions |
-| skuPool | specs/skus/.sku-pools.json | Real catalogue SKU ids the seeds use (live-probed) |
-| salientCopy | SKUs, To be defined | Salient strings the generated tests must assert |
+| plannerBuilder | buildToSkusConfirmed | Uses the existing guided-flow helper |
+| modalPageObject | PlanningPage.editSkuModal | Owns the modal locator |
+| salientCopy | Edit Measurement SKUs, Hero | Copy asserted by the suite |
 
 ## Mocks
 
 | API/Route | Scenario | Response |
 |---|---|---|
-| none | Live Pollen development environment drives the guided Nectar AI flow end to end | [] |
+| none | Live non-production guided planner | [] |
 
 ## Mocks as JSON
 
@@ -229,61 +151,49 @@ So that Hero/Measurement SKU selections behave deterministically (4 of the 15 do
 
 | Step | AC IDs | Action | Target | Input | Expected Result | Assertion Hint |
 |---:|---|---|---|---|---|---|
-| 1 | AC-001 | Enter the Nectar AI planner | /planning -> Try now | n/a | The guided objective-and-budget flow is reachable | guided flow control is visible |
-| 2 | AC-002 | Open a seeded planning session directly | dataManager.ensurePlanningSession; /planning/nectar-ai/<sessionId> | live planningAI session | The seeded session hydrates to its summary panel | summary panel is visible |
-| 3 | AC-003 | Verify the Hero counter against a known seed | Summary panel Hero row | two Hero SKUs from the real catalogue pool | The Hero SKUs counter equals the seeded Hero count | Hero counter shows the seeded count |
-| 4 | AC-004 | Verify the per-case seeded counters | Summary panel Hero/Measurement rows | case SKU sets (real catalogue ids) | The Hero/Measurement counter equals the case expected value; an empty counter renders To be defined | counters match the data case |
+| 1 | AC-001 | Open the Measurement editor | Measurement edit control | confirmed SKU summary | The control opens the visible Measurement editor; it exposes selected rows and remove controls | assert Measurement modal copy and selected-row test ids |
+| 2 | AC-001 | Open the Hero editor | Hero edit control | confirmed SKU summary | The control opens the visible Hero editor with its expected identity | assert Hero modal copy |
+| 3 | AC-002 | Open both editors in sequence | Measurement then Hero edit controls | cancel between opens | The controls resolve to distinct modal identities | capture the Measurement identity and assert the Hero editor does not reuse it |
+| 4 | AC-003 | Tentatively remove one selected row and cancel, once per editor | Measurement and Hero dialogs | DC-004, DC-005 | Reopening shows the exact original selection and the corresponding summary count is unchanged | modal hidden; summary count unchanged; exact selected-row snapshot restored |
+| 5 | AC-004 | Activate and cancel each editor using the keyboard | Measurement and Hero edit controls/dialogs | DC-007 | The control and dialog are named, focus enters the dialog, and focus returns to the invoking control | accessible name; role=dialog accessible name; focused descendant; invoking control focused after Cancel |
+| 6 | NEG-001 | Open both controls independently and reject crossed/shared identities | Measurement and Hero edit controls/dialogs | DC-003 | Measurement never resolves to Hero identity and Hero never resolves to Measurement identity | exact dialog role/name per invoking control; other identity absent |
 
 ## Negative Cases
 
 | Case ID | Scenario | Expected Result |
 |---|---|---|
-| NEG-001 | Clear the session SKU selection via API and open the session | The "open modal Measurement SKUs" edit control is absent for an empty selection |
+| NEG-001 | DC-003 regression: both edit controls open the Measurement editor, both open the Hero editor, or either opens an editor with the other control's identity | The dedicated negative test fails unless Measurement resolves only to the Measurement dialog and Hero resolves only to the Hero dialog |
 
 ## Acceptance Criteria
 
-- AC-001: The guided objective-and-budget flow is reachable
-- AC-002: The seeded session hydrates to its summary panel
-- AC-003: The Hero SKUs counter equals the seeded Hero count
-- AC-004: The Hero/Measurement counter equals the case expected value; an empty counter renders To be defined
+- AC-001: Each Measurement or Hero edit control opens the requested editor with its expected identity; the Measurement editor exposes current selected rows and remove controls
+- AC-002: Opening both controls in sequence demonstrates distinct Measurement and Hero modal identities
+- AC-003: Cancelling a tentative removal in either editor restores the exact committed selection and leaves its summary count unchanged.
+- AC-004: Both editor controls are keyboard operable; each opens a named dialog, moves focus inside it, and restores focus to its invoking control on cancellation.
 
 ## Locator Hints
 
-- Prefer role/name and data-testid locators owned by PlanningPage / NectarFlow page objects.
-- Use exact visible text for counter copy (e.g. "SKUs") and summary panel values.
-- Use CSS only with an explicit `// locator-policy:exception <reason>` comment directly above the locator call.
+- Use `PlanningPage.openMeasurementEditModal`, `PlanningPage.openHeroEditModal`, and `PlanningPage.editSkuModal`.
+- Use the modal-owned `selectedSku-*` and `remove-selectedSku-*` test IDs for row structure.
+- Scope dialog identity and focus assertions through `PlanningPage.editSkuModal`, backed by `getByRole('dialog', { name: /Measurement|Hero/i })`; do not infer dialog identity from arbitrary page text.
+- Keep locators in `PlanningPage`; do not add raw selectors in the test.
 
 ## Generated Test Requirements
 
-- Must import from fixtures/test and use Page Objects / Component Objects for all locators.
-- Generation Mode is suite: generate one focused test per Data Case (DC-###), each enumerating its DC id in the title.
-- Across the suite, every AC id (AC-001, AC-002, AC-003, AC-004) must be covered by at least one test.
-- Seed preconditions via the `dataManager` fixture (fixtures/test-data-manager.ts); do not configure data through the admin UI.
-- Put `expect(...)` only in the final assertion step of each test; title it `Assert AC-###: ...`.
-- Must assert the salient expected values "SKUs", "To be defined".
-- Must not use page.waitForTimeout, networkidle, XPath, test.only, or any form of skip; must not use real credentials or commit auth state.
+- Import `test` and `expect` from `fixtures/test`.
+- Keep one focused test per Data Case and dedicated final assertion steps for every AC and NEG ID; NEG-001 may reuse DC-003 setup but must be a dedicated negative test.
+- Run serially because the guided non-production session is external shared state.
+- Must enumerate DC-001 through DC-007 and test both Measurement and Hero rows of DC-007.
+- Must not use `page.waitForTimeout`, XPath, `test.only`, or any form of skip/fixme/fail.
 
 ## Notes
 
-- This suite targets the live Pollen development environment; `Parallel Safe` is `no` and `Data Isolation` is `external`.
-- E2E-only policy: every Data Case row above maps to an emitted, executable end-to-end test (API seed of REAL catalogue SKUs -> direct seeded-session navigation -> live UI assertion). Source cases that cannot be verified end-to-end today are enumerated under Pending Automation with their blockers — no weak panel-smoke or guaranteed-red placeholder tests are generated for them.
-- Source: specs/test-cases-skus-2.yaml (area: Edit SKU list button visibility and modal); every row keeps its source case id for traceability.
-- Locators were live-audited (2026-07-02/03) against the dev environment; the seed/hydrate/assert pipeline is live-proven.
+- This suite remaps the pre-existing live `nectar-edit-sku-list` modal coverage to FLOW-SKU-EDIT; the generic SKU counter generator is intentionally prevented from overwriting it.
+- Cancel persistence is proved after a real tentative row removal, then by reopening the editor and comparing the exact selected-row snapshot plus the summary count.
 
-## Pending Automation (no test emitted)
+## Pending Automation
 
-These 11 source cases are E2E-specified but cannot be verified end-to-end today. They are intentionally NOT generated — the framework ships only executable E2E tests.
-
-| Source Case | Blocker |
-|---|---|
-| TC-EDIT-001 — "Edit SKU list" button visible under the Measurement SKU table | no-assertable-expectation: the source case has no UI-checkable outcome without the assistant flow |
-| TC-EDIT-003 — Confirming Measurement modal edits reflects changes immediately in the table and counts | ui-flow-expectation: the expected counts assume assistant-flow actions beyond the seeded state |
-| TC-EDIT-005 — "Edit SKU list" button visible under the Hero SKU table and opens the Hero edit modal | ui-flow-expectation: the expected counts assume assistant-flow actions beyond the seeded state |
-| TC-EDIT-006 — Confirming Hero modal edits reflects changes immediately; auto-add grows Measurement count | ui-flow-expectation: the expected counts assume assistant-flow actions beyond the seeded state |
-| TC-EDIT-007 — Cancelling the Hero edit modal leaves Hero and Measurement tables unchanged | ui-flow-expectation: the expected counts assume assistant-flow actions beyond the seeded state |
-| TC-EDIT-008 — "Edit SKU list" button visible under the single-prompt summary table and opens its modal | ui-flow-expectation: the expected counts assume assistant-flow actions beyond the seeded state |
-| TC-EDIT-009 — Confirming edits in the single-prompt summary modal reflects changes immediately in the summary table | ui-flow-expectation: the expected counts assume assistant-flow actions beyond the seeded state |
-| TC-EDIT-010 — Cancelling the single-prompt summary modal leaves the summary table unchanged | ui-flow-expectation: the expected counts assume assistant-flow actions beyond the seeded state |
-| TC-EDIT-011 — "Edit SKU list" buttons are not present before any SKUs are selected | no-assertable-expectation: the source case has no UI-checkable outcome without the assistant flow |
-| TC-EDIT-012 — Summary-table "Edit SKU list" button appears only in single-prompt flow, not in multi-turn flow | no-assertable-expectation: the source case has no UI-checkable outcome without the assistant flow |
-| TC-EDIT-013 — Each table's "Edit SKU list" button opens only its own modal (modal-to-table correctness) | ui-flow-expectation: the expected counts assume assistant-flow actions beyond the seeded state |
+- Confirming an added or removed Measurement SKU and proving persistence needs a reversible live-data contract.
+- Confirming Hero assign/unassign and proving cross-table indicator recompute remains outside this suite.
+- Empty-selection edit-control absence needs a deterministic way to reach an empty confirmed summary.
+- Human review must confirm the exact accessible dialog names and whether Cancel is required to restore focus to the invoking edit control; these are not signed off while `Review Status` is `pending-review`.

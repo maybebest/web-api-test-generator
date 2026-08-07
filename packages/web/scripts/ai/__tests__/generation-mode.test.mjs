@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createManifest, createTaskContent, parseArgs as parseGenerationArgs } from '../create-generation-task.mjs';
+import {
+  createAutomationPolicy,
+  createManifest,
+  createTaskContent,
+  parseArgs as parseGenerationArgs
+} from '../create-generation-task.mjs';
 import { parseArgs as parseGateArgs, projectPlanForSpec } from '../generated-test-gate.mjs';
 import { resolveGenerationMode, specGenerationMode } from '../lib/spec-parser.mjs';
 import { validateSpecFile } from '../validate-flow-spec.mjs';
@@ -51,6 +56,7 @@ test('generation manifest includes generation mode', () => {
     domArtifactPath: undefined,
     validation: {
       acceptanceCriteria: ['AC-001'],
+      flowSteps: [{ step: '1', acIds: ['AC-001'] }],
       dataCasesJson: [{ caseId: 'DC-001' }]
     },
     generationMode: 'single',
@@ -58,10 +64,27 @@ test('generation manifest includes generation mode', () => {
   });
 
   assert.equal(manifest.generationMode, 'single');
+  assert.equal(manifest.policyVerdict.engine, 'deterministic-spec-policy');
+  assert.equal(manifest.policyVerdict.decision, 'allow');
+});
+
+test('automatic generation policy denies unresolved or invalid inputs without a manual gate', () => {
+  const policy = createAutomationPolicy({
+    valid: true,
+    issues: [],
+    content: 'Owner: NEEDS_REVIEW',
+    acceptanceCriteria: ['AC-001'],
+    flowSteps: [{ step: '1' }]
+  });
+
+  assert.equal(policy.decision, 'deny');
+  assert.equal(policy.checks.unresolvedPlaceholders, false);
 });
 
 test('generation task contract wording is mode-resolution-accurate', () => {
-  const specPath = 'specs/media-plan-save-via-nectar-ai.md';
+  // Use a stable fully specified fixture so this generation-contract unit test
+  // exercises mode wording rather than unrelated contract validation.
+  const specPath = 'specs/skus/hero-sku-indicators-and-count-recompute.md';
   const validation = validateSpecFile(specPath);
   assert.equal(validation.valid, true, validation.issues.join('\n'));
 
@@ -85,6 +108,10 @@ test('generation task contract wording is mode-resolution-accurate', () => {
     // (below "## Original Flow Spec") may still carry legacy phrasing.
     const contractSection = content.split('## Original Flow Spec')[0];
     assert.doesNotMatch(contractSection, /Generate a suite only when explicitly requested/);
+    assert.doesNotMatch(
+      content,
+      /Review Status|Review Sign-off|pending-review|human review|human sign-off|MUTATION_APPROVAL/i
+    );
   }
 });
 
@@ -95,6 +122,16 @@ test('gate defaults to spec-resolved single mode and Chromium only', () => {
   assert.equal(args.mode, undefined);
   assert.equal(resolveGenerationMode({ cliMode: args.mode, specMode: undefined }), 'single');
   assert.deepEqual(plan.map((entry) => entry.project), ['chromium']);
+});
+
+test('gate routes local-fixture generated targets to the deterministic local Chromium project', () => {
+  const plan = projectPlanForSpec({
+    'Test Type': 'smoke',
+    Auth: 'none',
+    'Target Test File': 'tests/smoke/generated-local-flow.spec.ts'
+  });
+
+  assert.deepEqual(plan.map((entry) => entry.project), ['local-chromium']);
 });
 
 test('gate accepts explicit suite mode', () => {

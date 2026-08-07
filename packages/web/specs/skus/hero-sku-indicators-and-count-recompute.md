@@ -15,6 +15,7 @@
 | Tags | @generated @regression @media-planner @authenticated @hero-sku-indicators-and-count-recompute |
 | Generation Mode | suite |
 | Review Status | human-reviewed |
+| Review Sign-off | legacy-reviewed-before-signoff-metadata |
 | Generation Source | manual-test-case |
 | Generation Status | generated |
 

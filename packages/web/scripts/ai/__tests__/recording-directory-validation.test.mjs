@@ -22,17 +22,17 @@ test('a missing recordings directory is a hard validation error', () => {
   assert.ok(result.issues.some((issue) => /not found/i.test(issue)), result.issues.join('; '));
 });
 
-test('an existing but template-only recordings directory passes with a notice', () => {
+test('an existing but template-only recordings directory fails closed', () => {
   const dir = tmpDir();
   // Only a `_`-prefixed template (skipped by listRecordingFiles) — mirrors a fresh checkout that
   // has the recording -> UI pipeline wired but no app-specific recordings authored yet.
   fs.copyFileSync(repoExample, path.join(dir, '_example.json'));
   const result = validateRecordingDirectory(dir);
-  assert.equal(result.valid, true, result.issues.join('; '));
+  assert.equal(result.valid, false);
   assert.equal(result.checked.length, 0);
   assert.ok(
-    result.warnings.some((warning) => /no chrome devtools recorder json/i.test(warning)),
-    result.warnings.join('; ')
+    result.issues.some((issue) => /zero-recording/i.test(issue)),
+    result.issues.join('; ')
   );
 });
 

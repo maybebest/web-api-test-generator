@@ -21,7 +21,7 @@ You are working on an AI-assisted Playwright AQA framework.
 ## Generated Tests
 
 - For generated tests, always start from `specs/_template.md`.
-- For raw Gherkin, checklists, or manual test cases, use `npm run ai:spec:import` to create an `ai-draft` spec, then require human review before generation.
+- For raw Gherkin, checklists, or manual test cases, use `npm run ai:spec:import`, resolve every `NEEDS_REVIEW` marker, then pass deterministic spec validation before generation.
 - Validate specs before generating tests.
 - Use `npm run ai:generate-test` to create a generation task.
 - Before generation, prefer `npm run ai:dom:discover` when current UI DOM/accessibility evidence is needed for selector candidates.
@@ -71,9 +71,9 @@ You are working on an AI-assisted Playwright AQA framework.
 - Never create TODO-only passing regression tests.
 - Do not use auth state in unauthenticated projects.
 - Auth setup must assert success before saving `storageState`. The `setup` project runs `tests/setup/auth.setup.ts` only when `E2E_AUTH_ENABLED=true`.
-- A spec that is human-reviewed but not yet implemented against a live environment must set `Generation Status | pending-generation`; strict validation and `ai:test:gate:all` then skip its missing target test instead of failing.
-- The bundled demo app under `demo-app/` is the local system under test; Playwright starts it via `webServer` for local/CI runs. Start it manually with `npm run demo:start` (serves `http://localhost:3000`, the default `PLAYWRIGHT_TEST_BASE_URL`) for discovery, exploration, or gate runs outside `playwright test`.
-- CI gates must remain green. The workflow uses a concurrency group, so an in-progress run on the same ref is cancelled when a new push arrives. CI installs browsers per need (quality job: chromium only; regression matrix: the matrix project's engine). The `PW_PROJECTS` repo variable may include derived project names such as `chromium-auth` or `mobile-chrome` — the matrix resolves them to engines.
+- A valid spec that is not yet implemented against a live environment must set `Generation Status | pending-generation`. The default `ai:test:gate:all` command fails on pending generation or skipped execution; use `ai:test:review:all` (or `gate-all --review-only`) only for an explicitly static machine review that makes no execution claim.
+- The deterministic local fixture lives under `local-fixture/`; Playwright starts it via `webServer`. Start it manually with `npm run fixture:start` at `http://127.0.0.1:3000` for discovery or recording. `PLAYWRIGHT_TEST_BASE_URL` is reserved for explicit external non-production runs.
+- CI local quality installs Chromium and runs `local-chromium`. Authenticated external regression is a separate opt-in, preflighted, single-worker `chromium-auth` job.
 
 ## Recording-Driven Tests
 
@@ -94,4 +94,4 @@ You are working on an AI-assisted Playwright AQA framework.
 ## AI Brain for Generation
 
 - `npm run ai:brain:doctor` reports which brain will run AI generation and where each key came from (environment vs `<repo>/.env` — the real environment always wins; key material is never printed). Selection order: `ANTHROPIC_API_KEY` (env or .env) -> Anthropic Messages API (default model `claude-opus-4-8`), else `OPENAI_API_KEY` -> OpenAI Chat Completions (default `gpt-4o-2024-11-20`), else a local `claude` CLI, else `codex` CLI. `AI_BRAIN` forces a choice (`anthropic|openai|claude-cli|codex-cli`; `claude`/`codex` aliases) and errors clearly if the forced brain is unavailable. Knobs: `ANTHROPIC_MAX_TOKENS`/`OPENAI_MAX_TOKENS` (default 16000), `AI_BRAIN_TIMEOUT_MS` (default 120000).
-- `npm run ai:brain:generate -- <generation-task.md> --out <target.spec.ts>` runs the selected brain; always follow with `ai:test:review` and `ai:test:gate`. The brain drafts code — the gates remain the acceptance check. REST brains receive a pinned output contract (exactly one ```ts fence with the complete file; locators must be grounded in the task's DOM/recording evidence); CLI brains receive the raw task. If the model output is truncated, a refusal, or not plausible TypeScript, generation fails WITHOUT writing the file. Token usage is logged to stderr and recorded under `generation` in the run's `.ai-runs/**/manifest.json`.
+- `npm run ai:brain:generate -- <generation-task.md> --out <target.spec.ts>` runs the selected brain; always follow with `ai:test:review` and `ai:test:gate`. The brain drafts code — the gates remain the acceptance check. Saved flow tasks bind a canonical `provider-input.md` in their manifest; REST and CLI brains receive that same bounded input with the stable Playwright policy and task-specific output contract. If any task, provider input, source hash, target, mode, policy, or context fingerprint drifts, generation fails before invoking the brain. If the model output is truncated, a refusal, or not plausible TypeScript, generation fails WITHOUT writing the file. Token usage is logged to stderr and recorded under `generation` in the run's `.ai-runs/**/manifest.json`.

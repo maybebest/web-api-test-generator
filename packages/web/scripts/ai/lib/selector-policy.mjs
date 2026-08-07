@@ -101,6 +101,35 @@ export function createDiscoveryElement(rawElement, index, options = {}) {
   return element;
 }
 
+/**
+ * Records how many captured accessibility elements resolve to each framework candidate.
+ * This is deterministic snapshot evidence, not an agent-browser @e ref and not a claim that
+ * an arbitrary CSS selector is safe. The artifact reviewer accepts only a preferred candidate
+ * whose matchCount is exactly one.
+ */
+export function annotateSnapshotCandidateMatchCounts(elements) {
+  const counts = new Map();
+  for (const element of elements) {
+    for (const candidate of element.candidateLocators ?? []) {
+      counts.set(candidate.locator, (counts.get(candidate.locator) ?? 0) + 1);
+    }
+  }
+
+  return elements.map((element) => ({
+    ...element,
+    candidateLocators: (element.candidateLocators ?? []).map((candidate, index) => {
+      const matchCount = counts.get(candidate.locator) ?? 0;
+      return {
+        ...candidate,
+        preferred: index === 0,
+        matchCount,
+        unique: matchCount === 1,
+        matchEvidence: 'accessibility-snapshot'
+      };
+    })
+  }));
+}
+
 export function selectBestLocator(element, options = {}) {
   return buildSelectorCandidates(element, options)[0];
 }

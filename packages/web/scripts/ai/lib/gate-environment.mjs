@@ -29,8 +29,9 @@ const BASE_ENVIRONMENT_NAMES = new Set([
 
 const AUTH_SECRET_NAMES = new Set([
   'E2E_USER_EMAIL', 'E2E_USER_PASSWORD', 'E2E_ADMIN_EMAIL', 'E2E_ADMIN_PASSWORD',
-  'E2E_HTTP_BASIC_USERNAME', 'E2E_HTTP_BASIC_PASSWORD'
+  'E2E_HTTP_BASIC_PASSWORD', 'PSYCHICBOOK_E2E_EMAIL'
 ]);
+const AUTH_RUNTIME_NAMES = new Set([...AUTH_SECRET_NAMES, 'E2E_HTTP_BASIC_USERNAME']);
 const API_SECRET_NAMES = new Set(['API_AUTHORIZATION', 'API_TOKEN', 'CHANNEL_BEARER_TOKEN']);
 const KNOWN_SECRET_NAMES = new Set([
   ...AUTH_SECRET_NAMES,
@@ -57,7 +58,7 @@ export function buildGateEnvironment(source = process.env, { profile = 'external
 
   const allowed = new Set(BASE_ENVIRONMENT_NAMES);
   if (profile === 'external-runtime') {
-    for (const name of AUTH_SECRET_NAMES) allowed.add(name);
+    for (const name of AUTH_RUNTIME_NAMES) allowed.add(name);
     for (const name of API_SECRET_NAMES) allowed.add(name);
   }
 

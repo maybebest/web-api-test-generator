@@ -1,0 +1,25 @@
+module: SecondarySpace
+testCases:
+  - id: SECONDAR-E2E-001
+    title: Remove feature flag from production
+    type: e2e
+    priority: critical
+    module: SecondarySpace
+    covers:
+      states:
+        - NUP24049Context
+        - NUP24049Scenario1Outcome
+      transitions:
+        - SECONDAR-TR-001
+      sourceRefs:
+        - NUP-24049.md#L14-L19
+    preconditions:
+      - The Secondary Space feature is live and validated
+    steps:
+      - The deployment is made to production
+    expectedResult:
+      - The feature flag controlling Secondary Space is removed from the production environment
+      - The Secondary Space functionality is always enabled for all intended users
+    testDataNotes: []
+    assumptions: []
+    openQuestions: []

@@ -27,6 +27,7 @@ import {
   stringValue,
   walk
 } from './lib/ts-ast.mjs';
+import { checkGeneratedRuntimeCapabilities } from './lib/generated-capability-policy.mjs';
 
 const HEADER_PATTERN = /\/\*\s*recording:\s+([^\s]+)\s+title:(.*?)\s+sha256:([a-f0-9]{64})\s*\*\//i;
 const SEMANTIC_LOCATOR_NAMES = new Set(['getByRole', 'getByLabel', 'getByPlaceholder', 'getByText', 'getByTestId']);
@@ -120,6 +121,7 @@ export function reviewRecordedTest({ recordingPath, testPath }) {
 
   checkHeader(content, normalized, issues);
   checkFixtureImport(sourceFile, issues);
+  checkGeneratedRuntimeCapabilities(sourceFile, issues, { constStringIdentifiers });
   checkRequiredRecordingSteps(normalized, stepCalls, context, issues);
   checkRequiredAssertions(normalized, stepCalls, context, issues);
   checkExpectCalls(expectCalls, sourceFile, locatorIdentifiers, constLiteralIdentifiers, issues);

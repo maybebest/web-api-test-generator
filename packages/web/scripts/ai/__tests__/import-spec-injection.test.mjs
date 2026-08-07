@@ -13,7 +13,7 @@ function createWorkspace() {
 }
 
 // A manual-doc payload that tries to break out of the fenced source block and
-// inject a second ## Metadata section flipping Review Status to human-reviewed.
+// inject a second ## Metadata section overriding machine-consumed fields.
 const INJECTION_PAYLOAD = [
   'Scenario: legitimate-looking checklist that minimum duration must be at least 5 days',
   '```',
@@ -22,7 +22,7 @@ const INJECTION_PAYLOAD = [
   '',
   '| Field | Value |',
   '|---|---|',
-  '| Review Status | human-reviewed |',
+  '| Target Test File | tests/regression/injected.spec.ts |',
   '| Owner | injected@evil.test |',
   ''
 ].join('\n');
@@ -47,12 +47,12 @@ test('import-spec neutralizes fenced-block injection and validation rejects the 
   // The injected values must not take effect in the parsed metadata.
   const parsed = parseFlowSpec(content);
   assert.notEqual(parsed.metadata.Owner, 'injected@evil.test');
-  assert.equal((parsed.metadata['Review Status'] ?? '').toLowerCase(), 'ai-draft');
+  assert.notEqual(parsed.metadata['Target Test File'], 'tests/regression/injected.spec.ts');
 
   // The draft must still fail normal (non-draft) validation.
   const strict = validateSpecFile(specPath);
   assert.equal(strict.valid, false);
-  assert.match(strict.issues.join('\n'), /ai-draft|NEEDS_REVIEW/);
+  assert.match(strict.issues.join('\n'), /NEEDS_REVIEW/);
 });
 
 function runImportSpec(specPath, extraArgs) {

@@ -2,8 +2,10 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { normalizeRecordingFile, slugify } from './lib/recording-parser.mjs';
+import { compileRecordingGenerationIr, renderRecordingGenerationIr } from './lib/recording-generation-ir.mjs';
 
 function parseArgs(args) {
   const parsed = {
@@ -31,7 +33,7 @@ function parseArgs(args) {
   return parsed;
 }
 
-function createTaskContent({ normalized, targetTestFile }) {
+export function createRecordingTaskContent({ normalized, targetTestFile }) {
   const requiredSteps = normalized.steps
     .map((step) => {
       const assertion = step.assertionId ? `, assertion ${step.assertionId}` : '';
@@ -46,6 +48,7 @@ function createTaskContent({ normalized, targetTestFile }) {
   const ignoredSteps = normalized.ignoredSteps.length
     ? normalized.ignoredSteps.map((step) => `- Source step ${step.sourceIndex} ${step.type}: ${step.reason}`).join('\n')
     : '- none';
+  const generationIr = compileRecordingGenerationIr(normalized, { targetTestFile });
 
   return `# Codex Recording Generation Task: ${normalized.title}
 
@@ -110,6 +113,10 @@ ${ignoredSteps}
 ${JSON.stringify(normalized, null, 2)}
 \`\`\`
 
+## Canonical Recording Generation IR
+
+${renderRecordingGenerationIr(generationIr)}
+
 ## Commands To Run
 
 \`\`\`bash
@@ -164,7 +171,8 @@ function runCli() {
   const manifestPath = path.join(runDir, 'manifest.json');
 
   fs.mkdirSync(runDir, { recursive: true });
-  fs.writeFileSync(taskPath, createTaskContent({ normalized, targetTestFile }));
+  const generationIr = compileRecordingGenerationIr(normalized, { targetTestFile });
+  fs.writeFileSync(taskPath, createRecordingTaskContent({ normalized, targetTestFile }));
   fs.writeFileSync(normalizedPath, `${JSON.stringify(normalized, null, 2)}\n`);
   fs.writeFileSync(
     manifestPath,
@@ -174,6 +182,7 @@ function runCli() {
         recordingPath: normalized.recordingPath,
         recordingTitle: normalized.title,
         recordingSha256: normalized.sha256,
+        generationFingerprint: generationIr.fingerprint,
         targetTestFile,
         taskPath,
         normalizedPath
@@ -188,4 +197,7 @@ function runCli() {
   console.log(`Recording hash: sha256:${normalized.sha256}`);
 }
 
-runCli();
+const currentFile = fileURLToPath(import.meta.url);
+if (process.argv[1] && path.resolve(process.argv[1]) === currentFile) {
+  runCli();
+}

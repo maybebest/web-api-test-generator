@@ -14,10 +14,13 @@
 | Base Path | / |
 | Tags | @generated @regression |
 | Generation Mode | single |
+| Generation Source | manual |
+| Generation Status | pending-generation |
 
 Notes on metadata:
 
 - `Generation Mode` is optional: `single` (default) or `suite`. Review and gate resolve the mode from this row; a contradicting `--mode` flag is a hard error.
+- Generation is authorized by deterministic spec validation and machine policy gates; no interactive sign-off metadata is required.
 - If `Auth` is `required`, the `Target Test File` must end in `.authenticated.spec.ts` so it runs in the `chromium-auth` project (non-auth browser projects ignore that pattern).
 - `Tags` must be declared exactly (set equality) on the generated test or describe block via the Playwright `{ tag: [...] }` option.
 

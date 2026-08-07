@@ -14,6 +14,10 @@ import { fileURLToPath } from 'node:url';
 const WEB = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const YAML = path.join(WEB, 'specs/test-cases-skus-2.yaml');
 const OUT_DIR = path.join(WEB, 'specs/skus');
+// FLOW-SKU-EDIT is backed by the live modal suite in tests/regression/nectar-edit-sku-list.*.
+// The generic counter emitter cannot express that UI contract, so regeneration must preserve the
+// hand-remediated spec/test pair instead of replacing it with counter-only false coverage.
+const MANUALLY_MAINTAINED_FLOW_IDS = new Set(['FLOW-SKU-EDIT']);
 
 function unquote(value) {
   const v = value.trim();
@@ -129,7 +133,7 @@ const AREAS = [
       'A valid non-production authenticated Playwright storage state (`playwright/.auth/user.json`).',
       '`PLAYWRIGHT_TEST_BASE_URL` points to `https://www.dev.pollen.js-devops.co.uk/`.',
       'A brand-linked catalogue containing the case Measurement and Hero SKUs is available.',
-      'The affected channels exist; SKU seeding uses the implemented dataManager.setPlanHeroSkus (brand-catalogue linkage still needs the missing ensureBrandLinkedSkus).',
+      'The affected channels exist; SKU seeding uses dataManager.setPlanHeroSkus. The ensureBrandLinkedSkus surface reads the captured catalogue and requires injected, verified link/unlink adapters only when links must change.',
     ],
     salient: ['Hero', 'Measurement'],
   },
@@ -160,7 +164,7 @@ const AREAS = [
       'A valid non-production authenticated Playwright storage state (`playwright/.auth/user.json`).',
       '`PLAYWRIGHT_TEST_BASE_URL` points to `https://www.dev.pollen.js-devops.co.uk/`.',
       'A plan with at least two channels and per-channel Hero selections is available.',
-      'Per-channel Hero edit/delete is exercised via the UI; seeding uses the implemented dataManager.setPlanHeroSkus (deletion-sync catalogue arrange still needs the missing unlinkSkuFromBrand).',
+      'Per-channel Hero edit/delete is exercised via the UI; seeding uses dataManager.setPlanHeroSkus. Deletion-sync catalogue arrangement uses unlinkSkuFromBrand and requires an injected, verified catalogue mutation adapter.',
     ],
     salient: ['Hero', 'Edit'],
   },
@@ -244,12 +248,18 @@ function pad(n) {
 // is genuinely verifiable through the UI after an API seed (proven live 2026-07-03). Everything
 // else is declared in the spec's "Pending Automation" section with its blocker — not emitted as a
 // weak panel-smoke or a guaranteed-red placeholder.
-function automationBlocker(s) {
+function automationBlocker(s, area) {
+  if (area.flowId === 'FLOW-SKU-CHAN') {
+    return 'contract-mismatch: session-wide SET_SKUS cannot arrange or prove per-channel edit isolation/deletion sync';
+  }
+  if (area.flowId === 'FLOW-SKU-EDIT') {
+    return 'contract-mismatch: a summary counter does not prove Edit SKU list button visibility, modal contents, or cancel persistence';
+  }
   if (s.maxHeroSkus !== null) {
     return 'channel-config: needs channel media resolution (E2E_MP_*_CHANNEL) + admin_editMedia write';
   }
   if (s.expected.warning) {
-    return 'warning-needs-channel: the plan has no channels; needs assignChannelToPlan (unimplemented) or the UI chat flow';
+    return 'warning-needs-channel: the plan has no channels; assignChannelToPlan requires an injected, verified media-plan adapter, otherwise the case must use the UI chat flow';
   }
   if (s.expected.heroCount === null && s.expected.measurementCount === null) {
     return 'no-assertable-expectation: the source case has no UI-checkable outcome without the assistant flow';
@@ -287,7 +297,7 @@ function buildSpec(area, cases, structured) {
   const tags = `@generated @regression @media-planner @authenticated @${area.slug}`;
   const target = `tests/regression/skus/${area.slug}.authenticated.spec.ts`;
 
-  const withBlockers = structured.map((s, i) => ({ s, source: cases[i], blocker: automationBlocker(s) }));
+  const withBlockers = structured.map((s, i) => ({ s, source: cases[i], blocker: automationBlocker(s, area) }));
   const automatable = withBlockers.filter((x) => !x.blocker);
   const blocked = withBlockers.filter((x) => x.blocker);
   const isPending = automatable.length === 0;
@@ -369,7 +379,6 @@ function buildSpec(area, cases, structured) {
 | Base Path | /planning |
 | Tags | ${tags} |
 | Generation Mode | suite |
-| Review Status | human-reviewed |
 | Generation Source | manual-test-case |
 | Generation Status | ${isPending ? 'pending-generation' : 'generated'} |
 
@@ -635,7 +644,7 @@ function structuredCase(c, i) {
 function buildTestV4(area, cases, hash) {
   const tag = "['@generated', '@regression', '@media-planner', '@authenticated', '@" + area.slug + "']";
   const structured = cases.map((c, i) => structuredCase(c, i));
-  const automatable = structured.filter((s) => !automationBlocker(s));
+  const automatable = structured.filter((s) => !automationBlocker(s, area));
   if (automatable.length === 0) {
     return null;
   }
@@ -795,8 +804,12 @@ console.log(`grouped total: ${total} (ungrouped: ${cases.length - total})`);
 if (process.argv.includes('--write')) {
   fs.mkdirSync(OUT_DIR, { recursive: true });
   for (const { area, cases: list } of grouped) {
+    if (MANUALLY_MAINTAINED_FLOW_IDS.has(area.flowId)) {
+      console.log(`preserved ${area.slug} (manually maintained modal suite)`);
+      continue;
+    }
     const structured = list.map((c, i) => structuredCase(c, i));
-    const automatable = structured.filter((s) => !automationBlocker(s)).length;
+    const automatable = structured.filter((s) => !automationBlocker(s, area)).length;
     const file = path.join(OUT_DIR, `${area.slug}.md`);
     fs.writeFileSync(file, buildSpec(area, list, structured), 'utf8');
     console.log(`wrote ${file} (${automatable}/${list.length} cases automatable${automatable === 0 ? ' -> pending-generation' : ''})`);
@@ -807,6 +820,10 @@ if (process.argv.includes('--write-tests')) {
   const { specSha256 } = await import(path.join(WEB, 'scripts/ai/lib/spec-parser.mjs'));
   fs.mkdirSync(TEST_DIR, { recursive: true });
   for (const { area, cases: list } of grouped) {
+    if (MANUALLY_MAINTAINED_FLOW_IDS.has(area.flowId)) {
+      console.log(`preserved ${area.slug} (manually maintained modal suite)`);
+      continue;
+    }
     // Absolute path so specSha256 reads the spec FILE (and hashes its behavioral content) regardless
     // of this generator's CWD. A relative path that doesn't resolve makes specSha256 treat the string
     // itself as spec content -> a constant skeleton hash for every area -> spec-drift/review failure.

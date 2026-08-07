@@ -65,6 +65,7 @@ export interface NormalizedHarEntry {
   id: string;
   sourceFile: string;
   entryIndex: number;
+  startedDateTime?: string;
   method: HttpMethod;
   originalUrl: string;
   defaultBaseUrl: string;

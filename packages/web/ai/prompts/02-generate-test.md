@@ -6,7 +6,7 @@ The Markdown spec is the contract.
 The generated Playwright test is the implementation.
 The gate is the acceptance check.
 
-Do not generate tests from memory or from loose notes. Start from a validated spec that follows `specs/_template.md`. If the input is raw Gherkin, a checklist, or a manual test case, first create a draft spec with `npm run ai:spec:import`, then require human review before implementation.
+Do not generate tests from memory or from loose notes. Start from a spec that passes the deterministic validator and follows `specs/_template.md`. If the input is raw Gherkin, a checklist, or a manual test case, first create a draft spec with `npm run ai:spec:import`, resolve every `NEEDS_REVIEW` marker, and run the automated policy gates before implementation.
 
 ## Workflow
 
