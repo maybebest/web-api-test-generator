@@ -5,6 +5,7 @@ import ts from 'typescript';
 import { knownSecretEnvValues } from './gate-environment.mjs';
 import { hasForbiddenAgentRef, hasForbiddenLocatorPattern } from './selector-policy.mjs';
 import { containsSecretLikeValue, redactSecretMaterial } from './secret-safety.mjs';
+import { normalizeScopedRoleCandidate } from './scoped-role-locator.mjs';
 import { readVerifiedFile } from './verified-file-read.mjs';
 
 const MAX_IMPORTED_FILES = 4;
@@ -152,6 +153,40 @@ function validateLocatorIdentity(candidate, label) {
   return locator;
 }
 
+function projectedCandidate(candidate, secretValues) {
+  if (candidate.type !== 'scopedRole') {
+    if (candidate.scope !== undefined || candidate.target !== undefined || candidate.warningCodes !== undefined) {
+      throw new Error('Flat heal locator candidates cannot carry scoped-role fields.');
+    }
+    return {
+      type: candidate.type,
+      locator: sanitizedContextString(validateLocatorIdentity(candidate, 'Heal locator candidate'), secretValues),
+      preferred: candidate.preferred,
+      matchCount: 1,
+      matchEvidence: 'playwright-live'
+    };
+  }
+  const normalized = normalizeScopedRoleCandidate(candidate);
+  const serializedIdentity = JSON.stringify({
+    locator: normalized.locator,
+    scope: normalized.scope,
+    target: normalized.target
+  });
+  if (sanitizedContextString(serializedIdentity, secretValues) !== serializedIdentity) {
+    throw new Error('Scoped role candidate contains secret-like material.');
+  }
+  return {
+    type: normalized.type,
+    locator: normalized.locator,
+    scope: normalized.scope,
+    target: normalized.target,
+    preferred: normalized.preferred,
+    matchCount: 1,
+    matchEvidence: 'playwright-live',
+    warningCodes: normalized.warningCodes
+  };
+}
+
 function projectSelectorDiscoveryArtifact(artifactValue, secretValues) {
   const artifact = requireObject(artifactValue, 'Heal DOM selector discovery artifact');
   const sensitiveLocation = containsSensitiveArtifactStructure(artifact);
@@ -231,9 +266,8 @@ function projectSelectorDiscoveryArtifact(artifactValue, secretValues) {
       const candidate = requireObject(candidateValue, candidateLabel);
       requireOnlyKeys(candidate, new Set([
         'type', 'locator', 'score', 'reason', 'preferred', 'matchCount', 'unique',
-        'snapshotMatchCount', 'snapshotUnique', 'matchEvidence'
+        'snapshotMatchCount', 'snapshotUnique', 'matchEvidence', 'scope', 'target', 'warningCodes'
       ]), candidateLabel);
-      const locator = validateLocatorIdentity(candidate, candidateLabel);
       if (!Number.isFinite(candidate.score) || typeof candidate.reason !== 'string' || !candidate.reason.trim()) {
         throw new Error(`${candidateLabel} is missing selector-policy score or reason evidence.`);
       }
@@ -251,13 +285,7 @@ function projectSelectorDiscoveryArtifact(artifactValue, secretValues) {
         throw new Error(`${candidateLabel} is preferred but not unique.`);
       }
       if (candidate.matchCount !== 1) return undefined;
-      return {
-        type: candidate.type,
-        locator: sanitizedContextString(locator, secretValues),
-        preferred: candidate.preferred,
-        matchCount: 1,
-        matchEvidence: 'playwright-live'
-      };
+      return projectedCandidate(candidate, secretValues);
     }).filter(Boolean);
     return {
       elementId: sanitizedContextString(elementId, secretValues),
@@ -295,20 +323,15 @@ function normalizeProjectedSelectorContext(value, secretValues) {
     const candidateLocators = element.candidateLocators.map((candidateValue, candidateIndex) => {
       const candidateLabel = `${label}.candidateLocators[${candidateIndex}]`;
       const candidate = requireObject(candidateValue, candidateLabel);
-      requireOnlyKeys(candidate, new Set(['type', 'locator', 'preferred', 'matchCount', 'matchEvidence']), candidateLabel);
-      const locator = validateLocatorIdentity(candidate, candidateLabel);
+      requireOnlyKeys(candidate, new Set([
+        'type', 'locator', 'preferred', 'matchCount', 'matchEvidence', 'scope', 'target', 'warningCodes'
+      ]), candidateLabel);
       if (typeof candidate.preferred !== 'boolean'
         || candidate.matchCount !== 1
         || candidate.matchEvidence !== 'playwright-live') {
         throw new Error(`${candidateLabel} is not a unique live-audited locator.`);
       }
-      return {
-        type: candidate.type,
-        locator: sanitizedContextString(locator, secretValues),
-        preferred: candidate.preferred,
-        matchCount: 1,
-        matchEvidence: 'playwright-live'
-      };
+      return projectedCandidate(candidate, secretValues);
     });
     return {
       elementId: sanitizedContextString(requireString(element.elementId, `${label}.elementId`), secretValues),

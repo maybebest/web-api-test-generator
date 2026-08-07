@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { collectHealContext } from '../lib/test-heal-context.mjs';
+import { createScopedRoleCandidate } from '../lib/scoped-role-locator.mjs';
 
 function makeWorkspace() {
   const webRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'heal-context-'));
@@ -68,6 +69,26 @@ function selectorDiscoveryArtifact() {
         snapshotUnique: true,
         matchEvidence: 'playwright-live'
       }]
+    }, {
+      elementId: 'el-banner-button',
+      role: 'button',
+      accessibleName: null,
+      label: null,
+      placeholder: null,
+      text: null,
+      href: null,
+      testId: null,
+      attributes: {},
+      snapshotOccurrences: 1,
+      candidateLocators: [{
+        ...createScopedRoleCandidate({ scopeRole: 'banner', targetRole: 'button' }),
+        preferred: true,
+        matchCount: 1,
+        unique: true,
+        snapshotMatchCount: 1,
+        snapshotUnique: true,
+        matchEvidence: 'playwright-live'
+      }]
     }]
   };
 }
@@ -125,9 +146,94 @@ import { SavePage } from '../../pages/SavePage';
   assert.deepEqual(Object.keys(projectedDom.elements[0].candidateLocators[0]).sort(), [
     'locator', 'matchCount', 'matchEvidence', 'preferred', 'type'
   ]);
+  assert.deepEqual(projectedDom.elements[1].candidateLocators[0], {
+    type: 'scopedRole',
+    locator: 'page.getByRole("banner").getByRole("button")',
+    scope: { role: 'banner', accessibleName: null },
+    target: { role: 'button', accessibleName: null },
+    preferred: true,
+    matchCount: 1,
+    matchEvidence: 'playwright-live',
+    warningCodes: ['SCOPED_ROLE_TARGET_UNNAMED']
+  });
   assert.doesNotMatch(context.domSnapshot.content, /raw text|data-debug|must-not-project|sourceCommands/);
   assert.doesNotMatch(context.domSnapshot.content, /abcdefghijklmnop|ordinary-pass/);
   assert.equal(context.manualChangeRequired, true);
+});
+
+test('collectHealContext rejects malformed scoped-role discovery candidates and flat scoped fields', () => {
+  const cases = [
+    {
+      label: 'changed locator',
+      mutate(candidate) {
+        candidate.locator = 'page.getByRole("main").getByRole("button")';
+      },
+      pattern: /Scoped role candidate\.locator is not canonical/i
+    },
+    {
+      label: 'extra scope key',
+      mutate(candidate) {
+        candidate.scope.extra = 'nope';
+      },
+      pattern: /Scoped role scope contains unsupported field/i
+    },
+    {
+      label: 'extra target key',
+      mutate(candidate) {
+        candidate.target.extra = 'nope';
+      },
+      pattern: /Scoped role target contains unsupported field/i
+    },
+    {
+      label: 'unsupported scope role',
+      mutate(candidate) {
+        candidate.scope.role = 'article';
+      },
+      pattern: /Unsupported scoped role container/i
+    },
+    {
+      label: 'unsupported target role',
+      mutate(candidate) {
+        candidate.target.role = 'not-a-role';
+      },
+      pattern: /Unsupported scoped role target/i
+    },
+    {
+      label: 'non-unique count',
+      mutate(candidate) {
+        candidate.matchCount = 0;
+        candidate.unique = false;
+      },
+      pattern: /preferred but not unique/i
+    },
+    {
+      label: 'missing warning code',
+      mutate(candidate) {
+        candidate.warningCodes = [];
+      },
+      pattern: /Scoped role candidate\.warningCodes is not canonical/i
+    },
+    {
+      label: 'flat scoped fields',
+      mutate(candidate, artifact) {
+        artifact.elements[0].candidateLocators[0].scope = { role: 'banner', accessibleName: null };
+      },
+      pattern: /Flat heal locator candidates cannot carry scoped-role fields/i
+    }
+  ];
+
+  for (const [index, scenario] of cases.entries()) {
+    const { webRoot, testPath } = makeWorkspace();
+    const artifact = selectorDiscoveryArtifact();
+    scenario.mutate(artifact.elements[1].candidateLocators[0], artifact);
+    const domSnapshotPath = path.join(webRoot, '.ai-runs', 'dom-discovery', 'run', `invalid-scoped-role-${index}.json`);
+    fs.writeFileSync(domSnapshotPath, JSON.stringify(artifact));
+    assert.throws(
+      () => collectHealContext({ testPath, source: '', evidence: [], webRoot, domSnapshotPath }),
+      scenario.pattern,
+      scenario.label
+    );
+  }
 });
 
 test('collectHealContext ignores bare and unrelated in-workspace imports', () => {

@@ -70,6 +70,15 @@ function validRepositoryContext() {
             preferred: true,
             matchCount: 1,
             matchEvidence: 'playwright-live'
+          }, {
+            type: 'scopedRole',
+            locator: 'page.getByRole("banner").getByRole("button")',
+            scope: { role: 'banner', accessibleName: null },
+            target: { role: 'button', accessibleName: null },
+            preferred: false,
+            matchCount: 1,
+            matchEvidence: 'playwright-live',
+            warningCodes: ['SCOPED_ROLE_TARGET_UNNAMED']
           }]
         }]
       })
@@ -225,6 +234,18 @@ test('heal prompt is bounded, redacted, and refuses unusable input', () => {
   assert.equal(parsed.attempt, 2);
   assert.equal(parsed.repositoryContext.importedSources[0].path, 'pages/SavePage.ts');
   assert.equal(parsed.repositoryContext.manualChangeRequired, true);
+  assert.deepEqual(parsed.repositoryContext.domSnapshot.content
+    ? JSON.parse(parsed.repositoryContext.domSnapshot.content).elements[0].candidateLocators[1]
+    : undefined, {
+    type: 'scopedRole',
+    locator: 'page.getByRole("banner").getByRole("button")',
+    scope: { role: 'banner', accessibleName: null },
+    target: { role: 'button', accessibleName: null },
+    preferred: false,
+    matchCount: 1,
+    matchEvidence: 'playwright-live',
+    warningCodes: ['SCOPED_ROLE_TARGET_UNNAMED']
+  });
   assert.doesNotMatch(prompt, /super-secret-value/);
 
   assert.throws(
@@ -255,6 +276,58 @@ test('heal prompt is bounded, redacted, and refuses unusable input', () => {
     }),
     /AI_AUTOHEAL_MAX_SOURCE_BYTES/
   );
+});
+
+test('heal prompt rejects malformed projected scoped-role locator evidence', () => {
+  const cases = [
+    {
+      label: 'positional locator',
+      mutate(candidate) {
+        candidate.locator = 'page.getByRole("banner").getByRole("button").first()';
+      },
+      pattern: /Scoped role candidate\.locator is not canonical/i
+    },
+    {
+      label: 'dynamic-looking name',
+      mutate(candidate) {
+        candidate.locator = 'page.getByRole("banner").getByRole("button", { name: buttonName })';
+      },
+      pattern: /Scoped role candidate\.locator is not canonical/i
+    },
+    {
+      label: 'unknown warning code',
+      mutate(candidate) {
+        candidate.warningCodes = ['NOT_A_REAL_WARNING'];
+      },
+      pattern: /Scoped role candidate\.warningCodes is not canonical/i
+    },
+    {
+      label: 'non-unique match count',
+      mutate(candidate) {
+        candidate.matchCount = 2;
+      },
+      pattern: /unique live-audited locator/i
+    }
+  ];
+  for (const scenario of cases) {
+    const repositoryContext = validRepositoryContext();
+    const content = JSON.parse(repositoryContext.domSnapshot.content);
+    scenario.mutate(content.elements[0].candidateLocators[1]);
+    repositoryContext.domSnapshot.content = JSON.stringify(content);
+    assert.throws(
+      () => buildTestHealPrompt({
+        testPath: 'tests/regression/flow.spec.ts',
+        source: CLEAN_SOURCE,
+        evidence: ['locator timeout'],
+        attempt: 1,
+        maxAttempts: 3,
+        repositoryContext,
+        env: {}
+      }),
+      scenario.pattern,
+      scenario.label
+    );
+  }
 });
 
 test('heal prompt rejects malformed or extra repository context fields', () => {
