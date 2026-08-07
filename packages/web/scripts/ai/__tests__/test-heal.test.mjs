@@ -1958,59 +1958,75 @@ test('healSingleTest applies a verified candidate with policy warnings', async (
 });
 
 test('unaudited scoped locator is rejected before candidate gates or runtime', async () => {
-  const { webRoot, target, targetPath } = makeHealWorkspace();
-  const inventedSource = CLEAN_SOURCE.replace(
-    "page.getByRole('button', { name: 'Save' })",
-    "(page.getByRole('navigation')).getByRole('button')"
-  );
-  const { run, calls } = executionSequence([FAILED_EXECUTION]);
-  let typecheckCalls = 0;
-  let lintCalls = 0;
-  let reviewCalls = 0;
-  const result = await healSingleTest({
-    testPath: target,
-    env: { AI_AUTOHEAL_ENABLED: 'true' },
-    webRoot,
-    maxAttempts: 1,
-    log: () => {},
-    resolveContract: () => ({ kind: 'handwritten', testPath: target }),
-    reviewContract: () => (reviewCalls += 1, { passed: true, issues: [] }),
-    typecheck: () => (typecheckCalls += 1, { passed: true, issues: [] }),
-    lint: () => (lintCalls += 1, { passed: true, issues: [] }),
-    executeStandalone: run,
-    collectContext: () => ({ ...validRepositoryContext(), manualChangeRequired: false }),
-    heal: async () => ({ code: inventedSource })
-  });
+  const cases = [{
+    label: 'dynamic computed method',
+    source: CLEAN_SOURCE
+      .replace("test('flow works', async ({ page }) => {", "test('flow works', async ({ page }) => {\n  const method = 'getByRole';")
+      .replace("page.getByRole('button', { name: 'Save' })", "page.getByRole('banner')[method]('button')")
+  }, {
+    label: 'direct local const alias',
+    source: CLEAN_SOURCE
+      .replace("test('flow works', async ({ page }) => {", "test('flow works', async ({ page }) => {\n  const scope = page.getByRole('banner');")
+      .replace("page.getByRole('button', { name: 'Save' })", "scope.getByRole('button')")
+  }, {
+    label: 'optional chain',
+    source: CLEAN_SOURCE.replace(
+      "page.getByRole('button', { name: 'Save' })",
+      "page?.getByRole('banner')?.getByRole('button')"
+    )
+  }];
 
-  assert.equal(result.status, 'exhausted');
-  assert.equal(typecheckCalls, 0);
-  assert.equal(lintCalls, 0);
-  assert.equal(reviewCalls, 0);
-  assert.equal(calls.length, 1);
-  assert.equal(fs.readFileSync(targetPath, 'utf8'), CLEAN_SOURCE);
-  assert.deepEqual(result.attemptTrail, [{
-    attempt: 1,
-    outcome: 'locator-evidence-rejected',
-    checks: { locatorEvidence: 'rejected' }
-  }]);
-  const archiveNames = fs.readdirSync(result.archiveDir).sort();
-  assert.deepEqual(archiveNames, [
-    'attempt-1.rejected-locator-evidence.json',
-    'evidence.json',
-    'heal-summary.json',
-    'original.ts'
-  ]);
-  const rejectedAudit = JSON.parse(fs.readFileSync(
-    path.join(result.archiveDir, 'attempt-1.rejected-locator-evidence.json'),
-    'utf8'
-  ));
-  assert.deepEqual(rejectedAudit, {
-    schema: 'test-heal-rejected-attempt/v1',
-    attempt: 1,
-    outcome: 'rejected-locator-evidence',
-    reasonCodes: ['UNVERIFIED_SCOPED_ROLE_LOCATOR']
-  });
-  assert.doesNotMatch(JSON.stringify(rejectedAudit), /navigation|getByRole|inventedSource/);
+  for (const candidateCase of cases) {
+    const { webRoot, target, targetPath } = makeHealWorkspace();
+    const { run, calls } = executionSequence([FAILED_EXECUTION]);
+    let typecheckCalls = 0;
+    let lintCalls = 0;
+    let reviewCalls = 0;
+    const result = await healSingleTest({
+      testPath: target,
+      env: { AI_AUTOHEAL_ENABLED: 'true' },
+      webRoot,
+      maxAttempts: 1,
+      log: () => {},
+      resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+      reviewContract: () => (reviewCalls += 1, { passed: true, issues: [] }),
+      typecheck: () => (typecheckCalls += 1, { passed: true, issues: [] }),
+      lint: () => (lintCalls += 1, { passed: true, issues: [] }),
+      executeStandalone: run,
+      collectContext: () => ({ ...validRepositoryContext(), manualChangeRequired: false }),
+      heal: async () => ({ code: candidateCase.source })
+    });
+
+    assert.equal(result.status, 'exhausted', candidateCase.label);
+    assert.equal(typecheckCalls, 0, candidateCase.label);
+    assert.equal(lintCalls, 0, candidateCase.label);
+    assert.equal(reviewCalls, 0, candidateCase.label);
+    assert.equal(calls.length, 1, candidateCase.label);
+    assert.equal(fs.readFileSync(targetPath, 'utf8'), CLEAN_SOURCE, candidateCase.label);
+    assert.deepEqual(result.attemptTrail, [{
+      attempt: 1,
+      outcome: 'locator-evidence-rejected',
+      checks: { locatorEvidence: 'rejected' }
+    }], candidateCase.label);
+    const archiveNames = fs.readdirSync(result.archiveDir).sort();
+    assert.deepEqual(archiveNames, [
+      'attempt-1.rejected-locator-evidence.json',
+      'evidence.json',
+      'heal-summary.json',
+      'original.ts'
+    ], candidateCase.label);
+    const rejectedAudit = JSON.parse(fs.readFileSync(
+      path.join(result.archiveDir, 'attempt-1.rejected-locator-evidence.json'),
+      'utf8'
+    ));
+    assert.deepEqual(rejectedAudit, {
+      schema: 'test-heal-rejected-attempt/v1',
+      attempt: 1,
+      outcome: 'rejected-locator-evidence',
+      reasonCodes: ['UNVERIFIED_SCOPED_ROLE_LOCATOR']
+    }, candidateCase.label);
+    assert.doesNotMatch(JSON.stringify(rejectedAudit), /banner|getByRole|method|scope/, candidateCase.label);
+  }
 });
 
 test('audited unnamed scoped locator applies with a warning-soft result', async () => {
@@ -2020,13 +2036,15 @@ test('audited unnamed scoped locator applies with a warning-soft result', async 
     "page.getByRole('banner').getByRole('button')"
   );
   const { run, calls } = executionSequence([FAILED_EXECUTION, PASSED_EXECUTION]);
+  const logs = [];
   const result = await healSingleTest({
     testPath: target,
     env: { AI_AUTOHEAL_ENABLED: 'true' },
     webRoot,
     maxAttempts: 1,
+    verifyRuns: 3,
     apply: true,
-    log: () => {},
+    log: (message) => logs.push(message),
     resolveContract: () => ({ kind: 'handwritten', testPath: target }),
     reviewContract: () => ({ passed: true, issues: [] }),
     typecheck: PASSING_TYPECHECK,
@@ -2039,11 +2057,14 @@ test('audited unnamed scoped locator applies with a warning-soft result', async 
 
   assert.equal(result.status, 'healed');
   assert.equal(calls.length, 2);
+  assert.equal(calls[1].repeatEach, 3);
   assert.equal(fs.readFileSync(targetPath, 'utf8'), auditedSource);
   assert.equal(fs.readFileSync(result.backupPath, 'utf8'), CLEAN_SOURCE);
   assert.deepEqual(result.policyIssueCodes, ['SCOPED_ROLE_TARGET_UNNAMED']);
   assert.equal(result.attemptTrail[0].outcome, 'healed');
   assert.equal(result.attemptTrail[0].checks.locatorEvidence, 'passed');
+  assert.equal(result.attemptTrail[0].checks.policy, 'warning');
+  assert.match(logs.join('\n'), /continues with policy warnings: SCOPED_ROLE_TARGET_UNNAMED/);
 });
 
 test('policy warnings never bypass later hard gates', async () => {
