@@ -18,10 +18,10 @@ test('inventory covers every supported source format and merges strict source id
   assert.equal(inventory.scope.sourceCounts['specs/secondary-space/critical-user-journeys.yaml'], 8);
   assert.equal(inventory.scope.sourceCounts['specs/sains/nectar-ai-test-cases-by-module.md'], 219);
   assert.equal(inventory.scope.sourceCounts['specs/sains/sains-project-qa-notes.md'], 80);
-  assert.equal(inventory.scope.strictFlowCount, 25);
-  assert.equal(inventory.scope.formalDataCaseCount, 194);
-  assert.equal(inventory.scope.formalNegativeCaseCount, 40);
-  assert.equal(inventory.scope.acceptanceCriteriaCount, 135);
+  assert.equal(inventory.scope.strictFlowCount, 27);
+  assert.equal(inventory.scope.formalDataCaseCount, 196);
+  assert.equal(inventory.scope.formalNegativeCaseCount, 42);
+  assert.equal(inventory.scope.acceptanceCriteriaCount, 143);
   assert.deepEqual(inventory.missingFlowSpecs, []);
 
   const channelCase = inventory.cases.find((candidate) => candidate.id === 'TC-CHAN-001');
@@ -69,7 +69,7 @@ test('inventory projects legacy source notes into machine-policy terminology', (
 
 test('strict flow discovery ignores narrative Markdown sources', () => {
   const files = listSpecFiles(SPEC_DIRECTORY);
-  assert.equal(files.length, 25);
+  assert.equal(files.length, 27);
   assert.ok(files.some((file) => file.endsWith('sains/entry-and-persistence.md')));
   assert.ok(files.some((file) => file.endsWith('sains/entry-shell-responsive-accessibility.md')));
   assert.ok(files.every((file) => !file.includes('nectar-ai-test-cases-by-module.md')));
