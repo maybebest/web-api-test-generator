@@ -6,6 +6,7 @@ import test from 'node:test';
 
 import { collectHealContext } from '../lib/test-heal-context.mjs';
 import { createScopedRoleCandidate } from '../lib/scoped-role-locator.mjs';
+import { reviewDomDiscoveryArtifactObject } from '../review-dom-discovery.mjs';
 
 function makeWorkspace() {
   const webRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'heal-context-'));
@@ -159,6 +160,44 @@ import { SavePage } from '../../pages/SavePage';
   assert.doesNotMatch(context.domSnapshot.content, /raw text|data-debug|must-not-project|sourceCommands/);
   assert.doesNotMatch(context.domSnapshot.content, /abcdefghijklmnop|ordinary-pass/);
   assert.equal(context.manualChangeRequired, true);
+});
+
+test('collectHealContext accepts an officially reviewed flat artifact and filters its non-unique alternative', () => {
+  const { webRoot, testPath } = makeWorkspace();
+  const artifact = selectorDiscoveryArtifact();
+  artifact.elements = [artifact.elements[0]];
+  const alternative = artifact.elements[0].candidateLocators[1];
+  alternative.matchCount = 2;
+  alternative.unique = false;
+  alternative.snapshotMatchCount = 2;
+  alternative.snapshotUnique = false;
+
+  const review = reviewDomDiscoveryArtifactObject(artifact, {
+    rootDir: webRoot,
+    expectedSpecPath: artifact.specPath,
+    expectedSpecSha256: artifact.specSha256
+  });
+  assert.equal(review.passed, true, review.issues.join('\n'));
+  assert.equal(review.warnings.length, 1);
+  assert.match(review.warnings[0], /non-unique and must not be selected/i);
+
+  const domSnapshotPath = path.join(webRoot, '.ai-runs', 'dom-discovery', 'run', 'flat-warnings.json');
+  fs.writeFileSync(domSnapshotPath, JSON.stringify(artifact));
+  const context = collectHealContext({
+    testPath,
+    source: '',
+    evidence: [],
+    webRoot,
+    domSnapshotPath
+  });
+  const [element] = JSON.parse(context.domSnapshot.content).elements;
+  assert.deepEqual(element.candidateLocators, [{
+    type: 'role',
+    locator: 'page.getByRole("button", { name: "Save ordinary-pass" })',
+    preferred: true,
+    matchCount: 1,
+    matchEvidence: 'playwright-live'
+  }]);
 });
 
 test('collectHealContext rejects malformed scoped-role discovery candidates and flat scoped fields', () => {
