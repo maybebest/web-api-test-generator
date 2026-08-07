@@ -9,7 +9,6 @@ class PsychicBookLoginPage {
   private readonly continueButton: Locator;
   private readonly verificationCodeAlternativeButton: Locator;
   private readonly verificationCodeInputs: Locator;
-  private readonly accountSettingsLink: Locator;
   private readonly accountSettingsButton: Locator;
 
   constructor(private readonly page: Page) {
@@ -21,8 +20,7 @@ class PsychicBookLoginPage {
     });
     // locator-policy:exception the reviewed verification fields are anonymous numeric inputs without semantic names
     this.verificationCodeInputs = page.locator('input[inputmode="numeric"][maxlength="1"]');
-    this.accountSettingsLink = page.getByRole('link', { name: /^account settings$/i });
-    this.accountSettingsButton = page.getByRole('button', { name: /^account settings$/i });
+    this.accountSettingsButton = page.getByRole("banner").getByRole("button");
   }
 
   async gotoLanding(): Promise<void> {
@@ -53,7 +51,7 @@ class PsychicBookLoginPage {
   }
 
   accountSettingsControl(): Locator {
-    return this.accountSettingsLink.or(this.accountSettingsButton);
+    return this.accountSettingsButton;
   }
 }
 

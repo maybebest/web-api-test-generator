@@ -28,9 +28,7 @@ class PsychicBookHealingExperimentPage {
     });
     // locator-policy:exception the reviewed verification fields are anonymous numeric inputs without semantic names
     this.verificationDigitInputs = page.locator('input[inputmode="numeric"][maxlength="1"]');
-    this.accountSettingsControl = page
-      .getByRole('banner')
-      .getByRole('button', { name: 'T', exact: true });
+    this.accountSettingsControl = page.getByRole('banner').getByRole('button');
   }
 
   async openLandingPage(): Promise<void> {
