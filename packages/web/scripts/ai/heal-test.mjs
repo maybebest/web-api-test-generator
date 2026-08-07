@@ -38,6 +38,11 @@ import { collectHealContext } from './lib/test-heal-context.mjs';
 import { triageRuntimeFailure } from './lib/test-heal-triage.mjs';
 import { containsSecretLikeValue, redactSecretMaterial } from './lib/secret-safety.mjs';
 import {
+  canonicalContractTestPath,
+  testSuiteRootForPath,
+  withTestSuiteRoot
+} from './lib/test-suite-root.mjs';
+import {
   MAX_AUTOHEAL_MAX_ATTEMPTS,
   MAX_HEAL_EVIDENCE_ITEMS,
   MAX_HEAL_SOURCE_BYTES,
@@ -120,6 +125,7 @@ function normalizePortablePath(value) {
 export function discoverSpecForTest(testPath, specDir, {
   validateDirectory = validateSpecDirectory
 } = {}) {
+  const contractTestPath = canonicalContractTestPath(testPath);
   const directoryResult = validateDirectory(specDir);
   if (!directoryResult.valid) {
     throw new Error(
@@ -130,19 +136,20 @@ export function discoverSpecForTest(testPath, specDir, {
   for (const { specPath, result: validation } of directoryResult.results) {
     if (isPendingGenerationSpec(validation.metadata)) continue;
     const target = normalizePortablePath(validation.metadata['Target Test File']);
-    if (target === testPath) matches.push({ specPath, validation });
+    if (target === contractTestPath) matches.push({ specPath, validation });
   }
   if (matches.length > 1) {
     throw new Error(
-      `Multiple specs claim target ${testPath}: ${matches.map((match) => match.specPath).join(', ')}.`
+      `Multiple specs claim target ${contractTestPath}: ${matches.map((match) => match.specPath).join(', ')}.`
     );
   }
   return matches[0] ?? null;
 }
 
 export function inferStandaloneProject(testPath) {
-  if (LOCAL_FIXTURE_TARGET.test(testPath)) return 'local-chromium';
-  if (testPath.endsWith('.authenticated.spec.ts')) return 'chromium-auth';
+  const contractTestPath = canonicalContractTestPath(testPath);
+  if (LOCAL_FIXTURE_TARGET.test(contractTestPath)) return 'local-chromium';
+  if (contractTestPath.endsWith('.authenticated.spec.ts')) return 'chromium-auth';
   return 'chromium';
 }
 
@@ -609,8 +616,8 @@ export function lintCandidate({
   return { passed: false, issues: ['ESLint did not accept the heal candidate.'] };
 }
 
-function assertHealableTarget(absoluteTarget, webRoot) {
-  const testsRoot = path.join(webRoot, 'tests');
+function assertHealableTarget(absoluteTarget, webRoot, testSuiteRoot) {
+  const testsRoot = path.join(webRoot, testSuiteRoot);
   if (!fs.existsSync(absoluteTarget)) {
     throw new Error(`Heal target does not exist: ${absoluteTarget}`);
   }
@@ -619,10 +626,14 @@ function assertHealableTarget(absoluteTarget, webRoot) {
     throw new Error(`Heal target must be a regular file: ${absoluteTarget}`);
   }
   const realTarget = fs.realpathSync(absoluteTarget);
+  const realWebRoot = fs.realpathSync(webRoot);
   const realTestsRoot = fs.realpathSync(testsRoot);
+  if (realTestsRoot !== path.join(realWebRoot, testSuiteRoot)) {
+    throw new Error(`Heal test suite root must remain inside ${realWebRoot}: ${testsRoot}`);
+  }
   const relative = path.relative(realTestsRoot, realTarget);
   if (relative.startsWith('..') || path.isAbsolute(relative)) {
-    throw new Error(`Heal target must live inside the tests directory: ${absoluteTarget}`);
+    throw new Error(`Heal target must live inside the ${testSuiteRoot} directory: ${absoluteTarget}`);
   }
   return stat;
 }
@@ -975,7 +986,9 @@ export async function healSingleTest({
     throw new Error(`Heal target must live inside ${webRoot}: ${testPath}`);
   }
   const target = normalizePlaywrightTarget(relativeTarget);
-  assertHealableTarget(absoluteTarget, webRoot);
+  const testSuiteRoot = testSuiteRootForPath(target);
+  assertHealableTarget(absoluteTarget, webRoot, testSuiteRoot);
+  const verificationEnv = withTestSuiteRoot(env, target);
   sweepStaleHealCandidates(absoluteTarget, log);
   const startingTarget = captureTargetSnapshot(absoluteTarget);
   const originalBytes = startingTarget.bytes;
@@ -1019,7 +1032,7 @@ export async function healSingleTest({
           repeatEach: runs,
           workers: 1,
           purpose: runs === 1 ? 'diagnostic' : 'healer-candidate',
-          env,
+          env: verificationEnv,
           runRoot
         }
       )
@@ -1028,7 +1041,7 @@ export async function healSingleTest({
         project: resolvedProject,
         repeatEach: runs,
         purpose: runs === 1 ? 'diagnostic' : 'healer-candidate',
-        env,
+        env: verificationEnv,
         webRoot,
         runRoot
       }));

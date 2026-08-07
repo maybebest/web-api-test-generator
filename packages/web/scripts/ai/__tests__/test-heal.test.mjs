@@ -422,8 +422,10 @@ test('CLI arg parsing and standalone project inference', () => {
 
   assert.equal(inferStandaloneProject('tests/smoke/foo.spec.ts'), 'local-chromium');
   assert.equal(inferStandaloneProject('tests/recorded/foo.spec.ts'), 'local-chromium');
+  assert.equal(inferStandaloneProject('tests-dev/recorded/flow.spec.ts'), 'local-chromium');
   assert.equal(inferStandaloneProject('tests/regression/foo.authenticated.spec.ts'), 'chromium-auth');
   assert.equal(inferStandaloneProject('tests/regression/foo.spec.ts'), 'chromium');
+  assert.equal(inferStandaloneProject('tests-dev/regression/flow.spec.ts'), 'chromium');
 
   const candidate = healCandidatePath('/web/tests/regression/foo.spec.ts', 'run-a1');
   assert.equal(candidate, '/web/tests/regression/.foo.heal-run-a1.candidate.spec.ts');
@@ -533,6 +535,110 @@ test('healSingleTest refuses to run without the opt-in flag', async () => {
     healSingleTest({ testPath: target, env: {}, webRoot, discoverSpec: () => null }),
     /AI_AUTOHEAL_ENABLED=true/
   );
+});
+
+test('healSingleTest keeps dev targets and owns their verification root', async () => {
+  const webRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'heal-test-dev-'));
+  const target = 'tests-dev/regression/flow.spec.ts';
+  const targetPath = path.join(webRoot, target);
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  fs.mkdirSync(path.join(webRoot, 'tests'), { recursive: true });
+  fs.writeFileSync(path.join(webRoot, 'tests', '.no-header-allowlist'), 'tests/regression/flow.spec.ts\n');
+  fs.writeFileSync(targetPath, CLEAN_SOURCE);
+  const calls = [];
+
+  const result = await healSingleTest({
+    testPath: target,
+    env: {
+      AI_AUTOHEAL_ENABLED: 'true',
+      PLAYWRIGHT_TEST_SUITE_ROOT: 'tests'
+    },
+    webRoot,
+    log: () => {},
+    executeStandalone: (options) => {
+      calls.push(options);
+      return PASSED_EXECUTION;
+    },
+    heal: async () => assert.fail('an already-green dev target must not invoke the provider')
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].testPath, 'tests-dev/regression/flow.spec.ts');
+  assert.equal(calls[0].env.PLAYWRIGHT_TEST_SUITE_ROOT, 'tests-dev');
+  assert.equal(result.target, 'tests-dev/regression/flow.spec.ts');
+});
+
+test('healSingleTest rejects a test-root lookalike before browser or provider work', async () => {
+  const webRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'heal-test-shadow-'));
+  const target = 'tests-shadow/flow.spec.ts';
+  const targetPath = path.join(webRoot, target);
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  fs.writeFileSync(targetPath, CLEAN_SOURCE);
+  let browserCalls = 0;
+  let providerCalls = 0;
+
+  await assert.rejects(
+    healSingleTest({
+      testPath: target,
+      env: { AI_AUTOHEAL_ENABLED: 'true' },
+      webRoot,
+      log: () => {},
+      executeStandalone: () => (browserCalls += 1, PASSED_EXECUTION),
+      heal: async () => (providerCalls += 1, { code: CLEAN_SOURCE })
+    }),
+    /safe test suite root|tests directory/i
+  );
+  assert.equal(browserCalls, 0);
+  assert.equal(providerCalls, 0);
+});
+
+test('healSingleTest rejects a symlink escape from tests-dev before browser or provider work', async () => {
+  const webRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'heal-test-dev-symlink-'));
+  const outsideRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'heal-test-dev-outside-'));
+  const target = 'tests-dev/regression/flow.spec.ts';
+  fs.mkdirSync(path.join(webRoot, 'tests-dev'), { recursive: true });
+  fs.writeFileSync(path.join(outsideRoot, 'flow.spec.ts'), CLEAN_SOURCE);
+  fs.symlinkSync(outsideRoot, path.join(webRoot, 'tests-dev', 'regression'), 'dir');
+  let browserCalls = 0;
+  let providerCalls = 0;
+
+  await assert.rejects(
+    healSingleTest({
+      testPath: target,
+      env: { AI_AUTOHEAL_ENABLED: 'true' },
+      webRoot,
+      log: () => {},
+      executeStandalone: () => (browserCalls += 1, PASSED_EXECUTION),
+      heal: async () => (providerCalls += 1, { code: CLEAN_SOURCE })
+    }),
+    /inside|tests directory/i
+  );
+  assert.equal(browserCalls, 0);
+  assert.equal(providerCalls, 0);
+});
+
+test('healSingleTest rejects a symlinked tests-dev root before browser or provider work', async () => {
+  const webRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'heal-test-dev-root-symlink-'));
+  const outsideRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'heal-test-dev-root-outside-'));
+  const target = 'tests-dev/flow.spec.ts';
+  fs.writeFileSync(path.join(outsideRoot, 'flow.spec.ts'), CLEAN_SOURCE);
+  fs.symlinkSync(outsideRoot, path.join(webRoot, 'tests-dev'), 'dir');
+  let browserCalls = 0;
+  let providerCalls = 0;
+
+  await assert.rejects(
+    healSingleTest({
+      testPath: target,
+      env: { AI_AUTOHEAL_ENABLED: 'true' },
+      webRoot,
+      log: () => {},
+      executeStandalone: () => (browserCalls += 1, PASSED_EXECUTION),
+      heal: async () => (providerCalls += 1, { code: CLEAN_SOURCE })
+    }),
+    /inside|symbolic link|tests-dev/i
+  );
+  assert.equal(browserCalls, 0);
+  assert.equal(providerCalls, 0);
 });
 
 test('known low-entropy secrets in the original source fail before execution, provider, or archive work', async () => {

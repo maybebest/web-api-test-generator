@@ -66,6 +66,60 @@ test('an exact portable allowlist entry permits a handwritten spec-bound test', 
   });
 });
 
+test('dev mirror uses the canonical no-header allowlist identity', () => {
+  const webRoot = makeWebRoot();
+  fs.mkdirSync(path.join(webRoot, 'tests-dev', 'regression'), { recursive: true });
+  fs.writeFileSync(
+    path.join(webRoot, 'tests', '.no-header-allowlist'),
+    'tests/regression/handwritten.spec.ts\n'
+  );
+  const contract = resolveHealContract({
+    testPath: 'tests-dev/regression/handwritten.spec.ts',
+    source: 'import { test } from "@playwright/test";',
+    webRoot,
+    discoverSpec: () => null
+  });
+  assert.equal(contract.kind, 'handwritten');
+  assert.equal(contract.testPath, 'tests-dev/regression/handwritten.spec.ts');
+});
+
+test('explicit spec compares with the canonical dev identity', () => {
+  const webRoot = makeWebRoot();
+  const validation = { metadata: { 'Target Test File': 'tests/regression/save.spec.ts' } };
+  const contract = resolveHealContract({
+    testPath: 'tests-dev/regression/save.spec.ts',
+    source: '/* spec: specs/save.md version:1.0.0 sha256:' + 'b'.repeat(64) + ' */',
+    explicitSpecPath: 'specs/save.md',
+    specDir: 'specs',
+    webRoot,
+    validateDirectory: () => ({
+      valid: true,
+      results: [{ specPath: 'specs/save.md', result: validation }]
+    })
+  });
+  assert.equal(contract.kind, 'spec');
+  assert.equal(contract.testPath, 'tests-dev/regression/save.spec.ts');
+});
+
+test('dev recorded layout keeps the canonical recording requirement', () => {
+  const webRoot = makeWebRoot();
+  assert.throws(() => resolveHealContract({
+    testPath: 'tests-dev/recorded/save.spec.ts',
+    source: 'import { test } from "@playwright/test";',
+    webRoot,
+    discoverSpec: () => null
+  }), /recording contract/i);
+
+  const contract = resolveHealContract({
+    testPath: 'tests-dev/recorded/save.spec.ts',
+    source: `/* recording: recordings/save.json title:Save sha256:${'a'.repeat(64)} */`,
+    webRoot,
+    discoverSpec: () => null
+  });
+  assert.equal(contract.kind, 'recording');
+  assert.equal(contract.testPath, 'tests-dev/recorded/save.spec.ts');
+});
+
 test('recording and spec contracts cannot be combined', () => {
   const webRoot = makeWebRoot();
   assert.throws(() => resolveHealContract({
