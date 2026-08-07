@@ -13,7 +13,7 @@ Simple guide for using this AI-assisted Playwright framework to turn manual test
 ## Preconditions
 
 - The application under test is available locally or on an approved non-production URL.
-- For local work, the app is usually expected at `http://localhost:3000/`. Start the bundled demo app with `npm run demo:start` (Playwright also starts it automatically via `webServer` during test runs).
+- Deterministic local checks use the committed fixture at `http://127.0.0.1:3000/`; Playwright starts it automatically.
 - You have access to this repository.
 - You have Codex available and can ask it to edit files in this repo.
 - Do not use production credentials.
@@ -54,13 +54,13 @@ npm run typecheck
 npm run ai:test:self
 ```
 
-Start the bundled demo app when you need it outside `playwright test` (discovery, manual exploration, gate runs against a live page):
+Start the deterministic fixture when you need it outside `playwright test`:
 
 ```bash
-npm run demo:start
+npm run fixture:start
 ```
 
-It serves `http://localhost:3000`, the default `PLAYWRIGHT_TEST_BASE_URL`.
+It serves `http://127.0.0.1:3000`. `PLAYWRIGHT_TEST_BASE_URL` is only for explicit external non-production runs.
 
 ## Input Data Format
 
@@ -72,7 +72,7 @@ Example:
 Create a single Playwright UI test.
 
 Title: Login with email verification code
-URL: http://localhost:3000/
+URL: http://127.0.0.1:3000/
 
 Steps:
 1. Open / and wait for the auth entry screen.
@@ -84,7 +84,7 @@ Steps:
 7. Verify final authentication outcome.
 
 Test data:
-- Email: den.muzya@gmail.com
+- Email: qa.user@example.test
 - Verification code: 1234
 - First name: QA
 - Last name: Test
@@ -158,7 +158,7 @@ Suite mode should be explicit. Do not say "suite" unless you really want multipl
 3. Optional: collect DOM evidence before choosing locators:
 
    ```bash
-   npm run ai:dom:discover -- --spec specs/<flow>.md --url http://localhost:3000/
+   npm run ai:dom:discover -- --spec specs/<flow>.md --url http://127.0.0.1:3000/
    npm run ai:dom:discover:review -- --spec specs/<flow>.md
    ```
 
@@ -230,7 +230,7 @@ npm run ai:test:ui:generated -- --spec specs/<flow>.md --project chromium
 ```bash
 npm run typecheck
 npm run ai:test:self
-npm run demo:start
+npm run fixture:start
 npm run ai:spec:validate -- specs/<flow>.md
 npm run ai:generate-test -- specs/<flow>.md --target tests/regression/<flow>.spec.ts
 npm run ai:test:review -- --spec specs/<flow>.md --test tests/regression/<flow>.spec.ts
@@ -241,16 +241,16 @@ npm run test:e2e:report
 
 ## Common Problems
 
-If the app is not running, start the bundled demo app first:
+If the local fixture is not running, start it first:
 
 ```bash
-npm run demo:start
+npm run fixture:start
 ```
 
 Then point the gate at it:
 
 ```bash
-PLAYWRIGHT_TEST_BASE_URL=http://localhost:3000 npm run ai:test:gate -- --spec specs/<flow>.md --test tests/regression/<flow>.spec.ts
+PLAYWRIGHT_TEST_BASE_URL=https://your-non-production-host.example E2E_AUTH_ENABLED=true npm run ai:test:gate -- --spec specs/<flow>.md --test tests/regression/<flow>.authenticated.spec.ts
 ```
 
 If a locator is flaky, ask Codex to collect DOM evidence first:

@@ -6,16 +6,112 @@ import {
   assertNoSensitiveFieldsInJsonResponse,
   assertResponseTime,
   assertStatusCode,
-  inferredTest,
+  calibrationTest,
   sendApiRequest,
   loadJsonFromTestFile,
   resolvePayload
 } from '../support/apiTestUtils.js';
 
 test.describe('apps.heartpace.dev /v1/dashboard/activities/overall/tasks', () => {
-  // origin: inferred | category: negative | confidence: high | execution: fixme | mutationRisk: guarded | calibration: lenient
-  inferredTest('negative: POST /v1/dashboard/activities/overall/tasks rejects missing page @extended @dashboard @mutating @calibrate', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-apps-heartpace-dev-v1-dashboard-activities-overall-tasks-4cf327f5.missing-page.request.json'));
+  // origin: inferred | category: negative | confidence: medium | execution: calibrate | mutationRisk: guarded | calibration: pending
+  calibrationTest('negative: POST /v1/dashboard/activities/overall/tasks rejects invalid type for page @extended @dashboard @mutating @calibrate', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-apps-heartpace-dev-v1-dashboard-activities-overall-tasks-e914ce9d.invalid-type-page.request.json'));
+    const { response, elapsedMs } = await sendApiRequest({
+      request,
+      defaultBaseUrl: 'https://apps.heartpace.dev',
+      path: '/v1/dashboard/activities/overall/tasks',
+      method: 'POST',
+      headers: {
+        "accept": "application/json, text/plain, */*",
+        "content-type": "application/json",
+        "x-requested-with": "XMLHttpRequest",
+        "x-site-uuid": "${X_SITE_UUID}",
+        "x-subdomain": "stageautomation"
+      },
+      payload: requestBody
+    });
+
+    assertStatusCode(response.status(), {"kind":"family","family":"4xx"}, 'negative: POST /v1/dashboard/activities/overall/tasks rejects invalid type for page', 'apps.heartpace.dev');
+    assertResponseTime(elapsedMs, 2000);
+    await assertNoSensitiveFieldsInJsonResponse(response, 'negative: POST /v1/dashboard/activities/overall/tasks rejects invalid type for page');
+  });
+
+
+  // origin: inferred | category: negative | confidence: medium | execution: calibrate | mutationRisk: guarded | calibration: pending
+  calibrationTest('negative: POST /v1/dashboard/activities/overall/tasks rejects invalid type for per_page @extended @dashboard @mutating @calibrate', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-apps-heartpace-dev-v1-dashboard-activities-overall-tasks-e914ce9d.invalid-type-per-page.request.json'));
+    const { response, elapsedMs } = await sendApiRequest({
+      request,
+      defaultBaseUrl: 'https://apps.heartpace.dev',
+      path: '/v1/dashboard/activities/overall/tasks',
+      method: 'POST',
+      headers: {
+        "accept": "application/json, text/plain, */*",
+        "content-type": "application/json",
+        "x-requested-with": "XMLHttpRequest",
+        "x-site-uuid": "${X_SITE_UUID}",
+        "x-subdomain": "stageautomation"
+      },
+      payload: requestBody
+    });
+
+    assertStatusCode(response.status(), {"kind":"family","family":"4xx"}, 'negative: POST /v1/dashboard/activities/overall/tasks rejects invalid type for per_page', 'apps.heartpace.dev');
+    assertResponseTime(elapsedMs, 2000);
+    await assertNoSensitiveFieldsInJsonResponse(response, 'negative: POST /v1/dashboard/activities/overall/tasks rejects invalid type for per_page');
+  });
+
+
+  // origin: inferred | category: negative | confidence: medium | execution: calibrate | mutationRisk: guarded | calibration: pending
+  calibrationTest('negative: POST /v1/dashboard/activities/overall/tasks rejects invalid type for period @extended @dashboard @mutating @calibrate', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-apps-heartpace-dev-v1-dashboard-activities-overall-tasks-e914ce9d.invalid-type-period.request.json'));
+    const { response, elapsedMs } = await sendApiRequest({
+      request,
+      defaultBaseUrl: 'https://apps.heartpace.dev',
+      path: '/v1/dashboard/activities/overall/tasks',
+      method: 'POST',
+      headers: {
+        "accept": "application/json, text/plain, */*",
+        "content-type": "application/json",
+        "x-requested-with": "XMLHttpRequest",
+        "x-site-uuid": "${X_SITE_UUID}",
+        "x-subdomain": "stageautomation"
+      },
+      payload: requestBody
+    });
+
+    assertStatusCode(response.status(), {"kind":"family","family":"4xx"}, 'negative: POST /v1/dashboard/activities/overall/tasks rejects invalid type for period', 'apps.heartpace.dev');
+    assertResponseTime(elapsedMs, 2000);
+    await assertNoSensitiveFieldsInJsonResponse(response, 'negative: POST /v1/dashboard/activities/overall/tasks rejects invalid type for period');
+  });
+
+
+  // origin: inferred | category: negative | confidence: medium | execution: calibrate | mutationRisk: guarded | calibration: pending
+  calibrationTest('negative: POST /v1/dashboard/activities/overall/tasks rejects invalid type for perspective @extended @dashboard @mutating @calibrate', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-apps-heartpace-dev-v1-dashboard-activities-overall-tasks-e914ce9d.invalid-type-perspective.request.json'));
+    const { response, elapsedMs } = await sendApiRequest({
+      request,
+      defaultBaseUrl: 'https://apps.heartpace.dev',
+      path: '/v1/dashboard/activities/overall/tasks',
+      method: 'POST',
+      headers: {
+        "accept": "application/json, text/plain, */*",
+        "content-type": "application/json",
+        "x-requested-with": "XMLHttpRequest",
+        "x-site-uuid": "${X_SITE_UUID}",
+        "x-subdomain": "stageautomation"
+      },
+      payload: requestBody
+    });
+
+    assertStatusCode(response.status(), {"kind":"family","family":"4xx"}, 'negative: POST /v1/dashboard/activities/overall/tasks rejects invalid type for perspective', 'apps.heartpace.dev');
+    assertResponseTime(elapsedMs, 2000);
+    await assertNoSensitiveFieldsInJsonResponse(response, 'negative: POST /v1/dashboard/activities/overall/tasks rejects invalid type for perspective');
+  });
+
+
+  // origin: inferred | category: negative | confidence: high | execution: skip | mutationRisk: guarded | calibration: lenient
+  test.skip('negative: POST /v1/dashboard/activities/overall/tasks rejects missing page @extended @dashboard @mutating', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-apps-heartpace-dev-v1-dashboard-activities-overall-tasks-e914ce9d.missing-field-page.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://apps.heartpace.dev',
@@ -37,9 +133,9 @@ test.describe('apps.heartpace.dev /v1/dashboard/activities/overall/tasks', () =>
   });
 
 
-  // origin: inferred | category: negative | confidence: high | execution: fixme | mutationRisk: guarded | calibration: lenient
-  inferredTest('negative: POST /v1/dashboard/activities/overall/tasks rejects missing per_page @extended @dashboard @mutating @calibrate', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-apps-heartpace-dev-v1-dashboard-activities-overall-tasks-4cf327f5.missing-per-page.request.json'));
+  // origin: inferred | category: negative | confidence: high | execution: skip | mutationRisk: guarded | calibration: lenient
+  test.skip('negative: POST /v1/dashboard/activities/overall/tasks rejects missing per_page @extended @dashboard @mutating', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-apps-heartpace-dev-v1-dashboard-activities-overall-tasks-e914ce9d.missing-field-per-page.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://apps.heartpace.dev',
@@ -63,7 +159,7 @@ test.describe('apps.heartpace.dev /v1/dashboard/activities/overall/tasks', () =>
 
   // origin: inferred | category: negative | confidence: high | execution: active | mutationRisk: guarded | calibration: confirmed
   test('negative: POST /v1/dashboard/activities/overall/tasks rejects missing period @extended @dashboard @mutating', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-apps-heartpace-dev-v1-dashboard-activities-overall-tasks-4cf327f5.missing-period.request.json'));
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-apps-heartpace-dev-v1-dashboard-activities-overall-tasks-e914ce9d.missing-field-period.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://apps.heartpace.dev',
@@ -87,7 +183,7 @@ test.describe('apps.heartpace.dev /v1/dashboard/activities/overall/tasks', () =>
 
   // origin: inferred | category: negative | confidence: high | execution: active | mutationRisk: guarded | calibration: confirmed
   test('negative: POST /v1/dashboard/activities/overall/tasks rejects missing perspective @extended @dashboard @mutating', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-apps-heartpace-dev-v1-dashboard-activities-overall-tasks-4cf327f5.missing-perspective.request.json'));
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-apps-heartpace-dev-v1-dashboard-activities-overall-tasks-e914ce9d.missing-field-perspective.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://apps.heartpace.dev',
@@ -111,7 +207,7 @@ test.describe('apps.heartpace.dev /v1/dashboard/activities/overall/tasks', () =>
 
   // origin: observed | category: smoke | confidence: high | execution: active | mutationRisk: guarded
   test('smoke: POST /v1/dashboard/activities/overall/tasks returns 200 @smoke @dashboard @mutating', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-apps-heartpace-dev-v1-dashboard-activities-overall-tasks-4cf327f5.request.json'));
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-apps-heartpace-dev-v1-dashboard-activities-overall-tasks-e914ce9d.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://apps.heartpace.dev',

@@ -49,11 +49,6 @@ export async function writeTextFile(filePath: string, value: string): Promise<vo
   await fs.writeFile(filePath, value.endsWith('\n') ? value : `${value}\n`, 'utf8');
 }
 
-export async function removeGeneratedOutput(outDir: string): Promise<void> {
-  assertSafeGeneratedOutputDir(outDir);
-  await fs.rm(outDir, { recursive: true, force: true });
-}
-
 export function assertSafeGeneratedOutputDir(
   outDir: string,
   cwd = process.cwd(),
@@ -72,13 +67,13 @@ export function assertSafeGeneratedOutputDir(
 
   for (const [target, label] of blockedTargets) {
     if (samePath(resolvedOutDir, target)) {
-      throw new Error(`Refusing to remove generated output at ${label}: ${resolvedOutDir}`);
+      throw new Error(`Refusing to replace generated output at ${label}: ${resolvedOutDir}`);
     }
   }
 
   const cwdFromOutDir = path.relative(resolvedOutDir, resolvedCwd);
   if (cwdFromOutDir && !cwdFromOutDir.startsWith('..') && !path.isAbsolute(cwdFromOutDir)) {
-    throw new Error(`Refusing to remove generated output from a parent of the project: ${resolvedOutDir}`);
+    throw new Error(`Refusing to replace generated output at a parent of the project: ${resolvedOutDir}`);
   }
 
   const relativeToProject = path.relative(resolvedCwd, resolvedOutDir);
@@ -91,7 +86,7 @@ export function assertSafeGeneratedOutputDir(
     !path.isAbsolute(relativeToProject) &&
     protectedProjectDirs.has(relativeSegments[0])
   ) {
-    throw new Error(`Refusing to remove protected project directory: ${resolvedOutDir}`);
+    throw new Error(`Refusing to replace protected project directory: ${resolvedOutDir}`);
   }
 }
 

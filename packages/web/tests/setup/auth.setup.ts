@@ -1,4 +1,4 @@
-import { test as setup } from '@playwright/test';
+import { expect, test as setup } from '@playwright/test';
 
 import { authStatePath, loginAndSaveStorageState, requireAuthConfig } from '../../fixtures/auth.fixture';
 
@@ -11,4 +11,6 @@ import { authStatePath, loginAndSaveStorageState, requireAuthConfig } from '../.
 setup('authenticate and persist storage state', async ({ page }) => {
   const config = requireAuthConfig();
   await loginAndSaveStorageState(page, config, authStatePath);
+  const state = await page.context().storageState();
+  expect(state.cookies.length + state.origins.length).toBeGreaterThan(0);
 });

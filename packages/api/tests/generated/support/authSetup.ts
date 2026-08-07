@@ -4,7 +4,13 @@
 import { request, type APIRequestContext, type APIResponse } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
-import { resolveGeneratedEnvValue, updateGeneratedEnvValue } from './apiTestUtils.js';
+import {
+  assertAllowedTarget,
+  clearGeneratedAuthSnapshot,
+  clearGeneratedEnvValues,
+  replaceGeneratedEnvValues,
+  resolveGeneratedEnvValue
+} from './apiTestUtils.js';
 
 type LoginData = string | Record<string, unknown>;
 
@@ -16,7 +22,7 @@ interface LoginConfig {
   data?: LoginData;
   csrfHeaderName: string;
   csrfJsonPath?: string;
-  csrfSourcePath: string;
+  csrfSourcePath?: string;
 }
 
 export default async function globalSetup(): Promise<void> {
@@ -26,53 +32,70 @@ export default async function globalSetup(): Promise<void> {
     fs.rmSync(path.resolve(process.env.CALIBRATION_OUTPUT_FILE || 'test-results/calibration-results.jsonl'), { force: true });
   }
 
-  if (envValue('AUTH_SETUP_ENABLED', 'true').toLowerCase() === 'false') {
+  // A non-login strategy must not leave a previous user or environment's snapshot available to
+  // workers. AUTH_STRATEGY is the single source of truth; no separate enable/approval flag exists.
+  clearGeneratedAuthSnapshot();
+  const authStrategy = envValue('AUTH_STRATEGY', 'none').toLowerCase();
+  if (authStrategy === 'none' || authStrategy === 'static-env') {
     return;
   }
+  if (authStrategy !== 'http-login') {
+    throw new Error('Unsupported AUTH_STRATEGY: ' + authStrategy + '. Expected none, static-env, or http-login.');
+  }
 
+  // Never let a failed or partial login leave a previous user/environment's derived credentials
+  // available to test workers.
+  clearGeneratedEnvValues();
   const config = buildLoginConfig();
-  const context = await request.newContext({ ignoreHTTPSErrors: true });
+  assertAllowedTarget(config.url, 'authentication login');
+  const context = await request.newContext({
+    ignoreHTTPSErrors: envValue('AUTH_IGNORE_HTTPS_ERRORS', 'false').toLowerCase() === 'true'
+  });
 
   try {
     const response = await context.fetch(config.url, {
       method: config.method,
       headers: config.headers,
-      data: config.data
+      data: config.data,
+      maxRedirects: 0
     });
 
     if (!response.ok()) {
-      const bodyPreview = await response.text().catch(() => '');
-      const suffix = bodyPreview ? ' Body: ' + bodyPreview.slice(0, 500) : '';
       throw new Error(
-        'Auth setup login failed: ' + config.method + ' ' + config.url + ' returned ' + response.status() + '.' + suffix
+        'Auth setup login failed: ' + config.method + ' returned HTTP ' + response.status() + '.'
       );
     }
 
     const loginBody = await readJsonResponse(response);
     const userId = userIdFromLoginBody(loginBody);
-    if (userId) {
-      updateGeneratedEnvValue('USER_ID', userId);
-    }
-
     const authToken = tokenFromLoginBody(loginBody);
-    if (authToken) {
-      updateGeneratedEnvValue('API_TOKEN', authToken);
-      updateGeneratedEnvValue('API_AUTHORIZATION', 'Bearer ' + authToken);
-    }
-
     const csrfToken = await extractCsrfToken(response, config, context, loginBody);
-    if (!csrfToken) {
+    if (!csrfToken && envValue('AUTH_REQUIRE_CSRF', 'false').toLowerCase() === 'true') {
       throw new Error(
         'Auth setup login did not return a CSRF token. Set AUTH_CSRF_HEADER or AUTH_CSRF_JSON_PATH if the login response uses a custom token location.'
       );
     }
 
-    updateGeneratedEnvValue('CSRF_TOKEN', csrfToken);
-
     const cookieHeader = cookieHeaderFromResponse(response);
-    if (cookieHeader) {
-      updateGeneratedEnvValue('API_COOKIE', cookieHeader);
+    if (!authToken && !cookieHeader) {
+      throw new Error('Auth setup login returned neither a bearer token nor a session cookie.');
     }
+    const generatedValues: Record<string, string> = {};
+    if (csrfToken) {
+      generatedValues.CSRF_TOKEN = csrfToken;
+    }
+    if (userId) {
+      generatedValues.USER_ID = userId;
+    }
+    if (authToken) {
+      generatedValues.API_TOKEN = authToken;
+      generatedValues.API_AUTHORIZATION = 'Bearer ' + authToken;
+    }
+    if (cookieHeader) {
+      generatedValues.API_COOKIE = cookieHeader;
+    }
+    // Publish one complete snapshot only after login and CSRF extraction have both succeeded.
+    replaceGeneratedEnvValues(generatedValues);
   } finally {
     await context.dispose();
   }
@@ -80,7 +103,7 @@ export default async function globalSetup(): Promise<void> {
 
 function buildLoginConfig(): LoginConfig {
   const contentType = envValue('AUTH_LOGIN_CONTENT_TYPE', 'application/json');
-  const bodyTemplate = optionalEnvValue('AUTH_LOGIN_BODY');
+  const bodyTemplate = requiredEnvValue('AUTH_LOGIN_BODY');
 
   return {
     url: loginUrl(),
@@ -91,10 +114,10 @@ function buildLoginConfig(): LoginConfig {
       'content-type': contentType,
       ...parseHeaderOverrides(envValue('AUTH_LOGIN_HEADERS', '{}'))
     },
-    data: bodyTemplate ? loginDataFromBody(bodyTemplate, contentType) : defaultLoginData(contentType),
+    data: loginDataFromBody(bodyTemplate, contentType),
     csrfHeaderName: envValue('AUTH_CSRF_HEADER', 'x-csrf-token'),
     csrfJsonPath: optionalEnvValue('AUTH_CSRF_JSON_PATH'),
-    csrfSourcePath: envValue('AUTH_CSRF_SOURCE_PATH', '/user/session')
+    csrfSourcePath: optionalEnvValue('AUTH_CSRF_SOURCE_PATH')
   };
 }
 
@@ -103,21 +126,7 @@ function loginUrl(): string {
   if (explicitUrl) {
     return explicitUrl;
   }
-
-  const baseUrl = envValue('AUTH_BASE_URL', envValue('BASE_URL', 'https://stageautomation.heartpace.dev')).replace(/\/$/, '');
-  const loginPath = envValue('AUTH_LOGIN_PATH', '/auth/main/login');
-  return baseUrl + (loginPath.startsWith('/') ? loginPath : '/' + loginPath);
-}
-
-function defaultLoginData(contentType: string): LoginData {
-  const email = resolveGeneratedEnvValue('TEST_EMAIL');
-  const password = resolveGeneratedEnvValue('TEST_PASSWORD');
-
-  if (contentType.includes('application/x-www-form-urlencoded')) {
-    return new URLSearchParams({ email, password }).toString();
-  }
-
-  return { email, password };
+  throw new Error('AUTH_LOGIN_URL is required when AUTH_STRATEGY=http-login.');
 }
 
 function loginDataFromBody(bodyTemplate: string, contentType: string): LoginData {
@@ -166,13 +175,19 @@ async function extractCsrfToken(
 }
 
 async function csrfFromSource(context: APIRequestContext, config: LoginConfig): Promise<string | undefined> {
+  if (!config.csrfSourcePath) {
+    return undefined;
+  }
+  const sourceUrl = resolveUrl(config.url, config.csrfSourcePath);
+  assertAllowedTarget(sourceUrl, 'authentication CSRF source');
   const response = await context
-    .fetch(resolveUrl(config.url, config.csrfSourcePath), {
+    .fetch(sourceUrl, {
       method: 'GET',
       headers: {
         accept: 'application/json, text/plain, */*',
         'x-requested-with': 'XMLHttpRequest'
-      }
+      },
+      maxRedirects: 0
     })
     .catch(() => undefined);
 
@@ -393,6 +408,14 @@ function resolveEnvPlaceholders(value: string): string {
 
 function envValue(envName: string, fallback: string): string {
   return optionalEnvValue(envName) ?? fallback;
+}
+
+function requiredEnvValue(envName: string): string {
+  const value = optionalEnvValue(envName);
+  if (!value) {
+    throw new Error(envName + ' is required when AUTH_STRATEGY=http-login.');
+  }
+  return value;
 }
 
 function optionalEnvValue(envName: string): string | undefined {

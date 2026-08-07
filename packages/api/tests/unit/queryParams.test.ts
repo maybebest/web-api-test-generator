@@ -28,18 +28,18 @@ function entryWithDuplicateQuery(): ParsedHarEntry {
 }
 
 describe('duplicate query parameters', () => {
-  it('collapses repeated query params to the last value by default (key-sorted)', () => {
+  it('preserves repeated query params in original order by default', () => {
     const entry = normalizeHarEntry(entryWithDuplicateQuery(), defaultConfig);
-    expect(entry.pathWithQuery).toBe('/v1/items?id=2&sort=name');
+    expect(entry.pathWithQuery).toBe('/v1/items?id=1&id=2&sort=name');
   });
 
-  it('preserves repeated query params in original order when the opt-in flag is enabled', () => {
+  it('supports an explicit legacy opt-out that collapses repeated params', () => {
     const config: HarApiTestConfig = {
       ...defaultConfig,
-      generation: { ...defaultConfig.generation, preserveDuplicateQueryParams: true }
+      generation: { ...defaultConfig.generation, preserveDuplicateQueryParams: false }
     };
     const entry = normalizeHarEntry(entryWithDuplicateQuery(), config);
-    expect(entry.pathWithQuery).toBe('/v1/items?id=1&id=2&sort=name');
+    expect(entry.pathWithQuery).toBe('/v1/items?id=2&sort=name');
   });
 });
 
@@ -66,16 +66,15 @@ describe('query parameter name casing', () => {
     };
   }
 
-  it('preserves camelCase query param names (query params are case-sensitive) — collapsed', () => {
+  it('preserves camelCase query param names (query params are case-sensitive)', () => {
     const entry = normalizeHarEntry(entryWithCamelCaseQuery(), defaultConfig);
-    // key-sorted collapsed form, but names keep their original casing (not perpage/sortby).
     expect(entry.pathWithQuery).toBe('/v1/items?perPage=25&sortBy=name');
   });
 
-  it('preserves camelCase query param names in the duplicate-preserving path too', () => {
+  it('preserves camelCase query param names in the legacy collapsed path too', () => {
     const config: HarApiTestConfig = {
       ...defaultConfig,
-      generation: { ...defaultConfig.generation, preserveDuplicateQueryParams: true }
+      generation: { ...defaultConfig.generation, preserveDuplicateQueryParams: false }
     };
     const entry = normalizeHarEntry(entryWithCamelCaseQuery(), config);
     expect(entry.pathWithQuery).toBe('/v1/items?perPage=25&sortBy=name');

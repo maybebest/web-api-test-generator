@@ -43,7 +43,7 @@ Prefer stable, meaningful `data-testid` locators when they exist. When they do n
 
 ## Static Review Enforcement
 
-Enforcement scope: the static reviewers (`ai:test:review`, `ai:recording:review`) run on generated and recorded test bodies under `tests/`. Page Objects and Component Objects under `pages/` and `components/` carry the same `// locator-policy:exception <reason>` comment convention by policy — every positional pick or raw CSS fallback in a POM must have the comment on the previous line — but POMs are enforced through human code review, not the static reviewers. A repo self-test (`npm run ai:test:self`) additionally pins that committed POMs carry the comment.
+Enforcement scope: the static reviewers (`ai:test:review`, `ai:recording:review`) run on generated and recorded test bodies under `tests/`. Page Objects and Component Objects under `pages/` and `components/` carry the same `// locator-policy:exception <reason>` comment convention by policy — every positional pick or raw CSS fallback in a POM must have the comment on the previous line. A repo self-test (`npm run ai:test:self`) enforces that committed POMs carry the comment.
 
 - Static generated-test review fails XPath and `nth-child` selector chains, including selectors held in variables, reassigned variables, and parameter default values (the reviewer folds them before classifying).
 - Static generated-test review fails persisted `agent-browser` refs.

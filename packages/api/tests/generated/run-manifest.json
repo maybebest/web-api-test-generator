@@ -20,34 +20,40 @@
     "filteredEntries": 67
   },
   "summary": {
-    "totalTests": 106,
-    "endpointTests": 99,
-    "scenarioTests": 7,
+    "totalTests": 133,
+    "endpointTests": 125,
+    "scenarioTests": 8,
     "schemaCount": 0,
     "schemaCoverage": "none",
     "smokeEndpoints": 36,
     "smokeEndpointsWithResponseBody": 0,
     "categories": {
       "smoke": 36,
-      "negative": 49,
+      "negative": 75,
       "security": 14,
       "crud": 5,
-      "scenario": 2
+      "scenario": 3
     },
     "executions": {
-      "active": 60,
-      "fixme": 46,
-      "skip": 0
+      "active": 61,
+      "calibrate": 28,
+      "skip": 44
     },
     "mutationRisks": {
-      "none": 28,
-      "guarded": 69,
+      "none": 31,
+      "guarded": 93,
       "unsafe": 9
+    },
+    "correlations": {
+      "not-required": 3,
+      "static": 4,
+      "missing": 1
     }
   },
   "environment": {
     "required": [
       "API_TOKEN",
+      "CSRF_TOKEN",
       "QUERY_ID",
       "TEST_EMAIL",
       "TEST_PASSWORD",
@@ -55,23 +61,25 @@
     ],
     "optional": [
       "API_COOKIE",
-      "AUTH_BASE_URL",
-      "AUTH_BEARER_HOSTS",
-      "AUTH_COOKIE_DOMAIN",
-      "AUTH_COOKIE_HOST",
+      "API_IGNORE_HTTPS_ERRORS",
+      "AUTH_API_KEY_ORIGINS",
+      "AUTH_BEARER_ORIGINS",
+      "AUTH_COOKIE_ORIGINS",
       "AUTH_CSRF_HEADER",
       "AUTH_CSRF_JSON_PATH",
       "AUTH_CSRF_SOURCE_PATH",
+      "AUTH_IGNORE_HTTPS_ERRORS",
       "AUTH_LOGIN_BODY",
       "AUTH_LOGIN_CONTENT_TYPE",
       "AUTH_LOGIN_HEADERS",
       "AUTH_LOGIN_METHOD",
-      "AUTH_LOGIN_PATH",
       "AUTH_LOGIN_URL",
-      "AUTH_SETUP_ENABLED",
+      "AUTH_REQUIRE_CSRF",
+      "AUTH_SECRET_HEADER_ORIGINS",
+      "AUTH_STRATEGY",
       "BASE_URL",
       "CACHE_BUSTER",
-      "CSRF_TOKEN",
+      "TRUSTED_API_ORIGINS",
       "X_SITE_UUID"
     ],
     "variables": [
@@ -83,38 +91,40 @@
         ]
       },
       {
+        "name": "API_IGNORE_HTTPS_ERRORS",
+        "required": false,
+        "usedIn": [
+          "auth login setup"
+        ]
+      },
+      {
         "name": "API_TOKEN",
         "required": true,
         "usedIn": [
           "crud: stageautomation.heartpace.dev user/notifications create-read flow step 1: POST /user/notifications/ returns 200 payload",
+          "negative: POST /user/notifications/ rejects invalid query id payload",
+          "negative: POST /user/notifications/ rejects missing query id payload",
           "security: POST /user/notifications/ rejects invalid x-csrf-token payload",
           "security: POST /user/notifications/ rejects missing x-csrf-token payload",
           "smoke: POST /user/notifications/ returns 200 payload"
         ]
       },
       {
-        "name": "AUTH_BASE_URL",
+        "name": "AUTH_API_KEY_ORIGINS",
         "required": false,
         "usedIn": [
           "auth login setup"
         ]
       },
       {
-        "name": "AUTH_BEARER_HOSTS",
+        "name": "AUTH_BEARER_ORIGINS",
         "required": false,
         "usedIn": [
           "auth login setup"
         ]
       },
       {
-        "name": "AUTH_COOKIE_DOMAIN",
-        "required": false,
-        "usedIn": [
-          "auth login setup"
-        ]
-      },
-      {
-        "name": "AUTH_COOKIE_HOST",
+        "name": "AUTH_COOKIE_ORIGINS",
         "required": false,
         "usedIn": [
           "auth login setup"
@@ -136,6 +146,13 @@
       },
       {
         "name": "AUTH_CSRF_SOURCE_PATH",
+        "required": false,
+        "usedIn": [
+          "auth login setup"
+        ]
+      },
+      {
+        "name": "AUTH_IGNORE_HTTPS_ERRORS",
         "required": false,
         "usedIn": [
           "auth login setup"
@@ -170,13 +187,6 @@
         ]
       },
       {
-        "name": "AUTH_LOGIN_PATH",
-        "required": false,
-        "usedIn": [
-          "auth login setup"
-        ]
-      },
-      {
         "name": "AUTH_LOGIN_URL",
         "required": false,
         "usedIn": [
@@ -184,7 +194,21 @@
         ]
       },
       {
-        "name": "AUTH_SETUP_ENABLED",
+        "name": "AUTH_REQUIRE_CSRF",
+        "required": false,
+        "usedIn": [
+          "auth login setup"
+        ]
+      },
+      {
+        "name": "AUTH_SECRET_HEADER_ORIGINS",
+        "required": false,
+        "usedIn": [
+          "auth login setup"
+        ]
+      },
+      {
+        "name": "AUTH_STRATEGY",
         "required": false,
         "usedIn": [
           "auth login setup"
@@ -208,7 +232,7 @@
       },
       {
         "name": "CSRF_TOKEN",
-        "required": false,
+        "required": true,
         "usedIn": [
           "crud: stageautomation.heartpace.dev user/notifications create-read flow step 1: POST /user/notifications/ returns 200 header x-csrf-token",
           "crud: stageautomation.heartpace.dev user/notifications create-read flow step 1: POST /user/notifications/ returns 200 payload",
@@ -220,6 +244,12 @@
           "crud: stageautomation.heartpace.dev user/security read-update flow step 2: POST /user/security/{param} returns 200 payload",
           "crud: stageautomation.heartpace.dev user/talk-settings read-update flow step 2: POST /user/talk-settings/{param} returns 200 header x-csrf-token",
           "crud: stageautomation.heartpace.dev user/talk-settings read-update flow step 2: POST /user/talk-settings/{param} returns 200 payload",
+          "negative: GET /user/session rejects invalid query _ header x-csrf-token",
+          "negative: GET /user/session rejects missing query _ header x-csrf-token",
+          "negative: POST /user/notifications/ rejects invalid query id header x-csrf-token",
+          "negative: POST /user/notifications/ rejects invalid query id payload",
+          "negative: POST /user/notifications/ rejects missing query id header x-csrf-token",
+          "negative: POST /user/notifications/ rejects missing query id payload",
           "negative: POST /user/password/{param} rejects invalid path parameter header x-csrf-token",
           "negative: POST /user/password/{param} rejects invalid path parameter payload",
           "negative: POST /user/password/{param} rejects missing PasswordForm[password] header x-csrf-token",
@@ -250,8 +280,6 @@
           "negative: POST /user/talk-settings/{param} rejects missing TalkSettingsForm[talkDuration] header x-csrf-token",
           "negative: POST /user/talk-settings/{param} rejects missing TalkSettingsForm[talkDuration] payload",
           "negative: POST /user/talk-settings/{param} rejects missing _csrf header x-csrf-token",
-          "scenario: stageautomation.heartpace.dev login account logout flow step 4: GET /me/account/oauth returns 200 header x-csrf-token",
-          "scenario: stageautomation.heartpace.dev profile read flow step 3: GET /me/account/oauth returns 200 header x-csrf-token",
           "security: POST /user/notifications/ rejects invalid x-csrf-token payload",
           "security: POST /user/notifications/ rejects missing x-csrf-token payload",
           "security: POST /user/password/{param} rejects invalid x-csrf-token payload",
@@ -290,7 +318,7 @@
         "name": "TEST_EMAIL",
         "required": true,
         "usedIn": [
-          "auth login setup",
+          "negative: POST /auth/main/login rejects invalid type for password payload.email",
           "negative: POST /auth/main/login rejects missing password payload.email",
           "scenario: stageautomation.heartpace.dev login account logout flow step 1: POST /auth/main/login returns 200 payload.email",
           "smoke: POST /auth/main/login returns 200 payload.email"
@@ -300,8 +328,8 @@
         "name": "TEST_PASSWORD",
         "required": true,
         "usedIn": [
-          "auth login setup",
           "crud: stageautomation.heartpace.dev user/password read-update flow step 2: POST /user/password/{param} returns 200 payload",
+          "negative: POST /auth/main/login rejects invalid type for email payload.password",
           "negative: POST /auth/main/login rejects missing email payload.password",
           "negative: POST /user/password/{param} rejects invalid path parameter payload",
           "negative: POST /user/password/{param} rejects missing PasswordForm[password] payload",
@@ -313,6 +341,13 @@
           "security: POST /user/password/{param} rejects missing x-csrf-token payload",
           "smoke: POST /auth/main/login returns 200 payload.password",
           "smoke: POST /user/password/{param} returns 200 payload"
+        ]
+      },
+      {
+        "name": "TRUSTED_API_ORIGINS",
+        "required": false,
+        "usedIn": [
+          "auth login setup"
         ]
       },
       {
@@ -341,8 +376,8 @@
           "negative: POST /user/security/{param} rejects missing _csrf path",
           "negative: POST /user/talk-settings/{param} rejects missing TalkSettingsForm[talkDuration] path",
           "negative: POST /user/talk-settings/{param} rejects missing _csrf path",
-          "scenario: stageautomation.heartpace.dev profile read flow step 4: GET /users/user/{param} returns 200 path",
-          "scenario: stageautomation.heartpace.dev profile read flow step 5: GET /me/account/settings/{param} returns 200 path",
+          "scenario: stageautomation.heartpace.dev profile read flow [2] step 1: GET /users/user/{param} returns 200 path",
+          "scenario: stageautomation.heartpace.dev profile read flow [2] step 2: GET /me/account/settings/{param} returns 200 path",
           "security: POST /user/password/{param} rejects invalid x-csrf-token path",
           "security: POST /user/password/{param} rejects missing x-csrf-token path",
           "security: POST /user/preferences/{param} rejects invalid x-csrf-token path",
@@ -371,30 +406,48 @@
         "name": "X_SITE_UUID",
         "required": false,
         "usedIn": [
+          "negative: POST /v1/approval/my-team/running-chains/requests rejects invalid type for current_approver_uuid header x-site-uuid",
+          "negative: POST /v1/approval/my-team/running-chains/requests rejects invalid type for order_by header x-site-uuid",
+          "negative: POST /v1/approval/my-team/running-chains/requests rejects invalid type for order_by.column header x-site-uuid",
+          "negative: POST /v1/approval/my-team/running-chains/requests rejects invalid type for order_by.direction header x-site-uuid",
+          "negative: POST /v1/approval/my-team/running-chains/requests rejects invalid type for page header x-site-uuid",
           "negative: POST /v1/approval/my-team/running-chains/requests rejects missing current_approver_uuid header x-site-uuid",
           "negative: POST /v1/approval/my-team/running-chains/requests rejects missing order_by header x-site-uuid",
+          "negative: POST /v1/approval/my-team/running-chains/requests rejects missing order_by.column header x-site-uuid",
+          "negative: POST /v1/approval/my-team/running-chains/requests rejects missing order_by.direction header x-site-uuid",
           "negative: POST /v1/approval/my-team/running-chains/requests rejects missing page header x-site-uuid",
-          "negative: POST /v1/approval/my-team/running-chains/requests rejects missing per_page header x-site-uuid",
-          "negative: POST /v1/approval/my-team/running-chains/requests rejects missing perspective header x-site-uuid",
+          "negative: POST /v1/dashboard/activities/employees-stats/subordinates rejects invalid type for perspective header x-site-uuid",
           "negative: POST /v1/dashboard/activities/employees-stats/subordinates rejects missing perspective header x-site-uuid",
+          "negative: POST /v1/dashboard/activities/overall/tasks rejects invalid type for page header x-site-uuid",
+          "negative: POST /v1/dashboard/activities/overall/tasks rejects invalid type for per_page header x-site-uuid",
+          "negative: POST /v1/dashboard/activities/overall/tasks rejects invalid type for period header x-site-uuid",
+          "negative: POST /v1/dashboard/activities/overall/tasks rejects invalid type for perspective header x-site-uuid",
           "negative: POST /v1/dashboard/activities/overall/tasks rejects missing page header x-site-uuid",
           "negative: POST /v1/dashboard/activities/overall/tasks rejects missing per_page header x-site-uuid",
           "negative: POST /v1/dashboard/activities/overall/tasks rejects missing period header x-site-uuid",
           "negative: POST /v1/dashboard/activities/overall/tasks rejects missing perspective header x-site-uuid",
+          "negative: POST /v1/dashboard/employees/celebrations rejects invalid type for page header x-site-uuid",
+          "negative: POST /v1/dashboard/employees/celebrations rejects invalid type for per_page header x-site-uuid",
+          "negative: POST /v1/dashboard/employees/celebrations rejects invalid type for perspective header x-site-uuid",
+          "negative: POST /v1/dashboard/employees/celebrations rejects invalid type for today header x-site-uuid",
           "negative: POST /v1/dashboard/employees/celebrations rejects missing page header x-site-uuid",
           "negative: POST /v1/dashboard/employees/celebrations rejects missing per_page header x-site-uuid",
           "negative: POST /v1/dashboard/employees/celebrations rejects missing perspective header x-site-uuid",
           "negative: POST /v1/dashboard/employees/celebrations rejects missing today header x-site-uuid",
+          "negative: POST /v1/dashboard/employees/team rejects invalid type for level header x-site-uuid",
+          "negative: POST /v1/dashboard/employees/team rejects invalid type for page header x-site-uuid",
+          "negative: POST /v1/dashboard/employees/team rejects invalid type for per_page header x-site-uuid",
           "negative: POST /v1/dashboard/employees/team rejects missing level header x-site-uuid",
           "negative: POST /v1/dashboard/employees/team rejects missing page header x-site-uuid",
           "negative: POST /v1/dashboard/employees/team rejects missing per_page header x-site-uuid",
+          "negative: POST /v1/dashboard/news-feed rejects invalid type for perspective header x-site-uuid",
           "negative: POST /v1/dashboard/news-feed rejects missing perspective header x-site-uuid",
+          "negative: POST /v1/dashboard/talks/insights rejects invalid type for period header x-site-uuid",
+          "negative: POST /v1/dashboard/talks/insights rejects invalid type for perspective header x-site-uuid",
           "negative: POST /v1/dashboard/talks/insights rejects missing period header x-site-uuid",
           "negative: POST /v1/dashboard/talks/insights rejects missing perspective header x-site-uuid",
           "scenario: stageautomation.heartpace.dev login account logout flow step 3: GET /me/account returns 200 header x-site-uuid",
-          "scenario: stageautomation.heartpace.dev login account logout flow step 4: GET /me/account/oauth returns 200 header x-site-uuid",
           "scenario: stageautomation.heartpace.dev profile read flow step 2: GET /me/account returns 200 header x-site-uuid",
-          "scenario: stageautomation.heartpace.dev profile read flow step 3: GET /me/account/oauth returns 200 header x-site-uuid",
           "security: GET /me/account/oauth rejects invalid x-csrf-token header x-site-uuid",
           "security: GET /me/account/oauth rejects missing x-csrf-token header x-site-uuid",
           "smoke: GET /me/account returns 200 header x-site-uuid",

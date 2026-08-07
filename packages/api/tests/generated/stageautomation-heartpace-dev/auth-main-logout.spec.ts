@@ -9,8 +9,8 @@ import {
 } from '../support/apiTestUtils.js';
 
 test.describe('stageautomation.heartpace.dev /auth/main/logout', () => {
-  // origin: observed | category: smoke | confidence: high | execution: fixme | mutationRisk: unsafe
-  test.fixme('smoke: POST /auth/main/logout returns 200 @smoke @auth @mutating', async ({ request }, testInfo) => {
+  // origin: observed | category: smoke | confidence: high | execution: skip | mutationRisk: unsafe
+  test.skip('smoke: POST /auth/main/logout returns 200 @smoke @auth @mutating', async ({ request }, testInfo) => {
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://stageautomation.heartpace.dev',

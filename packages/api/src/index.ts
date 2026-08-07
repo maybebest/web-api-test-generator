@@ -14,5 +14,7 @@ export * from './types/har.js';
 export * from './types/json.js';
 export * from './types/testCase.js';
 export * from './utils/fileSystem.js';
+export * from './utils/generatedOutput.js';
 export * from './utils/masking.js';
+export * from './utils/provenance.js';
 export * from './utils/url.js';

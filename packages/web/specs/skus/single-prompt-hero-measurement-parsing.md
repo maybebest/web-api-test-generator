@@ -15,8 +15,9 @@
 | Tags | @generated @regression @media-planner @authenticated @single-prompt-hero-measurement-parsing |
 | Generation Mode | suite |
 | Review Status | human-reviewed |
+| Review Sign-off | legacy-reviewed-before-signoff-metadata |
 | Generation Source | manual-test-case |
-| Generation Status | pending-generation |
+| Generation Status | generated |
 
 ## User Story
 

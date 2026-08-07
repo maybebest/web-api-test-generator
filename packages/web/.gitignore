@@ -16,6 +16,10 @@ videos/
 *.webm
 *.mp4
 .ai-runs/
+.ai-cache/
+# Hidden generation/heal candidates (crash leftovers must never be committed).
+.*.candidate.spec.ts
+.*.candidate.authenticated.spec.ts
 .ui-uploads/
 *.trace.zip
 allure-results/

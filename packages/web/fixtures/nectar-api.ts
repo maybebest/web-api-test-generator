@@ -19,6 +19,7 @@ import {
   PLANNING_CHAT,
   PLANNING_CHAT_HISTORY,
   PLANNING_GET_CATEGORIES,
+  PLANNING_GET_COST,
   PLANNING_GET_PLAN,
   PLANNING_GET_SKUS,
   PLANNING_GET_SKUS_BY_SKU_ID,
@@ -98,15 +99,12 @@ async function refreshIdToken(cache: MsalCache): Promise<string | undefined> {
   if (!cache.refreshToken || !cache.idToken) {
     return undefined;
   }
+  const tokenEndpoint = resolveMsalRefreshEndpoint(cache.idToken);
   const claims = decodeJwt(cache.idToken);
-  const iss = typeof claims?.iss === 'string' ? claims.iss : undefined;
-  const policy = typeof claims?.acr === 'string' ? claims.acr : undefined;
   const clientId = typeof claims?.aud === 'string' ? claims.aud : undefined;
-  if (!iss || !policy || !clientId) {
+  if (!clientId) {
     return undefined;
   }
-  const issBase = iss.replace(/\/v2\.0\/?$/, '');
-  const tokenEndpoint = `${issBase}/${policy}/oauth2/v2.0/token`;
   try {
     const response = await fetch(tokenEndpoint, {
       method: 'POST',
@@ -154,8 +152,101 @@ export async function resolveFreshBearerToken(explicit?: string): Promise<string
   return undefined;
 }
 
-function resolveBaseUrl(explicit?: string): string {
-  return (explicit ?? env('CHANNEL_BASE_URL') ?? env('BASE_URL') ?? env('PLAYWRIGHT_TEST_BASE_URL') ?? DEFAULT_BASE_URL).replace(/\/$/, '');
+export function resolveMsalRefreshEndpoint(idToken: string): string {
+  const claims = decodeJwt(idToken);
+  const issuer = typeof claims?.iss === 'string' ? claims.iss : undefined;
+  const policy = typeof claims?.acr === 'string' ? claims.acr : typeof claims?.tfp === 'string' ? claims.tfp : undefined;
+  const clientId = typeof claims?.aud === 'string' ? claims.aud : undefined;
+  if (!issuer || !policy || !clientId) {
+    throw new Error('nectar-api: saved MSAL token is missing issuer, policy, or audience claims.');
+  }
+  if (!/^[A-Za-z0-9._-]{1,128}$/.test(policy) || !/^[A-Za-z0-9._-]{1,128}$/.test(clientId)) {
+    throw new Error('nectar-api: saved MSAL token contains an unsafe policy or audience claim.');
+  }
+
+  let issuerUrl: URL;
+  try {
+    issuerUrl = new URL(issuer);
+  } catch {
+    throw new Error('nectar-api: saved MSAL token contains an invalid issuer URL.');
+  }
+  if (
+    issuerUrl.protocol !== 'https:' ||
+    issuerUrl.username ||
+    issuerUrl.password ||
+    (issuerUrl.port && issuerUrl.port !== '443') ||
+    issuerUrl.search ||
+    issuerUrl.hash ||
+    !isApprovedIssuer(issuerUrl)
+  ) {
+    throw new Error(
+      `nectar-api: refusing to send a refresh token to unapproved issuer ${issuerUrl.origin}${issuerUrl.pathname}. ` +
+        'Add the exact trusted issuer/tenant URL to NECTAR_AUTH_ALLOWED_ISSUERS.'
+    );
+  }
+  const issuerPath = issuerUrl.pathname.replace(/\/v2\.0\/?$/, '').replace(/\/$/, '');
+  return `${issuerUrl.origin}${issuerPath}/${policy}/oauth2/v2.0/token`;
+}
+
+export function resolveNectarBaseUrl(explicit?: string): string {
+  const configured = [env('CHANNEL_BASE_URL'), env('BASE_URL'), env('PLAYWRIGHT_TEST_BASE_URL')].filter(
+    (value): value is string => Boolean(value)
+  );
+  const candidate = explicit ?? configured[0] ?? DEFAULT_BASE_URL;
+  const url = parseServiceUrl(candidate, 'Nectar GraphQL base URL');
+  const approvedHosts = new Set([
+    new URL(DEFAULT_BASE_URL).hostname.toLowerCase(),
+    ...configured.map((value) => parseServiceUrl(value, 'configured Nectar base URL').hostname.toLowerCase()),
+    ...commaSeparatedHosts(env('NECTAR_API_ALLOWED_HOSTS'))
+  ]);
+  if (!approvedHosts.has(url.hostname.toLowerCase())) {
+    throw new Error(
+      `nectar-api: refusing to send a bearer token to unapproved host ${url.hostname}. ` +
+        'Add the exact non-production host to NECTAR_API_ALLOWED_HOSTS.'
+    );
+  }
+  return url.origin;
+}
+
+function parseServiceUrl(value: string, label: string): URL {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error(`nectar-api: ${label} is not a valid URL.`);
+  }
+  const insecureLoopbackAllowed =
+    process.env.NECTAR_ALLOW_INSECURE_HTTP === 'true' && ['127.0.0.1', '::1', 'localhost'].includes(url.hostname);
+  if ((url.protocol !== 'https:' && !insecureLoopbackAllowed) || url.username || url.password) {
+    throw new Error(`nectar-api: ${label} must use HTTPS without embedded credentials.`);
+  }
+  return url;
+}
+
+function isApprovedIssuer(issuer: URL): boolean {
+  const candidate = canonicalIssuer(issuer);
+  return commaSeparatedValues(env('NECTAR_AUTH_ALLOWED_ISSUERS')).some((value) => {
+    try {
+      const approved = new URL(value);
+      return approved.protocol === 'https:' && !approved.username && !approved.password && canonicalIssuer(approved) === candidate;
+    } catch {
+      return false;
+    }
+  });
+}
+
+function canonicalIssuer(url: URL): string {
+  return `${url.origin}${url.pathname.replace(/\/v2\.0\/?$/, '').replace(/\/$/, '')}`.toLowerCase();
+}
+
+function commaSeparatedHosts(value?: string): string[] {
+  return commaSeparatedValues(value)
+    .map((host) => host.trim().toLowerCase())
+    .filter((host) => /^[a-z0-9.-]+$/.test(host));
+}
+
+function commaSeparatedValues(value?: string): string[] {
+  return (value ?? '').split(',').map((entry) => entry.trim()).filter(Boolean);
 }
 
 // Core transport. operationName is echoed in the URL `?op=` (matches the observed requests) and the
@@ -178,7 +269,7 @@ export async function nectarGraphql<T>(
         'storage state at E2E_AUTH_STATE_PATH (default playwright/.auth/user.json) with a valid refresh token.'
     );
   }
-  const url = `${resolveBaseUrl(options?.baseUrl)}${ENDPOINT_PATH}?op=${encodeURIComponent(operationName)}`;
+  const url = `${resolveNectarBaseUrl(options?.baseUrl)}${ENDPOINT_PATH}?op=${encodeURIComponent(operationName)}`;
   const response = await fetch(url, {
     method: 'POST',
     headers: {
@@ -364,6 +455,16 @@ export function setMediaChannelMinHeroSkus(
   return patchMediaChannelSetup(mediaId, channel, { minHeroSKUs: min }, options);
 }
 
+/** Restore both mutable Hero-SKU limits with one full-object admin_editMedia write. */
+export function setMediaChannelSkuConfig(
+  mediaId: string,
+  channel: MediaChannel,
+  config: Pick<ChannelSetup, 'maxHeroSKUs' | 'minHeroSKUs'>,
+  options?: NectarApiOptions
+): Promise<void> {
+  return patchMediaChannelSetup(mediaId, channel, config, options);
+}
+
 // ---- Planning SKU / category / advertiser / plan reads (Media plan HARs) -------------------------
 
 // A planning SKU as returned by the planning_getSkus / planning_getSkusBySkuId / category-tree
@@ -492,4 +593,26 @@ export type Plan = Record<string, any>;
 export async function getPlan(planId: string, options?: NectarApiOptions): Promise<Plan> {
   const data = await nectarGraphql<{ planning_getPlan: Plan }>('planning_getPlan', PLANNING_GET_PLAN, { planId }, options);
   return data.planning_getPlan;
+}
+
+// One backend-computed cost row per media in a plan (the value the summary panel renders).
+export type PlanCost = {
+  cost: number | null;
+  discount: number | null;
+  currency: string | null;
+  mediaId: string | null;
+  campaignMediaId: string | null;
+};
+
+// The backend-computed per-media costs for a plan. Because this is the exact figure the UI shows,
+// a pricing-model UI test can assert the displayed cost against getPlanCost(...) — verifying the
+// UI renders the backend's cost correctly — without re-implementing any pricing-model arithmetic.
+export async function getPlanCost(advertiserId: string, planId: string, options?: NectarApiOptions): Promise<PlanCost[]> {
+  const data = await nectarGraphql<{ planning_getCost: PlanCost[] }>(
+    'planning_getCost',
+    PLANNING_GET_COST,
+    { advertiserId, planId },
+    options
+  );
+  return data.planning_getCost ?? [];
 }

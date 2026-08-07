@@ -4,8 +4,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { specSha256 } from './lib/spec-parser.mjs';
-import { runAgentBrowser, parseJsonOutput } from './lib/agent-browser-runner.mjs';
-import { createDiscoveryElement } from './lib/selector-policy.mjs';
+import {
+  classifyAgentBrowserResult,
+  createAgentBrowserFailure,
+  formatAgentBrowserFailure,
+  parseJsonOutput,
+  runAgentBrowser
+} from './lib/agent-browser-runner.mjs';
+import { buildAgentBrowserOpenArgs, resolveDiscoveryAuthStatePath } from './lib/discovery-auth.mjs';
+import { auditLocatorCandidates } from './lib/playwright-locator-audit.mjs';
+import { annotateSnapshotCandidateMatchCounts, createDiscoveryElement } from './lib/selector-policy.mjs';
 import { validateSpecFile } from './validate-flow-spec.mjs';
 
 function parseArgs(args) {
@@ -55,7 +63,7 @@ function parseArgs(args) {
   return parsed;
 }
 
-function runCli() {
+async function runCli() {
   if (process.argv.includes('--help') || process.argv.includes('-h')) {
     printHelp();
     return;
@@ -97,16 +105,39 @@ function runCli() {
 
   fs.mkdirSync(runDir, { recursive: true });
 
+  let authStatePath;
   try {
-    runOrExit(['--session', session, 'open', url], 'agent-browser open failed');
+    authStatePath = resolveDiscoveryAuthStatePath();
+    runOrExit(
+      buildAgentBrowserOpenArgs({ session, url, authStatePath }),
+      'agent-browser open failed'
+    );
     const snapshotResult = runOrExit(
       ['--session', session, 'snapshot', '-i', '--json'],
       'agent-browser snapshot failed',
-      true
+      { expectSnapshot: true }
     );
     const snapshot = parseJsonOutput(snapshotResult.stdout);
     const rawElements = collectSnapshotElements(snapshot);
-    const elements = rawElements.map((element, index) => createDiscoveryElement(element, index));
+    const snapshotFailure = classifyAgentBrowserResult(snapshotResult, {
+      expectSnapshot: true,
+      snapshotElementCount: rawElements.length
+    });
+    if (snapshotFailure) {
+      throw new AgentBrowserDiscoveryError('agent-browser snapshot failed', {
+        ...snapshotResult,
+        failure: snapshotFailure
+      });
+    }
+    const snapshotAuditedElements = annotateSnapshotCandidateMatchCounts(
+      rawElements.map((element, index) => createDiscoveryElement(element, index))
+    );
+    const liveAuditedElements = await auditLocatorCandidates({
+      url,
+      elements: snapshotAuditedElements,
+      storageStatePath: authStatePath
+    });
+    const elements = dedupeElements(liveAuditedElements);
 
     if (screenshotPath) {
       runOrExit(['--session', session, 'screenshot', screenshotPath], 'agent-browser screenshot failed');
@@ -120,8 +151,17 @@ function runCli() {
       url,
       capturedAt: createdAt,
       source: 'agent-browser',
-      sourceCommands: ['agent-browser open <url>', 'agent-browser snapshot -i --json'],
+      sourceCommands: [
+        'agent-browser open <url>',
+        'agent-browser snapshot -i --json',
+        'framework Playwright locator.count() uniqueness audit'
+      ],
       selectorOwnership: 'framework',
+      locatorAudit: {
+        method: 'playwright-locator-count',
+        snapshotDiagnostics: 'accessibility-snapshot-candidate-equivalence',
+        requiredMatchCount: 1
+      },
       screenshotPath: screenshotPath ? normalizePath(screenshotPath) : undefined,
       elements
     };
@@ -132,22 +172,77 @@ function runCli() {
     console.log('Review with:');
     console.log(`npm run ai:dom:discover:review -- --artifact ${artifactPath}`);
   } catch (error) {
-    console.error(error.message);
+    const failure =
+      error && typeof error === 'object' && error.failure
+        ? error.failure
+        : classifyDiscoveryError(error);
+    const failureArtifactPath = path.join(runDir, 'discovery-failure.json');
+    fs.writeFileSync(
+      failureArtifactPath,
+      `${JSON.stringify(
+        {
+          specPath,
+          specSha256: specSha256(specPath),
+          flowId,
+          url,
+          capturedAt: createdAt,
+          source: 'agent-browser',
+          status: 'fallback-required',
+          failure: persistedFailure(failure)
+        },
+        null,
+        2
+      )}\n`
+    );
+    console.error(formatAgentBrowserFailure(failure));
+    console.error(`Classified discovery failure written: ${failureArtifactPath}`);
     process.exitCode = 1;
   } finally {
     runAgentBrowser(['--session', session, 'close']);
   }
 }
 
-function runOrExit(args, label, capture = false) {
-  const result = runAgentBrowser(args, { stdio: capture ? 'pipe' : 'inherit' });
-  if (result.status !== 0) {
-    if (capture) {
-      console.error(result.stderr || result.stdout);
-    }
-    throw new Error(label);
+function classifyDiscoveryError(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (error && typeof error === 'object' && error.code === 'HTTP_401') {
+    return createAgentBrowserFailure('http-401', { httpStatus: 401, detail: message });
+  }
+  if (error && typeof error === 'object' && error.code === 'HTTP_403') {
+    return createAgentBrowserFailure('http-403', { httpStatus: 403, detail: message });
+  }
+  if (/timed out/i.test(message)) {
+    return createAgentBrowserFailure('timeout', { detail: message });
+  }
+  return createAgentBrowserFailure('process-failure', { detail: message });
+}
+
+function runOrExit(args, label, options = {}) {
+  // Always capture output so HTTP/challenge/CAPTCHA markers can be classified.
+  // The failure artifact persists only the classification/fallback, never raw output.
+  const result = runAgentBrowser(args, { stdio: 'pipe', ...options });
+  if (result.failure || result.status !== 0) {
+    throw new AgentBrowserDiscoveryError(label, result);
   }
   return result;
+}
+
+class AgentBrowserDiscoveryError extends Error {
+  constructor(label, result) {
+    const failure = result.failure ?? createAgentBrowserFailure('process-failure', {
+      detail: `agent-browser exited with status ${result.status}.`
+    });
+    super(`${label}: ${formatAgentBrowserFailure(failure)}`);
+    this.name = 'AgentBrowserDiscoveryError';
+    this.failure = failure;
+  }
+}
+
+function persistedFailure(failure) {
+  return {
+    kind: failure.kind,
+    httpStatus: failure.httpStatus,
+    fallback: failure.fallback
+  };
 }
 
 function inferUrl(basePath) {
@@ -163,7 +258,7 @@ function collectSnapshotElements(snapshot) {
   const root = snapshot?.data ?? snapshot;
   const elements = [];
   visitSnapshotNode(root, elements);
-  return dedupeElements(elements);
+  return elements;
 }
 
 function visitSnapshotNode(node, elements) {
@@ -238,8 +333,8 @@ function collectAttributes(node) {
 }
 
 function dedupeElements(elements) {
-  const seen = new Set();
-  return elements.filter((element) => {
+  const byIdentity = new Map();
+  for (const element of elements) {
     const key = JSON.stringify([
       element.role,
       element.accessibleName,
@@ -249,12 +344,14 @@ function dedupeElements(elements) {
       element.href,
       element.testId
     ]);
-    if (seen.has(key)) {
-      return false;
+    const existing = byIdentity.get(key);
+    if (existing) {
+      existing.snapshotOccurrences += 1;
+      continue;
     }
-    seen.add(key);
-    return true;
-  });
+    byIdentity.set(key, { ...element, snapshotOccurrences: 1 });
+  }
+  return [...byIdentity.values()];
 }
 
 function firstString(...values) {
@@ -292,8 +389,9 @@ function printHelp() {
   node scripts/ai/dom-discover.mjs --spec <spec-path> [--url <url>] [--out <artifact>] [--screenshot]
 
 Runs agent-browser before test generation, captures an accessibility snapshot, and writes a
-selector-candidate artifact. The artifact is evidence only; generated tests must use the
-framework selector policy and must never copy agent-browser @e refs.`);
+selector-candidate artifact with per-candidate match counts. Classified failures write a
+discovery-failure.json fallback result. The artifact is evidence only; generated tests must use
+the framework selector policy and must never copy agent-browser @e refs.`);
 }
 
-runCli();
+await runCli();

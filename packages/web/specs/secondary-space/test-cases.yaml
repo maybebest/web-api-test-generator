@@ -1,0 +1,635 @@
+module: ChannelManagement
+testCases:
+  - id: CHANNELM-E2E-001
+    title: Secondary Space is configured
+    type: e2e
+    priority: low
+    module: ChannelManagement
+    covers:
+      states:
+        - NUP20399Context
+        - NUP20399Scenario1Outcome
+      transitions:
+        - CHANNELM-TR-001
+      sourceRefs:
+        - NUP-20399.md#L27-L33
+    preconditions:
+      - A channel is provided
+      - The piggyBackAssetTypes array for that channel contains at least one element
+    steps:
+      - The user attempts to add the channel
+    expectedResult:
+      - The system fetches the latest mandatory and optional Secondary Space elements from Base
+      - Proceeds to the Secondary Space setup flow for that channel (NUP-20400, NUP-20401)
+    testDataNotes: []
+    assumptions: []
+    openQuestions: []
+  - id: CHANNELM-E2E-002
+    title: Secondary Space is not configured
+    type: e2e
+    priority: low
+    module: ChannelManagement
+    covers:
+      states:
+        - NUP20399Context
+        - ChannelAccepted
+      transitions:
+        - CHANNELM-TR-002
+      sourceRefs:
+        - NUP-20399.md#L34-L48
+        - NUP-22595.md#L13-L20
+        - NUP-22595.md#L48-L61
+    preconditions:
+      - A channel is provided
+      - The piggyBackAssetTypes array for that channel is empty
+    steps:
+      - The user attempts to add the channel
+    expectedResult:
+      - The system proceeds with the standard planning flow for that channel
+      - The channel is added to the plan; The system must use Base as the primary source for secondary space
+        configuration; Pollen cache is used only if Base is unavailable.; The piggyBackAssetTypes array is the
+        definitive indicator for secondary space configuration.; User type is not recognized; all users are assumed to
+        be internal.; The "Only visible to internal" toggle is not validated at this stage.; The process must be
+        sequential for each channel in the user’s input.
+    testDataNotes: []
+    assumptions: []
+    openQuestions: []
+  - id: CHANNELM-E2E-003
+    title: Fetch configuration before prompting
+    type: e2e
+    priority: high
+    module: ChannelManagement
+    covers:
+      states:
+        - NUP20400Context
+        - NUP20400Scenario1Outcome
+      transitions:
+        - CHANNELM-TR-003
+      sourceRefs:
+        - NUP-20400.md#L26-L32
+    preconditions:
+      - The user is internal
+      - The channel has Secondary Space configured
+    steps:
+      - The user attempts to add the channel
+    expectedResult:
+      - Nectar AI fetches the latest mandatory and optional secondary space elements from Pollen
+      - Then prompts the user to select quantities for all mandatory elements
+    testDataNotes: []
+    assumptions: []
+    openQuestions: []
+  - id: CHANNELM-E2E-004
+    title: Confirm with default pre-populated values
+    type: e2e
+    priority: high
+    module: ChannelManagement
+    covers:
+      states:
+        - NUP20400Context
+        - NUP20400Scenario2Outcome
+      transitions:
+        - CHANNELM-TR-004
+      sourceRefs:
+        - NUP-20400.md#L33-L45
+    preconditions:
+      - The user is internal
+      - The channel has one or more mandatory secondary space elements
+      - Each mandatory element’s quantity dropdown is pre-populated with 1
+    steps:
+      - The user clicks the 'Confirm' button
+    expectedResult:
+      - The system accepts the values
+      - Disables all mandatory fields
+      - Proceeds to optional elements setup (NUP-20401)
+    testDataNotes: []
+    assumptions: []
+    openQuestions: []
+  - id: CHANNELM-E2E-005
+    title: User changes pre-populated values
+    type: e2e
+    priority: high
+    module: ChannelManagement
+    covers:
+      states:
+        - NUP20400Context
+        - NUP20400Scenario3Outcome
+      transitions:
+        - CHANNELM-TR-005
+      sourceRefs:
+        - NUP-20400.md#L46-L52
+    preconditions:
+      - The user is internal
+      - The channel has one or more mandatory secondary space elements
+    steps:
+      - The user selects a different value from the dropdown for any mandatory element
+    expectedResult:
+      - The system accepts the new value as valid
+      - The user can click 'Confirm' to proceed as in Scenario 2
+    testDataNotes: []
+    assumptions: []
+    openQuestions: []
+  - id: CHANNELM-E2E-006
+    title: "'Assign all' functionality"
+    type: e2e
+    priority: high
+    module: ChannelManagement
+    covers:
+      states:
+        - NUP20400Context
+        - NUP20400Scenario4Outcome
+      transitions:
+        - CHANNELM-TR-006
+      sourceRefs:
+        - NUP-20400.md#L53-L59
+    preconditions:
+      - There are two or more mandatory elements
+    steps:
+      - The user selects a value for the first mandatory element and clicks the "Assign all" button
+    expectedResult:
+      - The selected value is assigned to all mandatory elements, overwriting any previously set values
+    testDataNotes: []
+    assumptions: []
+    openQuestions: []
+  - id: CHANNELM-E2E-007
+    title: Channel with no mandatory secondary space elements but with configured optional elements
+    type: e2e
+    priority: critical
+    module: ChannelManagement
+    covers:
+      states:
+        - NUP20400Context
+        - ValidationError
+      transitions:
+        - CHANNELM-TR-007
+      sourceRefs:
+        - NUP-20400.md#L66-L85
+    preconditions:
+      - The user is internal
+      - The channel is secondary space configured
+      - The channel has no mandatory elements but has one or more configured optional elements
+    steps:
+      - The user is prompted to configure the channel
+    expectedResult:
+      - The system skips mandatory element configuration
+      - Immediately proceeds to optional element configuration (NUP-20401); Nectar AI must always fetch the latest
+        configuration (mandatory and optional elements) from Pollen before prompting the user.; Quantity selection must
+        be restricted to 1–10 via dropdown; invalid input is not possible.; The 'Confirm' button is always enabled for
+        mandatory elements.; The 'Assign all' button is only enabled if there are 2 or more mandatory elements.; After
+        confirmation, all secondary space mandatory elements fields are disabled and can only be edited via the summary
+        panel modal.; The user cannot proceed to optional elements or complete the channel setup until all mandatory
+        elements have quantities selected.; If no mandatory elements exist but optional elements are configured, the
+        system skips mandatory element configuration and proceeds directly to optional elements.
+    testDataNotes: []
+    assumptions: []
+    openQuestions: []
+  - id: CHANNELM-E2E-008
+    title: User skips all optional elements
+    type: e2e
+    priority: low
+    module: ChannelManagement
+    covers:
+      states:
+        - NUP20401Context
+        - ChannelAccepted
+      transitions:
+        - CHANNELM-TR-008
+      sourceRefs:
+        - NUP-20401.md#L27-L39
+    preconditions:
+      - The user is internal
+      - All optional element dropdowns are at "0" (preselected)
+    steps:
+      - The user clicks the "Skip for now" button
+    expectedResult:
+      - The system marks all optional elements as deselected for this channel in the plan
+      - 'Displays the message: "Thank you, no optional secondary elements have been added to your plan."'
+      - Adds the channel to the plan with the provided secondary space data (mandatory & optional - optional are skipped
+        in this scenario)
+      - Proceeds to the next step in channel setup
+    testDataNotes: []
+    assumptions: []
+    openQuestions: []
+  - id: CHANNELM-E2E-009
+    title: User selects quantity for one or more optional elements
+    type: e2e
+    priority: low
+    module: ChannelManagement
+    covers:
+      states:
+        - NUP20401Context
+        - ChannelAccepted
+      transitions:
+        - CHANNELM-TR-009
+      sourceRefs:
+        - NUP-20401.md#L40-L60
+    preconditions:
+      - The user is internal
+      - The channel has one or more optional secondary space elements
+    steps:
+      - The user selects a quantity from the dropdown for any optional element(s)
+      - Clicks the Confirm button
+    expectedResult:
+      - The system adds the selected optional elements to the plan
+      - Disables all optional fields
+      - 'Displays the message: "Thank you I’ve added those to your plan"'
+      - Adds the channel to the plan with the provided secondary space data (mandatory & optional)
+      - Proceeds to the next step in channel setup; If the user has already selected values for some optional elements,
+        and then selects a value for the first element and clicks "Assign all," the selected value for the first element
+        will overwrite all other elements in the group.; The "N selected" indicator should display the sum of the
+        selected quantities; For optional elements, if the user selects a quantity (0–10) for any element, the "Confirm"
+        button becomes enabled. If the user then changes all quantities back to "0," the "Confirm" button should become
+        disabled again, leaving only the "Skip for now" option available.
+    testDataNotes: []
+    assumptions: []
+    openQuestions: []
+  - id: CHANNELM-E2E-010
+    title: Channel with only optional secondary space elements
+    type: e2e
+    priority: low
+    module: ChannelManagement
+    covers:
+      states:
+        - NUP20401Context
+        - NUP20401Scenario3Outcome
+      transitions:
+        - CHANNELM-TR-010
+      sourceRefs:
+        - NUP-20401.md#L61-L69
+    preconditions:
+      - The user is internal
+      - The channel is secondary space configured
+      - The channel has no mandatory elements but has one or more optional elements
+    steps:
+      - The user is prompted to configure the channel
+    expectedResult:
+      - The system skips mandatory element configuration
+      - Prompts the user to select or skip optional elements as per standard secondary space flow
+      - Adds the channel to the plan with the provided (if any) secondary space data
+    testDataNotes: []
+    assumptions: []
+    openQuestions: []
+  - id: CHANNELM-E2E-011
+    title: Assign all functionality
+    type: e2e
+    priority: low
+    module: ChannelManagement
+    covers:
+      states:
+        - NUP20401Context
+        - NUP20401Scenario4Outcome
+      transitions:
+        - CHANNELM-TR-011
+      sourceRefs:
+        - NUP-20401.md#L70-L75
+    preconditions:
+      - There are two or more optional elements
+    steps:
+      - The user selects a value for the first optional element and clicks the "Assign all" button
+    expectedResult:
+      - The selected value is assigned to all optional elements, overwriting any previously set values
+      - If any quantity is selected, the Confirm button becomes enabled
+    testDataNotes: []
+    assumptions: []
+    openQuestions: []
+  - id: CHANNELM-E2E-012
+    title: Display updated summary panel text after channel addition
+    type: e2e
+    priority: high
+    module: ChannelManagement
+    covers:
+      states:
+        - NUP20401Context
+        - ChannelAccepted
+      transitions:
+        - CHANNELM-TR-012
+      sourceRefs:
+        - NUP-20401.md#L80-L101
+    preconditions:
+      - The user has added a channel to the plan with secondary space data
+    steps:
+      - The channel appears in the summary panel
+    expectedResult:
+      - 'The system displays the following updated message, including secondary space note: Quantity selection for
+        optional elements must be restricted to 0–10 via dropdown; "0" means the element is skipped.; By default,
+        Confirm button is disabled and "Skip for now" is enabled when all dropdowns are at "0".; If any quantity (1–10)
+        is selected, Confirm button becomes enabled.; The "Assign all" button is only enabled if there are 2 or more
+        optional elements.; After confirmation, all fields are disabled and can only be edited via the summary panel
+        modal.; Skipped optional elements ("0" selected) are marked as deselected for the channel in the plan.; Once the
+        user completes the definition of quantities for optional elements (either by confirming or skipping), the
+        channel is added to the plan with the provided secondary space data.; Some secondary space channels may have
+        only optional elements and no mandatory elements; in such cases, the user is prompted to configure optional
+        elements directly.'
+    testDataNotes: []
+    assumptions: []
+    openQuestions: []
+  - id: CHANNELM-E2E-013
+    title: Save secondary space data after channel setup
+    type: e2e
+    priority: low
+    module: ChannelManagement
+    covers:
+      states:
+        - NUP20402Context
+        - NUP20402Scenario1Outcome
+      transitions:
+        - CHANNELM-TR-013
+      sourceRefs:
+        - NUP-20402.md#L24-L28
+    preconditions:
+      - The user has completed channel setup (including all mandatory and optional elements, as applicable)
+    steps:
+      - The user confirms the channel configuration
+    expectedResult:
+      - The Nectar AI saves the selected mandatory and optional secondary space elements and their quantities for that
+        channel in MongoDB
+    testDataNotes: []
+    assumptions: []
+    openQuestions: []
+  - id: CHANNELM-E2E-014
+    title: Edit secondary space data before campaign save
+    type: e2e
+    priority: high
+    module: ChannelManagement
+    covers:
+      states:
+        - NUP20402Context
+        - NUP20402Scenario2Outcome
+      transitions:
+        - CHANNELM-TR-014
+      sourceRefs:
+        - NUP-20402.md#L29-L34
+    preconditions:
+      - The user has saved channel configuration
+    steps:
+      - The user edits secondary space elements or quantities via the summary panel modal
+    expectedResult:
+      - The system updates the saved data accordingly
+      - Ensures the latest values are available for further processing (see NUP-20739)
+    testDataNotes: []
+    assumptions: []
+    openQuestions: []
+  - id: CHANNELM-E2E-015
+    title: Data is available for future booking integration
+    type: e2e
+    priority: high
+    module: ChannelManagement
+    covers:
+      states:
+        - NUP20402Context
+        - ChannelConfiguration
+      transitions:
+        - CHANNELM-TR-015
+      sourceRefs:
+        - NUP-20402.md#L35-L46
+    preconditions:
+      - The user has completed channel setup for all channels
+      - Is ready to save the campaign
+    steps:
+      - The campaign is saved
+    expectedResult:
+      - The system ensures all secondary space data for all channels is available in MongoDB
+      - Ready for further processing and integration with CRM/booking at a later stage; Data must be saved and updated
+        in real time as the user configures or edits channels.; Plan details data must reflect all selected secondary
+        space elements and quantities for each channel.
+    testDataNotes: []
+    assumptions: []
+    openQuestions: []
+  - id: CHANNELM-E2E-016
+    title: Sequential processing and rule application
+    type: e2e
+    priority: critical
+    module: ChannelManagement
+    covers:
+      states:
+        - NUP20403Context
+        - ValidationError
+      transitions:
+        - CHANNELM-TR-016
+      sourceRefs:
+        - NUP-20403.md#L19-L30
+    preconditions:
+      - I provide multiple channels in a single input
+    steps:
+      - The system processes each channel one after another
+    expectedResult:
+      - For each channel, the system checks if Secondary Space is configured (feature flag in Pollen)
+      - Validates my user type (internal or external)
+      - If Secondary Space is configured and I am an internal user, the system fetches the latest configuration from
+        Pollen
+      - Prompts me to select mandatory and optional elements as described in NUP-20400 and NUP-20401
+      - If Secondary Space is not configured, the system proceeds with the standard planning flow for that channel
+      - If I am an external user and Secondary Space is configured, the system informs me that the channel cannot be
+        added and does not add it to my plan
+      - Only channels that pass all checks are added to my plan
+      - I receive immediate feedback for each channel, including reasons for any channel not added
+    testDataNotes: []
+    assumptions: []
+    openQuestions: []
+  - id: CHANNELM-E2E-017
+    title: Integration with editing and CRM booking
+    type: e2e
+    priority: high
+    module: ChannelManagement
+    covers:
+      states:
+        - NUP20403Context
+        - NUP20403Scenario2Outcome
+      transitions:
+        - CHANNELM-TR-017
+      sourceRefs:
+        - NUP-20403.md#L31-L38
+    preconditions:
+      - I have confirmed secondary space elements for a channel
+      - The campaign is not yet saved
+    steps:
+      - I open the summary panel modal for any channel
+    expectedResult:
+      - The system allows me to edit mandatory and optional elements (see NUP-20739)
+      - When I confirm the save plan draft the campaign, the system saves the secondary space data for all channels in
+        MongoDB
+      - Ensures that the booking details reflect my final selections for each channel
+    testDataNotes: []
+    assumptions: []
+    openQuestions: []
+  - id: CHANNELM-E2E-018
+    title: Immediate feedback for each channel
+    type: e2e
+    priority: high
+    module: ChannelManagement
+    covers:
+      states:
+        - NUP20403Context
+        - ChannelAccepted
+      transitions:
+        - CHANNELM-TR-018
+      sourceRefs:
+        - NUP-20403.md#L39-L52
+    preconditions:
+      - A channel cannot be added due to user type or missing Secondary Space configuration
+    steps:
+      - The system processes the channel
+    expectedResult:
+      - The system immediately informs me of the reason
+      - Does not add the channel to my plan
+      - Continues processing the remaining channels in sequence; Each channel must be processed sequentially and
+        independently.; All business rules, validation, and editing logic must be applied per channel.; Only channels
+        that pass all checks are added to the plan.; Data for all channels must be saved and available for CRM/booking
+        integration.
+    testDataNotes: []
+    assumptions: []
+    openQuestions: []
+  - id: CHANNELM-E2E-019
+    title: Edit mandatory and optional elements via modal
+    type: e2e
+    priority: low
+    module: ChannelManagement
+    covers:
+      states:
+        - NUP20739Context
+        - NUP20739Scenario1Outcome
+      transitions:
+        - CHANNELM-TR-019
+      sourceRefs:
+        - NUP-20739.md#L21-L28
+    preconditions:
+      - The user has previously confirmed secondary space elements for a channel
+    steps:
+      - The user opens the summary panel modal for that channel
+    expectedResult:
+      - The system displays all previously selected mandatory and optional elements and their quantities
+      - Allows the user to change quantities via dropdown
+    testDataNotes: []
+    assumptions: []
+    openQuestions: []
+  - id: CHANNELM-E2E-020
+    title: Confirm changes in modal
+    type: e2e
+    priority: high
+    module: ChannelManagement
+    covers:
+      states:
+        - NUP20739Context
+        - NUP20739Scenario2Outcome
+      transitions:
+        - CHANNELM-TR-020
+      sourceRefs:
+        - NUP-20739.md#L29-L43
+    preconditions:
+      - The user has made changes to secondary space elements or quantities in the modal
+    steps:
+      - The user clicks the Confirm button
+    expectedResult:
+      - The system updates the saved data for the channel
+      - 'Displays a confirmation message indicating the changes have been saved; The modal must use the same dropdowns
+        as the initial setup (mandatory: 1–10, optional: 0–10); "Assign all" is not available in the modal.; Edits are
+        only allowed before user clicks "Save plan as draft.". After saving, the fields are locked.; User feedback must
+        be clear and immediate after edits or when editing is not allowed.; All changes must be reflected in the data
+        available for CRM/booking and in MongoDB.'
+    testDataNotes: []
+    assumptions: []
+    openQuestions: []
+  - id: CHANNELM-E2E-021
+    title: Channel is secondary space configured, 'Only visible to internal' is ON, and user is internal
+    type: e2e
+    priority: low
+    module: ChannelManagement
+    covers:
+      states:
+        - NUP22595Context
+        - NUP22595Scenario1Outcome
+      transitions:
+        - CHANNELM-TR-021
+      sourceRefs:
+        - NUP-22595.md#L23-L30
+    preconditions:
+      - A channel is provided
+      - The channel is detected as secondary space configured (per NUP-20399)
+      - The channel is marked as "Only visible to internal"
+      - The user is internal
+    steps:
+      - The user attempts to add the channel
+    expectedResult:
+      - The system proceeds to the Secondary Space setup flow for that channel (NUP-20400, NUP-20401)
+    testDataNotes: []
+    assumptions: []
+    openQuestions: []
+  - id: CHANNELM-E2E-022
+    title: Channel is secondary space configured, 'Only visible to internal' is ON, and user is external
+    type: e2e
+    priority: critical
+    module: ChannelManagement
+    covers:
+      states:
+        - NUP22595Context
+        - ValidationError
+      transitions:
+        - CHANNELM-TR-022
+      sourceRefs:
+        - NUP-22595.md#L31-L39
+    preconditions:
+      - A channel is provided
+      - The channel is detected as secondary space configured (per NUP-20399)
+      - The channel is marked as "Only visible to internal"
+      - The user is external
+    steps:
+      - The user attempts to add the channel
+    expectedResult:
+      - 'The system informs the user: "Channel X cannot be added as it is only available for internal users."'
+      - The channel is not added to the plan
+    testDataNotes: []
+    assumptions: []
+    openQuestions: []
+  - id: CHANNELM-E2E-023
+    title: Channel is secondary space configured, 'Only visible to internal' is OFF, and user is internal or external
+    type: e2e
+    priority: low
+    module: ChannelManagement
+    covers:
+      states:
+        - NUP22595Context
+        - NUP22595Scenario3Outcome
+      transitions:
+        - CHANNELM-TR-023
+      sourceRefs:
+        - NUP-22595.md#L40-L47
+    preconditions:
+      - A channel is provided
+      - The channel is detected as secondary space configured (per NUP-20399)
+      - The channel is NOT marked as "Only visible to internal"
+      - The user is internal or external
+    steps:
+      - The user attempts to add the channel
+    expectedResult:
+      - The system proceeds to the Secondary Space setup flow for that channel (NUP-20400, NUP-20401)
+    testDataNotes: []
+    assumptions: []
+    openQuestions: []
+  - id: CHANNELM-E2E-024
+    title: Channel is not secondary space configured - covered in NUP-20399
+    type: e2e
+    priority: low
+    module: ChannelManagement
+    covers:
+      states:
+        - NUP22595Context
+        - ChannelAccepted
+      transitions:
+        - CHANNELM-TR-024
+      sourceRefs:
+        - NUP-22595.md#L48-L61
+        - NUP-20399.md#L34-L48
+        - NUP-22595.md#L13-L20
+    preconditions:
+      - A channel is provided
+      - The channel is not detected as secondary space configured
+    steps:
+      - The user attempts to add the channel
+    expectedResult:
+      - The system proceeds with the standard planning flow for that channel
+      - The channel is added to the plan; The logic for detecting secondary space configuration and fetching elements is
+        reused from NUP-20399.; User type (internal/external) must be recognized and validated.; The "Only visible to
+        internal" toggle must be checked for all channels with Secondary Space elements.; The process must be sequential
+        for each channel in the user’s input.
+    testDataNotes: []
+    assumptions: []
+    openQuestions: []

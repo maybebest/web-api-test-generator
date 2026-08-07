@@ -4,7 +4,7 @@
 import { expect, test } from '@playwright/test';
 import { resolveGeneratedEnvValue } from './support/apiTestUtils.js';
 
-const requiredEnvNames = ['API_TOKEN', 'QUERY_ID', 'TEST_EMAIL', 'TEST_PASSWORD', 'USER_ID'];
+const requiredEnvNames = ['API_TOKEN', 'CSRF_TOKEN', 'QUERY_ID', 'TEST_EMAIL', 'TEST_PASSWORD', 'USER_ID'];
 
 test('preflight: required environment variables are resolvable @smoke @preflight', () => {
   const missing = requiredEnvNames.filter((name) => {

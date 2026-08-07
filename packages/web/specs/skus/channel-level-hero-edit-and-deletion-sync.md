@@ -15,6 +15,7 @@
 | Tags | @generated @regression @media-planner @authenticated @channel-level-hero-edit-and-deletion-sync |
 | Generation Mode | suite |
 | Review Status | human-reviewed |
+| Review Sign-off | legacy-reviewed-before-signoff-metadata |
 | Generation Source | manual-test-case |
 | Generation Status | generated |
 
@@ -22,14 +23,14 @@
 
 As a media planner,
 I want the Nectar AI planner to enforce channel-level hero edit, per-channel sku definition and deletion sync correctly,
-So that Hero/Measurement SKU selections behave deterministically (7 of the 30 documented cases are automated end-to-end today; the rest are enumerated under Pending Automation).
+So that Hero/Measurement SKU selections behave deterministically. No case is currently claimed as automated: the available `SET_SKUS` contract is session-wide and cannot prove per-channel edit isolation or deletion synchronization.
 
 ## Preconditions
 
 - A valid non-production authenticated Playwright storage state (`playwright/.auth/user.json`).
 - `PLAYWRIGHT_TEST_BASE_URL` points to `https://www.dev.pollen.js-devops.co.uk/`.
 - A plan with at least two channels and per-channel Hero selections is available.
-- Per-channel Hero edit/delete is exercised via the UI; seeding uses the implemented dataManager.setPlanHeroSkus (deletion-sync catalogue arrange still needs the missing unlinkSkuFromBrand).
+- Per-channel Hero edit/delete is exercised via the UI; seeding uses `dataManager.setPlanHeroSkus`. Deletion-sync catalogue arrangement uses the implemented `unlinkSkuFromBrand` surface but still requires an injected, verified catalogue mutation adapter in the target environment.
 
 ## Out-of-scope
 
@@ -389,13 +390,13 @@ So that Hero/Measurement SKU selections behave deterministically (7 of the 30 do
 ## Notes
 
 - This suite targets the live Pollen development environment; `Parallel Safe` is `no` and `Data Isolation` is `external`.
-- E2E-only policy: every Data Case row above maps to an emitted, executable end-to-end test (API seed of REAL catalogue SKUs -> direct seeded-session navigation -> live UI assertion). Source cases that cannot be verified end-to-end today are enumerated under Pending Automation with their blockers — no weak panel-smoke or guaranteed-red placeholder tests are generated for them.
+- E2E-only policy: this flow is `pending-generation` and has no target test. The former counter-only suite was removed because a session-level count does not verify the per-channel edit/deletion behavior in this contract.
 - Source: specs/test-cases-skus-2.yaml (area: Channel-level Hero edit, per-channel SKU definition and deletion sync); every row keeps its source case id for traceability.
-- Locators were live-audited (2026-07-02/03) against the dev environment; the seed/hydrate/assert pipeline is live-proven.
+- Session seeding and summary hydration were live-proven, but they are only prerequisites; they are not evidence for the per-channel outcomes specified here.
 
 ## Pending Automation (no test emitted)
 
-These 23 source cases are E2E-specified but cannot be verified end-to-end today. They are intentionally NOT generated — the framework ships only executable E2E tests.
+All 30 source cases are E2E-specified but cannot be verified end-to-end today. DC-001 through DC-007 are blocked because `planningAI_updateState SET_SKUS` replaces a session-wide selection and has no channel dimension; it cannot arrange or prove per-channel isolation, modal persistence, or deletion synchronization. The remaining source blockers are listed below. They are intentionally NOT generated — the framework ships only executable E2E tests.
 
 | Source Case | Blocker |
 |---|---|
@@ -404,10 +405,10 @@ These 23 source cases are E2E-specified but cannot be verified end-to-end today.
 | TC-CHAN-009 — Modifying a channel to remove a Hero SKU re-syncs is_hero across remaining channels | no-assertable-expectation: the source case has no UI-checkable outcome without the assistant flow |
 | TC-CHAN-010 — Assign exactly max Hero SKUs to a channel (count == max) — channel added, no warning, booking allowed | no-assertable-expectation: the source case has no UI-checkable outcome without the assistant flow |
 | TC-CHAN-011 — Assign max-1 Hero SKUs to a channel (count < max) — channel added, no warning | no-assertable-expectation: the source case has no UI-checkable outcome without the assistant flow |
-| TC-CHAN-012 — Assign max+1 Hero SKUs to a channel (count > max) — channel added with all SKUs, warning shown, booking block… | warning-needs-channel: the plan has no channels; needs assignChannelToPlan (unimplemented) or the UI chat flow |
+| TC-CHAN-012 — Assign max+1 Hero SKUs to a channel (count > max) — channel added with all SKUs, warning shown, booking block… | warning-needs-channel: the plan has no channels; `assignChannelToPlan` requires an injected, verified media-plan adapter, otherwise the case must use the UI chat flow |
 | TC-CHAN-013 — Resolve over-max by deselecting excess via modal — warning clears and booking unblocks | ui-flow-expectation: the expected counts assume assistant-flow actions beyond the seeded state |
 | TC-CHAN-014 — No max configured for a channel — assigning many Hero SKUs imposes no restriction | no-assertable-expectation: the source case has no UI-checkable outcome without the assistant flow |
-| TC-CHAN-015 — Global Hero list exceeds a channel's max (global-then-select-channels) — affected channel added with warning,… | warning-needs-channel: the plan has no channels; needs assignChannelToPlan (unimplemented) or the UI chat flow |
+| TC-CHAN-015 — Global Hero list exceeds a channel's max (global-then-select-channels) — affected channel added with warning,… | warning-needs-channel: the plan has no channels; `assignChannelToPlan` requires an injected, verified media-plan adapter, otherwise the case must use the UI chat flow |
 | TC-CHAN-016 — Backend: single typed channel exceeds maxHeroSkus on activation — block channel, go to ask node | no-assertable-expectation: the source case has no UI-checkable outcome without the assistant flow |
 | TC-CHAN-017 — Backend: one of multiple typed channels exceeds maxHeroSkus — block that channel, continue with other resolve… | no-assertable-expectation: the source case has no UI-checkable outcome without the assistant flow |
 | TC-CHAN-018 — Backend: channel below minHeroSkus on activation is blocked and user informed | no-assertable-expectation: the source case has no UI-checkable outcome without the assistant flow |

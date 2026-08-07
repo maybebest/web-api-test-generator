@@ -11,9 +11,9 @@ import {
 } from '../support/apiTestUtils.js';
 
 test.describe('scenarios', () => {
-  // origin: inferred | category: crud | confidence: medium | execution: fixme | mutationRisk: unsafe | isolated: false
-  test.fixme('crud: stageautomation.heartpace.dev user/notifications create-read flow @extended @profile @mutating', async ({ request }, testInfo) => {
-    const step1Body = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-notifications-id-query-id-6fefb99a.crud-create-read-step-1.request.json'));
+  // origin: inferred | category: crud | confidence: medium | execution: skip | mutationRisk: unsafe | correlation: missing | isolated: false
+  test.skip('crud: stageautomation.heartpace.dev user/notifications create-read flow @extended @profile @mutating @uncorrelated', async ({ request }, testInfo) => {
+    const step1Body = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-notifications-id-query-id-adafb6c9.crud-create-read-step-1.request.json'));
     const { response: step1Response, elapsedMs: step1ElapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://stageautomation.heartpace.dev',

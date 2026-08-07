@@ -6,16 +6,88 @@ import {
   assertNoSensitiveFieldsInJsonResponse,
   assertResponseTime,
   assertStatusCode,
-  inferredTest,
+  calibrationTest,
   sendApiRequest,
   loadJsonFromTestFile,
   resolvePayload
 } from '../support/apiTestUtils.js';
 
 test.describe('apps.heartpace.dev /v1/dashboard/employees/team', () => {
-  // origin: inferred | category: negative | confidence: high | execution: fixme | mutationRisk: guarded | calibration: lenient
-  inferredTest('negative: POST /v1/dashboard/employees/team rejects missing level @extended @dashboard @mutating @calibrate', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-apps-heartpace-dev-v1-dashboard-employees-team-b8f089d4.missing-level.request.json'));
+  // origin: inferred | category: negative | confidence: medium | execution: calibrate | mutationRisk: guarded | calibration: pending
+  calibrationTest('negative: POST /v1/dashboard/employees/team rejects invalid type for level @extended @dashboard @mutating @calibrate', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-apps-heartpace-dev-v1-dashboard-employees-team-e110625c.invalid-type-level.request.json'));
+    const { response, elapsedMs } = await sendApiRequest({
+      request,
+      defaultBaseUrl: 'https://apps.heartpace.dev',
+      path: '/v1/dashboard/employees/team',
+      method: 'POST',
+      headers: {
+        "accept": "application/json, text/plain, */*",
+        "content-type": "application/json",
+        "x-requested-with": "XMLHttpRequest",
+        "x-site-uuid": "${X_SITE_UUID}",
+        "x-subdomain": "stageautomation"
+      },
+      payload: requestBody
+    });
+
+    assertStatusCode(response.status(), {"kind":"family","family":"4xx"}, 'negative: POST /v1/dashboard/employees/team rejects invalid type for level', 'apps.heartpace.dev');
+    assertResponseTime(elapsedMs, 2000);
+    await assertNoSensitiveFieldsInJsonResponse(response, 'negative: POST /v1/dashboard/employees/team rejects invalid type for level');
+  });
+
+
+  // origin: inferred | category: negative | confidence: medium | execution: calibrate | mutationRisk: guarded | calibration: pending
+  calibrationTest('negative: POST /v1/dashboard/employees/team rejects invalid type for page @extended @dashboard @mutating @calibrate', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-apps-heartpace-dev-v1-dashboard-employees-team-e110625c.invalid-type-page.request.json'));
+    const { response, elapsedMs } = await sendApiRequest({
+      request,
+      defaultBaseUrl: 'https://apps.heartpace.dev',
+      path: '/v1/dashboard/employees/team',
+      method: 'POST',
+      headers: {
+        "accept": "application/json, text/plain, */*",
+        "content-type": "application/json",
+        "x-requested-with": "XMLHttpRequest",
+        "x-site-uuid": "${X_SITE_UUID}",
+        "x-subdomain": "stageautomation"
+      },
+      payload: requestBody
+    });
+
+    assertStatusCode(response.status(), {"kind":"family","family":"4xx"}, 'negative: POST /v1/dashboard/employees/team rejects invalid type for page', 'apps.heartpace.dev');
+    assertResponseTime(elapsedMs, 2000);
+    await assertNoSensitiveFieldsInJsonResponse(response, 'negative: POST /v1/dashboard/employees/team rejects invalid type for page');
+  });
+
+
+  // origin: inferred | category: negative | confidence: medium | execution: calibrate | mutationRisk: guarded | calibration: pending
+  calibrationTest('negative: POST /v1/dashboard/employees/team rejects invalid type for per_page @extended @dashboard @mutating @calibrate', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-apps-heartpace-dev-v1-dashboard-employees-team-e110625c.invalid-type-per-page.request.json'));
+    const { response, elapsedMs } = await sendApiRequest({
+      request,
+      defaultBaseUrl: 'https://apps.heartpace.dev',
+      path: '/v1/dashboard/employees/team',
+      method: 'POST',
+      headers: {
+        "accept": "application/json, text/plain, */*",
+        "content-type": "application/json",
+        "x-requested-with": "XMLHttpRequest",
+        "x-site-uuid": "${X_SITE_UUID}",
+        "x-subdomain": "stageautomation"
+      },
+      payload: requestBody
+    });
+
+    assertStatusCode(response.status(), {"kind":"family","family":"4xx"}, 'negative: POST /v1/dashboard/employees/team rejects invalid type for per_page', 'apps.heartpace.dev');
+    assertResponseTime(elapsedMs, 2000);
+    await assertNoSensitiveFieldsInJsonResponse(response, 'negative: POST /v1/dashboard/employees/team rejects invalid type for per_page');
+  });
+
+
+  // origin: inferred | category: negative | confidence: high | execution: skip | mutationRisk: guarded | calibration: lenient
+  test.skip('negative: POST /v1/dashboard/employees/team rejects missing level @extended @dashboard @mutating', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-apps-heartpace-dev-v1-dashboard-employees-team-e110625c.missing-field-level.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://apps.heartpace.dev',
@@ -39,7 +111,7 @@ test.describe('apps.heartpace.dev /v1/dashboard/employees/team', () => {
 
   // origin: inferred | category: negative | confidence: high | execution: active | mutationRisk: guarded | calibration: confirmed
   test('negative: POST /v1/dashboard/employees/team rejects missing page @extended @dashboard @mutating', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-apps-heartpace-dev-v1-dashboard-employees-team-b8f089d4.missing-page.request.json'));
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-apps-heartpace-dev-v1-dashboard-employees-team-e110625c.missing-field-page.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://apps.heartpace.dev',
@@ -63,7 +135,7 @@ test.describe('apps.heartpace.dev /v1/dashboard/employees/team', () => {
 
   // origin: inferred | category: negative | confidence: high | execution: active | mutationRisk: guarded | calibration: confirmed
   test('negative: POST /v1/dashboard/employees/team rejects missing per_page @extended @dashboard @mutating', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-apps-heartpace-dev-v1-dashboard-employees-team-b8f089d4.missing-per-page.request.json'));
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-apps-heartpace-dev-v1-dashboard-employees-team-e110625c.missing-field-per-page.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://apps.heartpace.dev',
@@ -87,7 +159,7 @@ test.describe('apps.heartpace.dev /v1/dashboard/employees/team', () => {
 
   // origin: observed | category: smoke | confidence: high | execution: active | mutationRisk: guarded
   test('smoke: POST /v1/dashboard/employees/team returns 200 @smoke @dashboard @mutating', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-apps-heartpace-dev-v1-dashboard-employees-team-b8f089d4.request.json'));
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-apps-heartpace-dev-v1-dashboard-employees-team-e110625c.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://apps.heartpace.dev',

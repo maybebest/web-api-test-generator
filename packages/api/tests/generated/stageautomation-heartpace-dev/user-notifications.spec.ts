@@ -6,21 +6,68 @@ import {
   assertNoSensitiveFieldsInJsonResponse,
   assertResponseTime,
   assertStatusCode,
-  inferredTest,
+  calibrationTest,
   sendApiRequest,
   loadJsonFromTestFile,
   resolvePayload
 } from '../support/apiTestUtils.js';
 
 test.describe('stageautomation.heartpace.dev /user/notifications/', () => {
-  // origin: inferred | category: security | confidence: high | execution: fixme | mutationRisk: guarded | calibration: lenient
-  inferredTest('security: POST /user/notifications/ rejects invalid x-csrf-token @extended @profile @mutating @calibrate', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-notifications-id-query-id-6fefb99a.invalid-x-csrf-token.request.json'));
+  // origin: inferred | category: negative | confidence: low | execution: calibrate | mutationRisk: guarded | calibration: pending
+  calibrationTest('negative: POST /user/notifications/ rejects invalid query id @extended @profile @mutating @calibrate', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-notifications-id-query-id-adafb6c9.invalid-query-id.request.json'));
+    const { response, elapsedMs } = await sendApiRequest({
+      request,
+      defaultBaseUrl: 'https://stageautomation.heartpace.dev',
+      path: '/user/notifications/?id=not-a-valid-id',
+      method: 'POST',
+      headers: {
+        "accept": "*/*",
+        "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+        "x-csrf-token": "${CSRF_TOKEN}",
+        "x-requested-with": "XMLHttpRequest"
+      },
+      payload: requestBody
+    });
+
+    assertStatusCode(response.status(), {"kind":"family","family":"4xx"}, 'negative: POST /user/notifications/ rejects invalid query id', 'stageautomation.heartpace.dev');
+    assertResponseTime(elapsedMs, 2000);
+    await assertNoSensitiveFieldsInJsonResponse(response, 'negative: POST /user/notifications/ rejects invalid query id');
+  });
+
+
+  // origin: inferred | category: negative | confidence: low | execution: calibrate | mutationRisk: guarded | calibration: pending
+  calibrationTest('negative: POST /user/notifications/ rejects missing query id @extended @profile @mutating @calibrate', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-notifications-id-query-id-adafb6c9.missing-query-id.request.json'));
+    const { response, elapsedMs } = await sendApiRequest({
+      request,
+      defaultBaseUrl: 'https://stageautomation.heartpace.dev',
+      path: '/user/notifications/',
+      method: 'POST',
+      headers: {
+        "accept": "*/*",
+        "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+        "x-csrf-token": "${CSRF_TOKEN}",
+        "x-requested-with": "XMLHttpRequest"
+      },
+      payload: requestBody
+    });
+
+    assertStatusCode(response.status(), {"kind":"family","family":"4xx"}, 'negative: POST /user/notifications/ rejects missing query id', 'stageautomation.heartpace.dev');
+    assertResponseTime(elapsedMs, 2000);
+    await assertNoSensitiveFieldsInJsonResponse(response, 'negative: POST /user/notifications/ rejects missing query id');
+  });
+
+
+  // origin: inferred | category: security | confidence: high | execution: skip | mutationRisk: guarded | calibration: lenient
+  test.skip('security: POST /user/notifications/ rejects invalid x-csrf-token @extended @profile @mutating', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-notifications-id-query-id-adafb6c9.invalid-x-csrf-token.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://stageautomation.heartpace.dev',
       path: '/user/notifications/?id=${QUERY_ID}',
       method: 'POST',
+      suppressGeneratedAuth: true,
       headers: {
         "accept": "*/*",
         "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
@@ -36,14 +83,15 @@ test.describe('stageautomation.heartpace.dev /user/notifications/', () => {
   });
 
 
-  // origin: inferred | category: security | confidence: high | execution: fixme | mutationRisk: guarded | calibration: lenient
-  inferredTest('security: POST /user/notifications/ rejects missing x-csrf-token @extended @profile @mutating @calibrate', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-notifications-id-query-id-6fefb99a.missing-x-csrf-token.request.json'));
+  // origin: inferred | category: security | confidence: high | execution: skip | mutationRisk: guarded | calibration: lenient
+  test.skip('security: POST /user/notifications/ rejects missing x-csrf-token @extended @profile @mutating', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-notifications-id-query-id-adafb6c9.missing-x-csrf-token.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://stageautomation.heartpace.dev',
       path: '/user/notifications/?id=${QUERY_ID}',
       method: 'POST',
+      suppressGeneratedAuth: true,
       headers: {
         "accept": "*/*",
         "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
@@ -60,7 +108,7 @@ test.describe('stageautomation.heartpace.dev /user/notifications/', () => {
 
   // origin: observed | category: smoke | confidence: high | execution: active | mutationRisk: guarded
   test('smoke: POST /user/notifications/ returns 200 @smoke @profile @mutating', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-notifications-id-query-id-6fefb99a.request.json'));
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-notifications-id-query-id-adafb6c9.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://stageautomation.heartpace.dev',

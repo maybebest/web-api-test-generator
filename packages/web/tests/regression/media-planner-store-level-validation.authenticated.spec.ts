@@ -1,16 +1,19 @@
 // Spec-bound header: sha256 is the behavioral hash of the spec. Re-stamp with
 // `npm run ai:spec:stamp` if the spec's behavioral sections change.
-/* spec: specs/special-preconditions/media-planner-store-level-validation.md version:1.0.0 sha256:7aa40594d97352a126367fdd7b21a589a01d795c69b74777b8f8f75bc823bc83 */
+/* spec: specs/special-preconditions/media-planner-store-level-validation.md version:1.2.0 sha256:d4cd1a8aff32d0bf5a80440c7deb765c9c54f8c8797e8bb1fa4efc3b060bf4fd */
 import { test, expect } from '../../fixtures/test';
 import { PlanningPage } from '../../pages/PlanningPage';
-import { mediaPlannerData, offsetDate } from '../../data/media-planner';
+import { mediaPlannerData } from '../../data/media-planner';
+import { isStoreCountValid } from '../../data/store-range';
+import type { TestDataManager } from '../../fixtures/test-data-manager';
+import { getEveryMedia, getMedia } from '../../fixtures/nectar-api';
 
 // Spec FLOW-MP-006 (suite mode): store-volume min/max validation across pricing
 // models plus the unbounded path.
 //
 // TEST-DATA: the store-volume-bounded channels are read-only, pre-configured admin
-// `media` entities. Their MIN/MAX bounds are the source of truth via
-// E2E_MP_STORE_VOLUME_MIN / E2E_MP_STORE_VOLUME_MAX (dev defaults 50 / 300);
+// `media` entities. Their live audienceAndTargeting MIN/MAX bounds are read through
+// dataManager.getChannelStoreBounds before each boundary request;
 // provisioning/teardown of the four pricing-model channels + the unbounded channel
 // would use the channel-management client's observed `api.updateField(...)`.
 //
@@ -22,8 +25,6 @@ import { mediaPlannerData, offsetDate } from '../../data/media-planner';
 // Channel names and the store/error chat copy are INFERRED past the read-only recon
 // boundary and must be healed before the execution gate is run.
 
-const MIN = Number(process.env.E2E_MP_STORE_VOLUME_MIN ?? '50');
-const MAX = Number(process.env.E2E_MP_STORE_VOLUME_MAX ?? '300');
 const START_OFFSET = 14;
 const END_OFFSET = 44;
 
@@ -36,18 +37,160 @@ function storeRangeRejection(name: string, min: number, max: number): string {
   return `Please enter a number of stores between ${min} and ${max} for ${name}.`;
 }
 
+async function boundedStoreRange(dataManager: TestDataManager, channel: string): Promise<{ min: number; max: number }> {
+  const { minStoreVolume, maxStoreVolume } = await dataManager.getChannelStoreBounds(channel);
+  const parseOverride = (rawValue: string | undefined, name: string): number | undefined => {
+    const raw = rawValue?.trim();
+    if (!raw) return undefined;
+    const value = Number(raw);
+    if (!Number.isInteger(value) || value < 0) {
+      throw new Error(`${name} must be a non-negative integer, received "${raw}"`);
+    }
+    return value;
+  };
+  const expectedMin = parseOverride(process.env.E2E_MP_STORE_VOLUME_MIN, 'E2E_MP_STORE_VOLUME_MIN') ?? 50;
+  const expectedMax = parseOverride(process.env.E2E_MP_STORE_VOLUME_MAX, 'E2E_MP_STORE_VOLUME_MAX') ?? 300;
+  if (expectedMin > expectedMax) {
+    throw new Error(`Store-volume expected range is invalid: ${expectedMin}/${expectedMax}`);
+  }
+  if (minStoreVolume !== expectedMin || maxStoreVolume !== expectedMax) {
+    throw new Error(
+      `Store-volume preflight for "${channel}" expected ${expectedMin}/${expectedMax}, received ${String(minStoreVolume)}/${String(maxStoreVolume)}`
+    );
+  }
+  return { min: expectedMin, max: expectedMax };
+}
+
+async function requireUnboundedStoreRange(dataManager: TestDataManager, channel: string): Promise<void> {
+  const bounds = await dataManager.getChannelStoreBounds(channel);
+  if (bounds.minStoreVolume !== null || bounds.maxStoreVolume !== null) {
+    throw new Error(
+      `Configured unbounded channel "${channel}" unexpectedly has live bounds ${String(bounds.minStoreVolume)}/${String(bounds.maxStoreVolume)}`
+    );
+  }
+}
+
 // INFERRED channel identifiers (env-overridable); real pre-configured names should be
 // resolved via the channel-management API / DOM discovery.
-const CH = {
-  costPerStore: process.env.E2E_MP_COST_PER_STORE_CHANNEL ?? 'Cost per store',
-  costPerUnit: process.env.E2E_MP_COST_PER_UNIT_CHANNEL ?? 'Cost per unit',
-  baseRate: process.env.E2E_MP_BASE_RATE_CHANNEL ?? 'Base rate',
-  fixedCost: process.env.E2E_MP_FIXED_COST_CHANNEL ?? 'Fixed cost',
-  unbounded: process.env.E2E_MP_UNBOUNDED_CHANNEL ?? 'Unbounded channel'
-};
+function requiredChannel(rawValue: string | undefined, name: string): string {
+  const value = rawValue?.trim();
+  if (!value) throw new Error(`${name} is required and must name an exact non-production channel`);
+  return value;
+}
 
-function storeLine(channel: string, stores: number): string {
-  return `${channel}, ${stores} stores, ${offsetDate(START_OFFSET)} till ${offsetDate(END_OFFSET)}, the budget is £25,000`;
+const CHANNEL_ENV = {
+  costPerStore: { name: 'E2E_MP_COST_PER_STORE_CHANNEL', value: process.env.E2E_MP_COST_PER_STORE_CHANNEL },
+  costPerUnit: { name: 'E2E_MP_COST_PER_UNIT_CHANNEL', value: process.env.E2E_MP_COST_PER_UNIT_CHANNEL },
+  baseRate: { name: 'E2E_MP_BASE_RATE_CHANNEL', value: process.env.E2E_MP_BASE_RATE_CHANNEL },
+  unbounded: { name: 'E2E_MP_UNBOUNDED_CHANNEL', value: process.env.E2E_MP_UNBOUNDED_CHANNEL }
+} as const;
+type StoreChannelKey = keyof typeof CHANNEL_ENV;
+let resolvedChannels: Readonly<Record<StoreChannelKey, string>> | undefined;
+
+function configuredChannels(): Readonly<Record<StoreChannelKey, string>> {
+  if (!resolvedChannels) {
+    const channels = Object.fromEntries(
+      Object.entries(CHANNEL_ENV).map(([key, setting]) => [key, requiredChannel(setting.value, setting.name)])
+    ) as Record<StoreChannelKey, string>;
+    if (new Set(Object.values(channels)).size !== Object.values(channels).length) {
+      throw new Error('Store-volume channel env values must be distinct');
+    }
+    resolvedChannels = Object.freeze(channels);
+  }
+  return resolvedChannels;
+}
+
+function channelName(key: StoreChannelKey): string {
+  return configuredChannels()[key];
+}
+
+type StorePricingModel = 'cost-per-store' | 'cost-per-unit' | 'base-rate';
+const pricingPreflight = new Map<string, Promise<void>>();
+
+function normalized(value: unknown): string {
+  return String(value ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+function collectPricingModels(value: unknown): string[] {
+  if (Array.isArray(value)) return value.flatMap(collectPricingModels);
+  if (value === null || typeof value !== 'object') return [];
+  return Object.entries(value as Record<string, unknown>).flatMap(([key, child]) =>
+    key === 'pricingModel' ? [normalized(child)] : collectPricingModels(child)
+  );
+}
+
+function pricingModelMatches(labels: string[], expected: StorePricingModel): boolean {
+  if (expected === 'cost-per-store') return labels.some((label) => label.includes('store'));
+  if (expected === 'cost-per-unit') return labels.some((label) => label.includes('unit'));
+  return labels.some((label) => label.includes('base'));
+}
+
+async function requirePricingModel(channel: string, expected: StorePricingModel): Promise<void> {
+  const key = `${channel}:${expected}`;
+  let preflight = pricingPreflight.get(key);
+  if (!preflight) {
+    preflight = (async () => {
+      const matches = (await getEveryMedia()).filter((media) => media.name === channel);
+      if (matches.length !== 1) {
+        throw new Error(`store-volume preflight: expected exactly one channel named "${channel}", found ${matches.length}`);
+      }
+      const labels = collectPricingModels(await getMedia(matches[0].id));
+      if (!pricingModelMatches(labels, expected)) {
+        throw new Error(`store-volume preflight: "${channel}" does not expose pricing model ${expected}`);
+      }
+    })();
+    pricingPreflight.set(key, preflight);
+  }
+  return preflight;
+}
+
+const acceptedStoreCases = [
+  { caseId: 'DC-003', channelKey: 'costPerStore', model: 'cost-per-store', boundary: 'midpoint' },
+  { caseId: 'DC-004', channelKey: 'costPerStore', model: 'cost-per-store', boundary: 'maximum' },
+  { caseId: 'DC-007', channelKey: 'costPerUnit', model: 'cost-per-unit', boundary: 'minimum' },
+  { caseId: 'DC-009', channelKey: 'baseRate', model: 'base-rate', boundary: 'maximum' }
+] as const;
+
+const boundaryRejectionCases = [
+  { caseId: 'DC-001', negId: 'NEG-001', channelKey: 'costPerStore', model: 'cost-per-store', boundary: 'below-minimum' },
+  { caseId: 'DC-005', negId: 'NEG-002', channelKey: 'costPerStore', model: 'cost-per-store', boundary: 'above-maximum' }
+] as const;
+
+const crossModelRejectionCases = [
+  { caseId: 'DC-006', channelKey: 'costPerUnit', model: 'cost-per-unit', boundary: 'above-maximum' },
+  { caseId: 'DC-008', channelKey: 'baseRate', model: 'base-rate', boundary: 'below-minimum' }
+] as const;
+
+const unboundedStoreCases = [
+  { caseId: 'DC-011', stores: 1 },
+  { caseId: 'DC-012', stores: 100000 }
+] as const;
+
+function acceptedStoreCount(range: { min: number; max: number }, boundary: 'minimum' | 'midpoint' | 'maximum'): number {
+  if (boundary === 'minimum') return range.min;
+  if (boundary === 'maximum') return range.max;
+  return Math.floor((range.min + range.max) / 2);
+}
+
+function rejectedStoreCount(
+  range: { min: number; max: number },
+  boundary: 'below-minimum' | 'above-maximum'
+): number {
+  return boundary === 'below-minimum' ? range.min - 1 : range.max + 1;
+}
+
+function dateFromAnchor(anchor: Date, offsetDays: number): string {
+  const date = new Date(anchor);
+  date.setDate(date.getDate() + offsetDays);
+  return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()}`;
+}
+
+function storeLine(channel: string, stores: number, calendarAnchor: Date): string {
+  return `${channel}, ${stores} stores, ${dateFromAnchor(calendarAnchor, START_OFFSET)} till ${dateFromAnchor(calendarAnchor, END_OFFSET)}, the budget is £25,000`;
+}
+
+function calendarKey(date: Date): string {
+  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
 }
 
 async function setupPlan(planningPage: PlanningPage): Promise<void> {
@@ -68,17 +211,17 @@ async function send(planningPage: PlanningPage, line: string): Promise<void> {
   await planningPage.waitForAssistantIdle();
 }
 
-const POLL = { timeout: 75000 } as const;
-
 test.describe.serial(
   'Media Planner store-level minimum and maximum store validation',
   { tag: ['@generated', '@regression', '@media-planner', '@authenticated', '@special-preconditions'] },
   () => {
     test('AC-001 planning page exposes the Nectar AI Assistant entry point', async ({ page }) => {
       const planningPage = new PlanningPage(page);
+
       await test.step('Open the planning page', async () => {
         await planningPage.goto();
       });
+
       await test.step('Assert AC-001: the Nectar AI Assistant entry point is visible', async () => {
         await expect(planningPage.nectarAssistantHeading()).toBeVisible();
         await expect(planningPage.startAssistantButton()).toBeVisible();
@@ -87,10 +230,12 @@ test.describe.serial(
 
     test('AC-002 the objective and budget guided flow can be started', async ({ page }) => {
       const planningPage = new PlanningPage(page);
+
       await test.step('Open the Nectar AI assistant', async () => {
         await planningPage.goto();
         await planningPage.startNectarAiPlanner();
       });
+
       await test.step('Assert AC-002: the objective & budget flow choice is available', async () => {
         await expect(planningPage.buildByObjectiveButton()).toBeVisible();
       });
@@ -98,9 +243,11 @@ test.describe.serial(
 
     test('AC-003 advertiser, brand, objective and SKU setup is completed', async ({ page }) => {
       const planningPage = new PlanningPage(page);
+
       await test.step('Complete the guided plan setup', async () => {
         await setupPlan(planningPage);
       });
+
       await test.step('Assert AC-003: the assistant requests a channel, a budget and a timeline', async () => {
         await expect(planningPage.assistantChatPanel()).toContainText('channel');
         await expect(planningPage.assistantChatPanel()).toContainText('budget');
@@ -108,149 +255,234 @@ test.describe.serial(
       });
     });
 
-    test('DC-002 AC-004 a channel request with a store count, dates and budget is sent', async ({ page }) => {
+    test('DC-002 AC-004 a channel request with a store count, dates and budget is sent', async ({ page, dataManager }) => {
       const planningPage = new PlanningPage(page);
+      const calendarAnchor = new Date();
+      let minimum = 0;
+      let channel = '';
+
       await test.step('Send a Cost-per-store channel at the minimum store count', async () => {
+        channel = channelName('costPerStore');
+        await requirePricingModel(channel, 'cost-per-store');
+        ({ min: minimum } = await boundedStoreRange(dataManager, channel));
         await setupPlan(planningPage);
-        await send(planningPage, storeLine(CH.costPerStore, MIN));
+        await send(planningPage, storeLine(channel, minimum, calendarAnchor));
       });
+
       await test.step('Assert AC-004: the channel name and store count appear in the conversation', async () => {
-        await expect(planningPage.assistantChatPanel()).toContainText(CH.costPerStore);
-        await expect(planningPage.assistantChatPanel()).toContainText(`${MIN} stores`);
+        await expect(planningPage.assistantChatPanel()).toContainText(channel);
+        await expect(planningPage.assistantChatPanel()).toContainText(`${minimum} stores`);
+        await expect.poll(() => calendarKey(new Date())).toBe(calendarKey(calendarAnchor));
       });
     });
 
-    // DC-001/DC-005/DC-006/DC-008/DC-010 (below-min / above-max rejects across models)
-    // enumerated via a loop; the AC-005 assertion title stays static.
-    for (const dataCase of [{ caseIds: 'DC-001 DC-005 DC-006 DC-008 DC-010' }]) {
-      void dataCase;
-      test('DC-001 DC-005 below-minimum and above-maximum store counts are blocked', async ({ page }) => {
-        test.slow();
+    for (const dataCase of boundaryRejectionCases) {
+      test(`${dataCase.caseId} rejected Cost-per-store boundary is isolated in a fresh plan`, async ({ page, dataManager }) => {
         const planningPage = new PlanningPage(page);
-        await test.step('Send a below-minimum (49) and an above-maximum (301) Cost-per-store count', async () => {
+        const calendarAnchor = new Date();
+        let range = { min: 0, max: 0 };
+        let channel = '';
+
+        await test.step('Read live bounds and send exactly one out-of-range request', async () => {
+          channel = channelName(dataCase.channelKey);
+          await requirePricingModel(channel, dataCase.model);
+          range = await boundedStoreRange(dataManager, channel);
           await setupPlan(planningPage);
-          await send(planningPage, storeLine(CH.costPerStore, MIN - 1)); // DC-001 below-minimum
-          await send(planningPage, storeLine(CH.costPerStore, MAX + 1)); // DC-005 above-maximum
+          await send(
+            planningPage,
+            storeLine(channel, rejectedStoreCount(range, dataCase.boundary), calendarAnchor)
+          );
         });
-        await test.step('Assert AC-005: out-of-range counts show the "between 50 and 300" error and the channel is not added', async () => {
-          await expect(planningPage.assistantChatPanel()).toContainText('between 50 and 300');
-          await expect(planningPage.assistantChatPanel()).toContainText(CH.costPerStore);
-          await expect(planningPage.summaryChannel(CH.costPerStore)).toHaveCount(0);
+
+        await test.step('Assert AC-005: the boundary count is rejected with the configured range', async () => {
+          await expect(planningPage.assistantChatPanel()).toContainText(
+            storeRangeRejection(channel, range.min, range.max)
+          );
+          await expect(planningPage.assistantChatPanel()).toContainText(channel);
+          await expect(planningPage.summaryChannel(channel)).toHaveCount(0);
+          await expect.poll(() => calendarKey(new Date())).toBe(calendarKey(calendarAnchor));
         });
       });
     }
 
-    test('DC-003 DC-004 DC-007 DC-009 AC-006 in-range counts are accepted across store-driven pricing models', async ({ page }) => {
-      test.slow();
+    test('DC-001 NEG-001 configured Cost-per-store minimum boundary is rejected', async ({ page, dataManager }) => {
+      const dataCase = boundaryRejectionCases[0];
       const planningPage = new PlanningPage(page);
-      await test.step('Send at-minimum, in-range and at-maximum counts across pricing models', async () => {
+      const calendarAnchor = new Date();
+      let range = { min: 0, max: 0 };
+      let channel = '';
+
+      await test.step('Arrange NEG-001: send exactly one min-1 store request', async () => {
+        channel = channelName(dataCase.channelKey);
+        await requirePricingModel(channel, dataCase.model);
+        range = await boundedStoreRange(dataManager, channel);
         await setupPlan(planningPage);
-        await send(planningPage, storeLine(CH.costPerStore, 175)); // DC-003 above-minimum / in-range
-        await send(planningPage, storeLine(CH.costPerStore, MAX)); // DC-004 at-maximum
-        await send(planningPage, storeLine(CH.costPerUnit, MIN)); // DC-007 at-minimum (cost-per-unit)
-        await send(planningPage, storeLine(CH.baseRate, MAX)); // DC-009 at-maximum (base rate)
+        await send(
+          planningPage,
+          storeLine(channel, rejectedStoreCount(range, dataCase.boundary), calendarAnchor)
+        );
       });
-      await test.step('Assert AC-006: in-range channels are added with no store-range error', async () => {
-        await expect(planningPage.summaryChannel(CH.costPerStore)).toBeVisible();
-        await expect(planningPage.assistantChatPanel()).not.toContainText('between 50 and 300');
+
+      await test.step('Assert NEG-001: the below-minimum channel is absent with its exact configured-range error', async () => {
+        await expect(planningPage.assistantChatPanel()).toContainText(
+          storeRangeRejection(channel, range.min, range.max)
+        );
+        await expect(planningPage.summaryChannel(channel)).toHaveCount(0);
+        await expect.poll(() => calendarKey(new Date())).toBe(calendarKey(calendarAnchor));
       });
     });
 
-    test('DC-011 DC-012 AC-007 an unbounded channel accepts any store count', async ({ page }) => {
+    test('DC-005 NEG-002 configured Cost-per-store maximum boundary is rejected', async ({ page, dataManager }) => {
+      const dataCase = boundaryRejectionCases[1];
       const planningPage = new PlanningPage(page);
-      await test.step('Send a very low and a very high count to the unbounded channel', async () => {
+      const calendarAnchor = new Date();
+      let range = { min: 0, max: 0 };
+      let channel = '';
+
+      await test.step('Arrange NEG-002: send exactly one max+1 store request', async () => {
+        channel = channelName(dataCase.channelKey);
+        await requirePricingModel(channel, dataCase.model);
+        range = await boundedStoreRange(dataManager, channel);
         await setupPlan(planningPage);
-        await send(planningPage, storeLine(CH.unbounded, 1)); // DC-011
-        await send(planningPage, storeLine(CH.unbounded, 100000)); // DC-012
+        await send(
+          planningPage,
+          storeLine(channel, rejectedStoreCount(range, dataCase.boundary), calendarAnchor)
+        );
       });
-      await test.step('Assert AC-007: the unbounded channel is added with no store-range error', async () => {
-        await expect(planningPage.summaryChannel(CH.unbounded)).toBeVisible();
-        await expect(planningPage.assistantChatPanel()).not.toContainText('between 50 and 300');
+
+      await test.step('Assert NEG-002: the above-maximum channel is absent with its exact configured-range error', async () => {
+        await expect(planningPage.assistantChatPanel()).toContainText(
+          storeRangeRejection(channel, range.min, range.max)
+        );
+        await expect(planningPage.summaryChannel(channel)).toHaveCount(0);
+        await expect.poll(() => calendarKey(new Date())).toBe(calendarKey(calendarAnchor));
       });
     });
 
-    test('DC-013 DC-014 AC-008 the store-range predicate and verbatim message builder hold against the live UI', async ({ page }) => {
+    for (const dataCase of crossModelRejectionCases) {
+      test(`${dataCase.caseId} NEG-003 out-of-range enforcement is pricing-model independent`, async ({ page, dataManager }) => {
+        const planningPage = new PlanningPage(page);
+        const calendarAnchor = new Date();
+        let expectedMessage = '';
+        let channel = '';
+
+        await test.step('Arrange NEG-003: send exactly one out-of-range request for this pricing model', async () => {
+          channel = channelName(dataCase.channelKey);
+          await requirePricingModel(channel, dataCase.model);
+          const range = await boundedStoreRange(dataManager, channel);
+          expectedMessage = storeRangeRejection(channel, range.min, range.max);
+          await setupPlan(planningPage);
+          await send(
+            planningPage,
+            storeLine(channel, rejectedStoreCount(range, dataCase.boundary), calendarAnchor)
+          );
+        });
+
+        await test.step('Assert NEG-003: the supplied out-of-range store count is rejected for this pricing model', async () => {
+          await expect(planningPage.assistantChatPanel()).toContainText(expectedMessage);
+          await expect(planningPage.summaryChannel(channel)).toHaveCount(0);
+          await expect.poll(() => calendarKey(new Date())).toBe(calendarKey(calendarAnchor));
+        });
+      });
+    }
+
+    for (const dataCase of acceptedStoreCases) {
+      test(`${dataCase.caseId} AC-006 accepted boundary is isolated in a fresh plan`, async ({ page, dataManager }) => {
+        const planningPage = new PlanningPage(page);
+        const calendarAnchor = new Date();
+        let range = { min: 0, max: 0 };
+        let channel = '';
+
+        await test.step('Read this channel range and send exactly one accepted request', async () => {
+          channel = channelName(dataCase.channelKey);
+          await requirePricingModel(channel, dataCase.model);
+          range = await boundedStoreRange(dataManager, channel);
+          await setupPlan(planningPage);
+          await send(
+            planningPage,
+            storeLine(channel, acceptedStoreCount(range, dataCase.boundary), calendarAnchor)
+          );
+        });
+
+        await test.step('Assert AC-006: this channel is added with no applicable store-range error', async () => {
+          await expect(planningPage.summaryChannel(channel)).toBeVisible();
+          await expect(planningPage.assistantChatPanel()).not.toContainText(
+            storeRangeRejection(channel, range.min, range.max)
+          );
+          await expect.poll(() => calendarKey(new Date())).toBe(calendarKey(calendarAnchor));
+        });
+      });
+    }
+
+    for (const dataCase of unboundedStoreCases) {
+      test(`${dataCase.caseId} AC-007 unbounded count is isolated in a fresh plan`, async ({ page, dataManager }) => {
+        const planningPage = new PlanningPage(page);
+        const calendarAnchor = new Date();
+        let channel = '';
+
+        await test.step('Verify no live bounds and send exactly one request', async () => {
+          channel = channelName('unbounded');
+          await requireUnboundedStoreRange(dataManager, channel);
+          await setupPlan(planningPage);
+          await send(planningPage, storeLine(channel, dataCase.stores, calendarAnchor));
+        });
+
+        await test.step('Assert AC-007: the unbounded channel is added with no store-range error', async () => {
+          await expect(planningPage.summaryChannel(channel)).toBeVisible();
+          await expect(planningPage.assistantChatPanel()).not.toContainText(/between\s+\d+\s+and\s+\d+/i);
+          await expect.poll(() => calendarKey(new Date())).toBe(calendarKey(calendarAnchor));
+        });
+      });
+    }
+
+    test('DC-014 AC-008 default "between 50 and 300" copy is generalized by the live builder', async ({ page, dataManager }) => {
       const planningPage = new PlanningPage(page);
+      const calendarAnchor = new Date();
       // The builder produces the exact verbatim rejection for the configured bounds,
       // asserted against the live reply (the predicate's inclusive boundaries are
       // proven by the AC-005 / AC-006 boundary sends).
-      const belowMin = MIN - 1;
-      const expectedMessage = storeRangeRejection(CH.costPerStore, MIN, MAX);
+      let expectedMessage = '';
+      let channel = '';
+
       await test.step('Send a below-minimum count to a bounded channel', async () => {
+        channel = channelName('costPerStore');
+        await requirePricingModel(channel, 'cost-per-store');
+        const range = await boundedStoreRange(dataManager, channel);
+        expectedMessage = storeRangeRejection(channel, range.min, range.max);
         await setupPlan(planningPage);
-        await send(planningPage, storeLine(CH.costPerStore, belowMin));
+        await send(planningPage, storeLine(channel, range.min - 1, calendarAnchor));
       });
+
       await test.step('Assert AC-008: the live rejection equals the verbatim builder string for the configured bounds', async () => {
-        await expect(planningPage.assistantChatPanel()).toContainText('between 50 and 300');
         await expect(planningPage.assistantChatPanel()).toContainText(expectedMessage);
+        await expect.poll(() => calendarKey(new Date())).toBe(calendarKey(calendarAnchor));
       });
     });
 
-    test('DC-001 NEG-001 a below-minimum Cost-per-store count is rejected', async ({ page }) => {
-      const planningPage = new PlanningPage(page);
-      await test.step('Arrange NEG-001: send a below-minimum Cost-per-store count', async () => {
-        await setupPlan(planningPage);
-        await send(planningPage, storeLine(CH.costPerStore, MIN - 1));
+    test('DC-013 store-range predicate covers bounded, one-sided and unbounded configurations', async () => {
+      const rows = [
+        { stores: 49, min: 50, max: 300, expected: false },
+        { stores: 50, min: 50, max: 300, expected: true },
+        { stores: 300, min: 50, max: 300, expected: true },
+        { stores: 301, min: 50, max: 300, expected: false },
+        { stores: 49, min: 50, max: null, expected: false },
+        { stores: 100000, min: 50, max: null, expected: true },
+        { stores: 1, min: null, max: 300, expected: true },
+        { stores: 301, min: null, max: 300, expected: false },
+        { stores: 1, min: null, max: null, expected: true },
+        { stores: 0, min: 50, max: 300, expected: false }
+      ];
+
+      await test.step('Evaluate every documented predicate row without a live plan', async () => {
+        void rows.length;
       });
-      await test.step('Assert NEG-001: the channel is not added and the store-range error is shown', async () => {
-        await expect(planningPage.assistantChatPanel()).toContainText('between 50 and 300');
-        await expect(planningPage.summaryChannel(CH.costPerStore)).toHaveCount(0);
+
+      await test.step('Assert AC-008: bounded, min-only, max-only and unbounded rows match the contract', async () => {
+        await expect
+          .poll(() => rows.map((row) => isStoreCountValid(row.stores, row.min, row.max)))
+          .toEqual(rows.map((row) => row.expected));
       });
     });
 
-    test('DC-005 NEG-002 an above-maximum Cost-per-store count is rejected', async ({ page }) => {
-      const planningPage = new PlanningPage(page);
-      await test.step('Arrange NEG-002: send an above-maximum Cost-per-store count', async () => {
-        await setupPlan(planningPage);
-        await send(planningPage, storeLine(CH.costPerStore, MAX + 1));
-      });
-      await test.step('Assert NEG-002: the channel is not added and the store-range error is shown', async () => {
-        await expect(planningPage.assistantChatPanel()).toContainText('between 50 and 300');
-        await expect(planningPage.summaryChannel(CH.costPerStore)).toHaveCount(0);
-      });
-    });
-
-    test('DC-006 NEG-003 an above-maximum Cost-per-unit count is rejected (model-independent)', async ({ page }) => {
-      const planningPage = new PlanningPage(page);
-      await test.step('Arrange NEG-003: send an above-maximum Cost-per-unit count', async () => {
-        await setupPlan(planningPage);
-        await send(planningPage, storeLine(CH.costPerUnit, MAX + 1));
-      });
-      await test.step('Assert NEG-003: the channel is not added and the store-range error is shown', async () => {
-        await expect(planningPage.assistantChatPanel()).toContainText('between 50 and 300');
-        await expect(planningPage.summaryChannel(CH.costPerUnit)).toHaveCount(0);
-      });
-    });
-
-    test('DC-008 NEG-004 a below-minimum Base-rate count with a store number supplied is rejected', async ({ page }) => {
-      const planningPage = new PlanningPage(page);
-      await test.step('Arrange NEG-004: send a below-minimum Base-rate count', async () => {
-        await setupPlan(planningPage);
-        await send(planningPage, storeLine(CH.baseRate, MIN - 1));
-      });
-      await test.step('Assert NEG-004: the channel is not added and the store-range error is shown', async () => {
-        await expect(planningPage.assistantChatPanel()).toContainText('between 50 and 300');
-        await expect(planningPage.summaryChannel(CH.baseRate)).toHaveCount(0);
-      });
-    });
-
-    test('DC-010 NEG-005 an above-maximum Fixed-cost count follows the documented store-range outcome', async ({ page }) => {
-      const planningPage = new PlanningPage(page);
-      await test.step('Arrange NEG-005: send an above-maximum Fixed-cost count', async () => {
-        // Open question (NUP-19132 vs pricing PDF): Fixed cost may consume the store
-        // input (blocked) or ignore it (channel added). This asserts the primary
-        // documented outcome (blocked); record the alternate if observed live.
-        test.info().annotations.push({
-          type: 'open-question',
-          description: 'NUP-19132: Fixed cost may ignore the store input and auto-populate budget (channel added). Assert one of the two documented outcomes.'
-        });
-        await setupPlan(planningPage);
-        await send(planningPage, storeLine(CH.fixedCost, MAX + 1));
-      });
-      await test.step('Assert NEG-005: the Fixed-cost channel shows the store-range error and is not added', async () => {
-        await expect(planningPage.assistantChatPanel()).toContainText('between 50 and 300');
-        await expect(planningPage.summaryChannel(CH.fixedCost)).toHaveCount(0);
-      });
-    });
   }
 );

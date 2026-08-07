@@ -82,6 +82,136 @@ describe('HAR parsing and normalization pipeline', () => {
     expect(entries).toHaveLength(4);
   });
 
+  it('supports postData.params and decodes base64 JSON responses before normalization', async () => {
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'har-api-tests-encoded-'));
+    const harPath = path.join(tmpDir, 'encoded.har');
+    const responseBody = { id: 7, displayName: 'Grace Hopper' };
+    await fs.writeFile(
+      harPath,
+      JSON.stringify({
+        log: {
+          entries: [
+            {
+              startedDateTime: '2026-08-01T10:15:30.000Z',
+              time: 12.5,
+              request: {
+                method: 'POST',
+                url: 'https://api.example.test/v1/users',
+                headers: [{ name: 'Content-Type', value: 'application/x-www-form-urlencoded' }],
+                postData: {
+                  mimeType: 'application/x-www-form-urlencoded',
+                  params: [
+                    { name: 'name', value: 'Grace Hopper' },
+                    { name: 'password', value: 'captured-password' }
+                  ]
+                }
+              },
+              response: {
+                status: 201,
+                headers: [{ name: 'Content-Type', value: 'application/json' }],
+                content: {
+                  mimeType: 'application/json',
+                  encoding: 'base64',
+                  text: Buffer.from(JSON.stringify(responseBody), 'utf8').toString('base64')
+                }
+              }
+            }
+          ]
+        }
+      }),
+      'utf8'
+    );
+
+    const parsed = await parseHarInputs([harPath]);
+    const [normalized] = normalizeHarEntries(parsed, defaultConfig);
+
+    expect(normalized.startedDateTime).toBe('2026-08-01T10:15:30.000Z');
+    expect(normalized.requestBody).toBe('name=Grace%20Hopper&password=${TEST_PASSWORD}');
+    expect(normalized.responseBody).toEqual(responseBody);
+  });
+
+  it('fails closed for malformed or conflicting urlencoded HAR bodies', () => {
+    const entry = {
+      sourceFile: 'malformed-form.har',
+      entryIndex: 0,
+      timeMs: 10,
+      request: {
+        method: 'POST',
+        url: 'https://api.example.test/v1/users',
+        headers: [{ name: 'Content-Type', value: 'application/x-www-form-urlencoded' }],
+        postData: {
+          mimeType: 'application/x-www-form-urlencoded',
+          text: 'name=Grace%ZZHopper',
+          params: [{ name: 'name', value: 'Grace Hopper' }]
+        }
+      },
+      response: { status: 200, headers: [] }
+    };
+
+    expect(() => normalizeHarEntries([entry], defaultConfig)).toThrow(
+      /Malformed application\/x-www-form-urlencoded HAR body: invalid percent escape/
+    );
+
+    expect(() =>
+      normalizeHarEntries(
+        [
+          {
+            ...entry,
+            request: {
+              ...entry.request,
+              postData: {
+                ...entry.request.postData,
+                text: 'name=Grace',
+                params: [{ name: 'name', value: 'Ada' }]
+              }
+            }
+          }
+        ],
+        defaultConfig
+      )
+    ).toThrow(/postData\.text and postData\.params describe different fields/);
+  });
+
+  it('rejects malformed nested HAR values with a precise JSON path', async () => {
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'har-api-tests-invalid-'));
+    const cases: Array<{ name: string; entry: unknown; expected: RegExp }> = [
+      {
+        name: 'relative-url',
+        entry: {
+          request: { method: 'GET', url: '/relative', headers: [] },
+          response: { status: 200, headers: [] }
+        },
+        expected: /\$\.log\.entries\[0\]\.request\.url/
+      },
+      {
+        name: 'invalid-status',
+        entry: {
+          request: { method: 'GET', url: 'https://api.example.test/v1/users', headers: [] },
+          response: { status: 700, headers: [] }
+        },
+        expected: /\$\.log\.entries\[0\]\.response\.status/
+      },
+      {
+        name: 'invalid-base64',
+        entry: {
+          request: { method: 'GET', url: 'https://api.example.test/v1/users', headers: [] },
+          response: {
+            status: 200,
+            headers: [],
+            content: { mimeType: 'application/json', encoding: 'base64', text: 'not base64!' }
+          }
+        },
+        expected: /\$\.log\.entries\[0\]\.response\.content\.text/
+      }
+    ];
+
+    for (const testCase of cases) {
+      const filePath = path.join(tmpDir, `${testCase.name}.har`);
+      await fs.writeFile(filePath, JSON.stringify({ log: { entries: [testCase.entry] } }), 'utf8');
+      await expect(parseHarInputs([filePath])).rejects.toThrow(testCase.expected);
+    }
+  });
+
   it('masks multipart secrets, preserves boundaries, and plans CSRF variants', () => {
     const boundary = '----WebKitFormBoundaryTest';
     const multipartBody = [

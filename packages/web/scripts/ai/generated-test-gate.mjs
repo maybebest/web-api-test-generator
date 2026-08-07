@@ -627,9 +627,16 @@ function reportExecutionContract(report, expected) {
 export function verifyPlaywrightJsonReports(report, targetTestFiles, expectedExecution) {
   const targets = normalizePlaywrightTargets(targetTestFiles);
   const executionContract = reportExecutionContract(report, expectedExecution);
-  const environmentIssues = Array.isArray(report?.errors) && report.errors.length > 0
+  const reportErrors = Array.isArray(report?.errors) ? report.errors : [];
+  const controlledMaxFailureStop = report?.config?.maxFailures === 1
+    && executionContract.stats?.unexpected > 0
+    && reportErrors.length > 0
+    && reportErrors.every((error) => (
+      String(error?.message ?? error?.value ?? '') === 'Testing stopped early after 1 maximum allowed failures.'
+    ));
+  const environmentIssues = reportErrors.length > 0 && !controlledMaxFailureStop
     ? [
-        `Playwright JSON report contains ${report.errors.length} top-level setup, teardown, or configuration error(s).`,
+        `Playwright JSON report contains ${reportErrors.length} top-level setup, teardown, or configuration error(s).`,
         ...executionContract.issues
       ]
     : [...executionContract.issues];
@@ -642,6 +649,7 @@ export function verifyPlaywrightJsonReports(report, targetTestFiles, expectedExe
   let totalExecutionCount = 0;
   const completeCounts = emptyExecutionCounts();
   const logicalSpecIds = new Set();
+  const targetLogicalExecutionCounts = new Map();
   const states = new Map(targets.map((target) => [target, {
     issues: [],
     counts: emptyExecutionCounts(),
@@ -659,12 +667,15 @@ export function verifyPlaywrightJsonReports(report, targetTestFiles, expectedExe
     return undefined;
   };
 
-  const visitSuite = (suite, inheritedFile) => {
+  const visitSuite = (suite, inheritedFile, inheritedTitles = []) => {
     if (!plainObject(suite)) {
       reportTreeContractMismatch = true;
       return;
     }
     const suiteFile = suite?.file ?? inheritedFile;
+    const suiteTitles = typeof suite.title === 'string'
+      ? [...inheritedTitles, suite.title]
+      : inheritedTitles;
     const specs = suite.specs ?? [];
     const childSuites = suite.suites ?? [];
     if (!Array.isArray(specs) || !Array.isArray(childSuites)) {
@@ -690,8 +701,18 @@ export function verifyPlaywrightJsonReports(report, targetTestFiles, expectedExe
       const target = targetForReportFile(spec.file ?? suiteFile);
       const counts = target ? states.get(target).counts : undefined;
       if (!target && expectedExecution !== undefined) unaccountedExecutionCount += tests.length;
-      if (expectedExecution !== undefined && tests.length !== expectedExecution.repeatEach) {
-        targetRepeatContractMismatch = true;
+      if (target && expectedExecution !== undefined) {
+        const logicalExecutionKey = JSON.stringify([
+          target,
+          suiteTitles,
+          typeof spec.title === 'string' ? spec.title : '',
+          Number.isSafeInteger(spec.line) ? spec.line : null,
+          Number.isSafeInteger(spec.column) ? spec.column : null
+        ]);
+        targetLogicalExecutionCounts.set(
+          logicalExecutionKey,
+          (targetLogicalExecutionCounts.get(logicalExecutionKey) ?? 0) + tests.length
+        );
       }
 
       for (const testEntry of tests) {
@@ -736,7 +757,7 @@ export function verifyPlaywrightJsonReports(report, targetTestFiles, expectedExe
     }
 
     for (const child of childSuites) {
-      visitSuite(child, suiteFile);
+      visitSuite(child, suiteFile, suiteTitles);
     }
   };
 
@@ -744,6 +765,8 @@ export function verifyPlaywrightJsonReports(report, targetTestFiles, expectedExe
     visitSuite(suite, undefined);
   }
   if (expectedExecution !== undefined) {
+    targetRepeatContractMismatch = [...targetLogicalExecutionCounts.values()]
+      .some((count) => count !== expectedExecution.repeatEach);
     if (reportTreeContractMismatch) {
       environmentIssues.push(
         'Playwright JSON report execution contract contains malformed or unbounded suite execution evidence.'
@@ -775,7 +798,7 @@ export function verifyPlaywrightJsonReports(report, targetTestFiles, expectedExe
       'Playwright JSON report execution contract does not prove that every target result used the requested project.'
     );
   }
-  if (targetRepeatContractMismatch) {
+  if (targetRepeatContractMismatch && !controlledMaxFailureStop) {
     environmentIssues.push(
       'Playwright JSON report execution contract does not prove the requested repeat count for every target test.'
     );

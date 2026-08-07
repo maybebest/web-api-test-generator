@@ -1,8 +1,9 @@
 # AQA improvements — status
 
-Tracking the improvements identified from building the first two Nectar AI / Pollen
-tests. Status: ✅ done & verified · 🟡 partial / pattern provided · 🔲 needs external
-input (creds / app API / dev-team).
+Historical improvement log, updated where the current repository now has stronger
+evidence. Status: ✅ done & verified · 🟡 partial / pattern provided · 🔲 needs external
+input (creds / app API / dev-team). Current commands and architecture live in
+`START_HERE.md`, `SETUP.md`, and `AGENT_GROUND_RULES.md`.
 
 ## 1. Locator confidence & DOM discovery
 | Item | Status | Notes |
@@ -16,7 +17,7 @@ input (creds / app API / dev-team).
 |---|---|---|
 | Fast read-only smoke lane | ✅ | `npm run test:e2e:smoke:live` (AC-001/AC-002, navigate+assert, no mutation). Verified live against Pollen. |
 | `verified` lifecycle status | ✅ | `verified` added to `GENERATION_STATUS_VALUES`; distinct from `generated`. |
-| Data-safe execution + teardown for mutating tests | 🔲 | Needs the planner's write/cleanup API (or an ephemeral test advertiser). Scaffold: `fixtures/media-planner.fixture.ts` is the intended home for a precondition guard + teardown. |
+| Data-safe execution + teardown for mutating tests | 🟡 | `fixtures/test-data-manager.ts` captures original values, serializes shared writes, and restores only changes still owned by the test. Entity/session/plan deletion APIs remain unavailable, so external runs require pinned disposable data and cannot claim full cleanup. |
 
 ## 3. LLM-driven UI assertion strategy
 | Item | Status | Notes |
@@ -43,11 +44,11 @@ input (creds / app API / dev-team).
 ## 6. Framework / tooling gaps
 | Item | Status | Notes |
 |---|---|---|
-| Discover specs in subdirectories | ✅ | `listSpecFiles` is now recursive; all 8 specs (incl. `special-preconditions/`, `no-preconditions/`) are validated. Surfaced + fixed a real duplicate Flow ID. |
+| Discover specs in subdirectories | ✅ | `listSpecFiles` is recursive; the current catalog contains 14 specs across nested directories. Duplicate Flow IDs fail validation. |
 | `ai:spec:stamp` command | ✅ | `npm run ai:spec:stamp -- <test>` rewrites the header hash from the spec (no hand-computing). |
 | Spec base-URL drift | 🟡 | `.env`/runtime target Pollen (env always wins); some specs still *document* `dev.rtd` in Preconditions — harmless prose, worth normalising to "see `PLAYWRIGHT_TEST_BASE_URL`". |
 | Environment reproducibility | ✅ | `docs/ai-testing/SETUP.md` (nvm + node/python Playwright browser caveat + env). |
-| Green self-test suite | ✅ | Fixed 6 pre-existing self-test failures (from the demo-app deletion + spec reorg + new specs); `ai:test:self` is 243/243. |
+| Green self-test suite | ✅ | `ai:test:self` is 319/319 as of 2026-07-11. |
 
 ## 7. Suite test speed
 | Item | Status | Notes |

@@ -2,176 +2,325 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
-import { listSpecFiles } from './lib/spec-parser.mjs';
-import { isPendingGenerationSpec, validateSpecDirectory, validateSpecFile } from './validate-flow-spec.mjs';
-
-function run(command, args) {
-  console.log(`$ ${command} ${args.join(' ')}`);
-  const result = spawnSync(command, args, { stdio: 'inherit' });
-  return result.status ?? 1;
-}
+import {
+  computeGlobalChecksFingerprint,
+  executeGeneratedPairsGrouped,
+  runGeneratedPairChecks,
+  runGlobalGeneratedChecks
+} from './lib/generated-gate-runner.mjs';
+import { resolveEnv } from './lib/ai-client.mjs';
+import { FULL_GATE_REPEAT_EACH } from './lib/generated-gate-policy.mjs';
+import { reviewGeneratedTest } from './review-generated-test.mjs';
+import { isPendingGenerationSpec, validateSpecDirectory } from './validate-flow-spec.mjs';
 
 const EXPECTED_RED_PATH = path.join('specs', '.expected-review-red');
 
-// Specs whose review is EXPECTED to fail (intentional honest-red, e.g. suites that reference critical
-// precondition helpers whose preconditions cannot yet be arranged for a real headless run — the
-// helpers are implemented but need real catalogue ids + a live session + healed locators). gate-all
-// INVERTS the assertion for them: a listed spec
-// whose review unexpectedly PASSES fails the gate, so the list can never mask a quietly-fixed suite
-// — and the reviewer itself stays untouched and red for these specs.
-function readExpectedReviewRed() {
-  if (!fs.existsSync(EXPECTED_RED_PATH)) {
+// Specs whose review is EXPECTED to fail (intentional honest-red). The assertion
+// is inverted: a listed spec that becomes review-green fails until it is removed
+// from the list, so an exemption cannot silently mask a fixed suite.
+function readExpectedReviewRed(expectedRedPath = EXPECTED_RED_PATH) {
+  if (!fs.existsSync(expectedRedPath)) {
     return new Set();
   }
   return new Set(
     fs
-      .readFileSync(EXPECTED_RED_PATH, 'utf8')
+      .readFileSync(expectedRedPath, 'utf8')
       .split(/\r?\n/)
       .map((line) => line.trim())
       .filter((line) => line.length > 0 && !line.startsWith('#'))
   );
 }
 
-function printHelp() {
-  console.log(`Usage:
-  node scripts/ai/gate-all.mjs [--dir specs]
-
-Validates, reviews, and gates every flow spec/test pair discovered from spec metadata.`);
+function normalizePath(value) {
+  return String(value ?? '').split(path.sep).join('/');
 }
 
-function runCli() {
-  const args = process.argv.slice(2);
-  if (args.includes('--help') || args.includes('-h')) {
-    printHelp();
-    return;
-  }
+function printHelp() {
+  console.log(`Usage:
+  node scripts/ai/gate-all.mjs [--dir specs] [--review-only]
 
-  const dirIndex = args.indexOf('--dir');
-  const specDir = dirIndex >= 0 ? args[dirIndex + 1] : 'specs';
-  if (!specDir) {
-    printHelp();
-    process.exit(1);
-  }
+Validates the spec directory once, runs Playwright listing and TypeScript compilation once,
+then reviews every delivered spec/test pair in-process. Compatible browser targets run in
+sequential isolated groups. Default mode refuses pending or skipped execution;
+--review-only performs static validation/review and explicitly makes no execution claim.`);
+}
 
-  const directoryResult = validateSpecDirectory(specDir);
-  if (!directoryResult.valid) {
-    console.error(`Spec directory validation failed: ${specDir}`);
-    for (const issue of directoryResult.issues) {
-      console.error(`- ${issue}`);
+function parseArgs(args) {
+  const parsed = { specDir: 'specs', reviewOnly: false };
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === '--dir') {
+      parsed.specDir = args[index + 1];
+      index += 1;
+      continue;
     }
-    process.exit(1);
+    if (arg === '--review-only') {
+      parsed.reviewOnly = true;
+      continue;
+    }
+    throw new Error(`Unexpected argument: ${arg}`);
+  }
+  if (!parsed.specDir) {
+    throw new Error('--dir requires a value.');
+  }
+  return parsed;
+}
+
+export function runGateAll(options = {}) {
+  const specDir = options.specDir ?? 'specs';
+  const reviewOnly = options.reviewOnly ?? false;
+  const validateDirectory = options.validateDirectory ?? validateSpecDirectory;
+  const reviewer = options.reviewer ?? reviewGeneratedTest;
+  const globalCheckRunner = options.runGlobalChecks ?? runGlobalGeneratedChecks;
+  const pairCheckRunner = options.runPairChecks ?? runGeneratedPairChecks;
+  const pairBatchRunner = options.runPairBatch ?? (
+    options.runPairChecks
+      ? (pairs, pairOptions) => pairs.map((pair) => pairCheckRunner(pair, {
+          ...pairOptions,
+          reviewer: () => pair.precomputedReview
+        }))
+      : executeGeneratedPairsGrouped
+  );
+  const sourceEnvironment = options.env ?? resolveEnv(process.env).env;
+  const directoryResult = validateDirectory(specDir);
+  if (!directoryResult.valid) {
+    return {
+      passed: false,
+      exitCode: 1,
+      issues: [`Spec directory validation failed: ${specDir}`, ...directoryResult.issues],
+      failures: [],
+      skippedExecution: [],
+      pendingGeneration: [],
+      expectedRedHits: [],
+      reviewed: 0,
+      executed: 0
+    };
   }
 
+  const expectedRedPath = specDir === 'specs' ? EXPECTED_RED_PATH : path.join(specDir, '.expected-review-red');
+  const expectedRed = options.expectedRed ?? readExpectedReviewRed(expectedRedPath);
+  const seenSpecs = new Set();
   const failures = [];
+  const issues = [];
   const skippedExecution = [];
   const pendingGeneration = [];
-  const expectedRed = readExpectedReviewRed();
   const expectedRedHits = [];
-  const seenSpecs = new Set();
-  for (const specPath of listSpecFiles(specDir)) {
-    const validation = validateSpecFile(specPath);
+  const normalPairs = [];
+
+  for (const { specPath, result: validation } of directoryResult.results) {
+    const normalizedSpecPath = normalizePath(specPath);
     const testPath = validation.metadata['Target Test File'];
     const requiresAuth = validation.metadata.Auth?.toLowerCase() === 'required';
-    seenSpecs.add(specPath.split(path.sep).join('/'));
+    seenSpecs.add(normalizedSpecPath);
 
-    // Expected-red spec: validate must pass, the REVIEW must FAIL (inverted assertion), and
-    // execution is never attempted. An unexpectedly green review fails the gate so this list can
-    // only acknowledge honest reds, never hide fixed ones.
-    if (expectedRed.has(specPath.split(path.sep).join('/'))) {
-      const validateStatus = run('npm', ['run', 'ai:spec:validate', '--', specPath]);
-      if (validateStatus !== 0) {
-        failures.push(`${specPath} -> ${testPath} (expected-red spec failed validation)`);
-        continue;
-      }
-      const reviewStatus = run('npm', ['run', 'ai:test:review', '--', '--spec', specPath, '--test', testPath]);
-      if (reviewStatus === 0) {
-        console.error(
-          `Expected-red spec unexpectedly PASSED review: ${specPath}. Implement the missing pieces for real and remove it from ${EXPECTED_RED_PATH}.`
-        );
+    if (expectedRed.has(normalizedSpecPath)) {
+      const review = reviewer({ specPath, testPath, validation });
+      if (review.passed) {
         failures.push(`${specPath} -> ${testPath} (unexpectedly green)`);
-        continue;
+        issues.push(
+          `Expected-red spec unexpectedly PASSED review: ${specPath}. Implement the missing pieces for real and remove it from ${expectedRedPath}.`
+        );
+      } else {
+        expectedRedHits.push(`${specPath} -> ${testPath}`);
       }
-      expectedRedHits.push(`${specPath} -> ${testPath}`);
-      console.log(`Expected-red review confirmed (listed in ${EXPECTED_RED_PATH}): ${specPath}`);
       continue;
     }
 
     if (isPendingGenerationSpec(validation.metadata)) {
-      // A pending-generation spec whose target test already exists is a stale
-      // status: the test would silently dodge every gate while looking covered.
       if (testPath && fs.existsSync(path.resolve(testPath))) {
-        console.error(
+        failures.push(`${specPath} -> ${testPath}`);
+        issues.push(
           `Stale Generation Status: ${specPath} is marked pending-generation but ${testPath} already exists. Set "Generation Status | generated" so the test is gated, or remove the stale test file.`
         );
-        failures.push(`${specPath} -> ${testPath}`);
-        continue;
+      } else {
+        pendingGeneration.push(`${specPath} -> ${testPath}`);
       }
-
-      pendingGeneration.push(`${specPath} -> ${testPath}`);
-      console.log(`Skipping spec awaiting live generation (Generation Status = pending-generation): ${specPath}`);
       continue;
     }
 
-    if (requiresAuth && process.env.E2E_AUTH_ENABLED !== 'true') {
-      const validateStatus = run('npm', ['run', 'ai:spec:validate', '--', specPath]);
-      const reviewStatus = run('npm', ['run', 'ai:test:review', '--', '--spec', specPath, '--test', testPath]);
-      if (validateStatus !== 0 || reviewStatus !== 0) {
-        failures.push(`${specPath} -> ${testPath}`);
-        continue;
-      }
-
+    const skipExecution = reviewOnly || (requiresAuth && sourceEnvironment.E2E_AUTH_ENABLED !== 'true');
+    if (skipExecution) {
       skippedExecution.push(`${specPath} -> ${testPath}`);
-      console.log(`Skipping Playwright execution for auth-required spec because E2E_AUTH_ENABLED is not true: ${specPath}`);
-      continue;
     }
-
-    const status = run('npm', ['run', 'ai:test:gate', '--', '--spec', specPath, '--test', testPath]);
-    if (status !== 0) {
-      failures.push(`${specPath} -> ${testPath}`);
-    }
+    normalPairs.push({ specPath, testPath, validation, reviewOnly: skipExecution });
   }
 
-  // List rot: an expected-red entry that no longer maps to a real spec grants an exemption to
-  // nothing — flag it for cleanup (mirrors the drift checker's allowlist-rot rule).
   for (const entry of expectedRed) {
     if (!seenSpecs.has(entry)) {
-      console.error(`${EXPECTED_RED_PATH} lists "${entry}", but no such spec exists. Remove the stale entry.`);
       failures.push(`${entry} (stale expected-red entry)`);
+      issues.push(`${expectedRedPath} lists "${entry}", but no such spec exists. Remove the stale entry.`);
     }
   }
 
-  if (failures.length > 0) {
+  // Static review must happen before Playwright --list or TypeScript compilation:
+  // both commands import/evaluate test modules. A rejected generated file must
+  // never execute top-level code merely because it was included in a batch.
+  let reviewed = 0;
+  let staticReviewsPassed = true;
+  for (const pair of normalPairs) {
+    const review = reviewer({
+      specPath: pair.specPath,
+      testPath: pair.testPath,
+      mode: pair.mode,
+      validation: pair.validation
+    });
+    pair.precomputedReview = review;
+    reviewed += 1;
+    for (const warning of review.warnings ?? []) {
+      console.warn(`${pair.specPath}: ${warning}`);
+    }
+    if (!review.passed) {
+      staticReviewsPassed = false;
+      failures.push(`${pair.specPath} -> ${pair.testPath}`);
+      issues.push(...review.issues.map((issue) => `${pair.specPath}: ${issue}`));
+    }
+  }
+
+  let globalChecks;
+  if (!staticReviewsPassed) {
+    globalChecks = {
+      passed: false,
+      issues: [],
+      directoryResult,
+      fingerprint: undefined,
+      expectedFingerprint: undefined
+    };
+  } else if (reviewOnly) {
+    globalChecks = undefined;
+  } else if (normalPairs.length > 0) {
+    globalChecks = globalCheckRunner({
+      specDir,
+      directoryResult,
+      testPaths: normalPairs.map((pair) => pair.testPath),
+      env: sourceEnvironment
+    });
+    if (!globalChecks.passed) {
+      failures.push('global generated-test checks');
+      issues.push(...globalChecks.issues);
+    }
+  } else {
+    const fingerprint = computeGlobalChecksFingerprint(specDir, directoryResult);
+    globalChecks = {
+      passed: true,
+      issues: [],
+      directoryResult,
+      fingerprint,
+      expectedFingerprint: fingerprint
+    };
+  }
+
+  let executed = 0;
+  if (!reviewOnly && globalChecks?.passed) {
+    const executablePairs = normalPairs.filter((pair) => !pair.reviewOnly);
+    let pairResults = [];
+    try {
+      pairResults = pairBatchRunner(executablePairs, {
+        globalChecks,
+        repeatEach: FULL_GATE_REPEAT_EACH,
+        reviewer: (pair) => pair.precomputedReview,
+        env: sourceEnvironment
+      });
+    } catch (error) {
+      failures.push('grouped generated-test execution');
+      issues.push(`Grouped generated-test execution failed: ${error.message}`);
+    }
+    for (const result of pairResults) {
+      const pair = result.pair;
+      if (result.execution.attempted) {
+        executed += 1;
+      }
+      if (!result.passed) {
+        failures.push(`${pair.specPath} -> ${pair.testPath}`);
+        issues.push(...result.verdict.diagnostics.map((diagnostic) => `${pair.specPath}: ${diagnostic}`));
+        if (result.execution.runDir) {
+          issues.push(`${pair.specPath}: failure artifacts preserved at ${result.execution.runDir}`);
+        }
+      }
+    }
+  }
+
+  if (!reviewOnly && (skippedExecution.length > 0 || pendingGeneration.length > 0)) {
+    issues.push('Generated-test execution is incomplete; default gate-all refuses skipped work.');
+  }
+
+  const incomplete = !reviewOnly && (skippedExecution.length > 0 || pendingGeneration.length > 0);
+  const passed = failures.length === 0 && !incomplete;
+  return {
+    passed,
+    exitCode: passed ? 0 : 1,
+    issues,
+    failures,
+    skippedExecution,
+    pendingGeneration,
+    expectedRedHits,
+    reviewed,
+    executed,
+    selected: normalPairs.length
+  };
+}
+
+function printResult(result, reviewOnly) {
+  for (const pending of result.pendingGeneration) {
+    console.log(`Skipping spec awaiting live generation (Generation Status = pending-generation): ${pending}`);
+  }
+  for (const hit of result.expectedRedHits) {
+    console.log(`Expected-red review confirmed: ${hit}`);
+  }
+  for (const issue of result.issues) {
+    console.error(issue);
+  }
+  if (result.failures.length > 0) {
     console.error('Generated-test gates failed:');
-    for (const failure of failures) {
+    for (const failure of result.failures) {
       console.error(`- ${failure}`);
     }
-    process.exit(1);
   }
-
-  if (skippedExecution.length > 0) {
-    console.log('Auth-required generated-test execution skipped because E2E_AUTH_ENABLED is not true:');
-    for (const skipped of skippedExecution) {
+  if (result.skippedExecution.length > 0) {
+    console.log('Generated-test pairs reviewed without Playwright execution:');
+    for (const skipped of result.skippedExecution) {
       console.log(`- ${skipped}`);
     }
   }
-
-  if (pendingGeneration.length > 0) {
-    console.log('Specs awaiting live generation (not gated):');
-    for (const pending of pendingGeneration) {
-      console.log(`- ${pending}`);
-    }
+  if (result.expectedRedHits.length > 0) {
+    console.log(`Intentional honest-reds confirmed red (listed in ${EXPECTED_RED_PATH}, review must keep failing).`);
   }
 
-  if (expectedRedHits.length > 0) {
-    console.log(`Intentional honest-reds confirmed red (listed in ${EXPECTED_RED_PATH}, review must keep failing):`);
-    for (const hit of expectedRedHits) {
-      console.log(`- ${hit}`);
-    }
+  console.log(
+    `Generated-test batch summary: selected=${result.selected ?? 0}, reviewed=${result.reviewed}, executed=${result.executed}, pending=${result.pendingGeneration.length}, skipped=${result.skippedExecution.length}.`
+  );
+  if (result.passed) {
+    console.log(
+      reviewOnly
+        ? 'Static generated-test review completed; no execution is claimed.'
+        : 'All generated-test gates passed with no skipped generation or execution.'
+    );
+  } else if (result.executed === 0) {
+    console.error('No generated-test runtime acceptance is claimed.');
   }
-
-  console.log('All generated-test gates passed.');
 }
 
-runCli();
+function runCli() {
+  if (process.argv.includes('--help') || process.argv.includes('-h')) {
+    printHelp();
+    return;
+  }
+  let args;
+  try {
+    args = parseArgs(process.argv.slice(2));
+  } catch (error) {
+    console.error(error.message);
+    printHelp();
+    process.exitCode = 1;
+    return;
+  }
+  const result = runGateAll(args);
+  printResult(result, args.reviewOnly);
+  process.exitCode = result.exitCode;
+}
+
+const currentFile = fileURLToPath(import.meta.url);
+if (process.argv[1] && path.resolve(process.argv[1]) === currentFile) {
+  runCli();
+}

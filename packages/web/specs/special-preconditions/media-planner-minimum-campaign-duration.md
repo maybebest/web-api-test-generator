@@ -5,7 +5,7 @@
 | Field | Value |
 |---|---|
 | Flow ID | FLOW-MP-004 |
-| Spec Version | 1.1.1 |
+| Spec Version | 1.3.0 |
 | Owner | aqa-team@example.com |
 | Priority | P1 |
 | Test Type | regression |
@@ -13,7 +13,9 @@
 | Target Test File | tests/regression/media-planner-minimum-campaign-duration.authenticated.spec.ts |
 | Base Path | /planning |
 | Tags | @generated @regression @media-planner @authenticated @special-preconditions |
-| Review Status | human-reviewed |
+| Generation Mode | suite |
+| Review Status | pending-review |
+| Review Sign-off | pending |
 | Generation Source | manual-test-case |
 | Generation Status | generated |
 
@@ -26,12 +28,14 @@ So that I cannot proceed with a media plan that violates channel booking rules.
 ## Preconditions
 
 - The user has a valid non-production authenticated Playwright storage state.
-- `PLAYWRIGHT_TEST_BASE_URL` points to `https://www.dev.rtd.js-devops.co.uk/`.
+- `PLAYWRIGHT_TEST_BASE_URL` points to an explicitly configured non-production Pollen environment.
 - Local storage key `feature-flags` enables `FEATURE_NECTAR_AI`, `FEATURE_NUP`, and `FEATURE_NECTAR_AI_MP`.
 - The user can access Media Planner at `/planning`.
-- The advertiser `N360_Unilever_MS`, brand `Unilever | Knorr | MS`, objective `Customer retention`, and SKU `2001227` are available.
+- The advertiser `N360_Unilever_MS`, brand `Unilever | Knorr | MS`, objective `Customer retention`, and product search `knorr` are available.
 - The channel `DD Competition page` has a configured booking deadline and minimum campaign duration.
-- Campaign start dates are chosen at least 5 days from the current date to avoid the separate booking-deadline validation.
+- `E2E_MP_DD_COMPETITION_PAGE_MIN_DURATION_DAYS`, when set, is the expected live minimum; otherwise the documented dev default is 21. The effective value must be a finite integer >= 2 and match the read-only channel configuration before UI cases run.
+- Campaign start dates are chosen 75 calendar days from the current date to avoid the separate booking-deadline validation. Each case captures one calendar-date anchor and fails if the date rolls over before its assertion.
+- Every UI boundary row starts a separate fresh, unsaved planning conversation.
 
 ## Out-of-scope
 
@@ -62,7 +66,8 @@ So that I cannot proceed with a media plan that violates channel booking rules.
 
 | Rule ID | Rule | Formula | Blocking Behavior |
 |---|---|---|---|
-| RULE-001 | Validate configured minimum campaign duration for DD Competition page | campaignDurationDays = inclusive calendar days from campaignStartDate through campaignEndDate; valid when campaignDurationDays >= configured minimumCampaignDurationDays for DD Competition page | Block progression and show a user-visible validation error when campaignDurationDays is below the configured minimum duration |
+| RULE-001 | Validate configured minimum campaign duration for DD Competition page | campaignDurationDays = calendarDate(end) - calendarDate(start) + 1; endDate = startDate + durationDays - 1; valid when campaignDurationDays >= configured minimumCampaignDurationDays | Block adding the channel, keep it absent from the summary, and show one user-visible error naming the channel, configured minimum, and days |
+| RULE-002 | Configured minimum must permit a positive below-boundary case | minimumCampaignDurationDays is an integer >= 2 | Fail before live setup when the environment override is missing this invariant |
 
 ## Data Cases
 
@@ -83,6 +88,7 @@ So that I cannot proceed with a media plan that violates channel booking rules.
       "boundary": "below-minimum",
       "startOffsetDays": 75,
       "durationExpression": "configuredMinimumDurationDays - 1",
+      "endOffsetExpression": "startOffsetDays + durationDays - 1",
       "budget": "7k"
     },
     "expected": {
@@ -98,6 +104,7 @@ So that I cannot proceed with a media plan that violates channel booking rules.
       "boundary": "at-minimum",
       "startOffsetDays": 75,
       "durationExpression": "configuredMinimumDurationDays",
+      "endOffsetExpression": "startOffsetDays + durationDays - 1",
       "budget": "7k"
     },
     "expected": {
@@ -113,6 +120,7 @@ So that I cannot proceed with a media plan that violates channel booking rules.
       "boundary": "above-minimum",
       "startOffsetDays": 75,
       "durationExpression": "configuredMinimumDurationDays + 1",
+      "endOffsetExpression": "startOffsetDays + durationDays - 1",
       "budget": "7k"
     },
     "expected": {
@@ -131,7 +139,7 @@ So that I cannot proceed with a media plan that violates channel booking rules.
 | advertiser | N360_Unilever_MS | Non-production advertiser |
 | brand | Unilever \| Knorr \| MS | Non-production brand |
 | objective | Customer retention | Media Planner objective |
-| sku | 2001227 | SKU used by the guided flow |
+| productSearch | knorr | Search term; select one live-resolvable product rather than relying on the unlinked source SKU 2001227 |
 | channel | DD Competition page | Channel with configured duration validation |
 | budget | 7k | Channel request budget |
 | bookingDeadlineDays | 5 | Read-only configured booking-deadline rule to avoid in this scenario |
@@ -154,25 +162,20 @@ So that I cannot proceed with a media plan that violates channel booking rules.
 
 | Step | AC IDs | Action | Target | Input | Expected Result | Assertion Hint |
 |---:|---|---|---|---|---|---|
-| 1 | AC-001 | Open Media Planner planning page | /planning | feature-flags enabled | Nectar AI Assistant entry point is visible | Nectar AI Assistant text is visible |
-| 2 | AC-002 | Start objective and budget assistant flow | Nectar AI Assistant | Try now; Help me build a plan based on my objective & budget | Assistant guided planning flow is active | objective and budget flow choice is visible or selected |
-| 3 | AC-003 | Complete advertiser, brand, objective, and SKU setup | Assistant guided planning controls | N360_Unilever_MS; Unilever \| Knorr \| MS; Customer retention; 2001227; Add hero SKU; Confirm | The assistant records the selected advertiser, brand, objective, and SKU | selected values are visible |
-| 4 | AC-004 | Enter channel request with campaign dates and budget | Assistant channel request input | onsite, DD Competition page, startDate till endDate, the budget is 7k | The assistant calculates campaign duration for DD Competition page from the provided start and end dates | DD Competition page and campaign dates are visible |
-| 5 | AC-005 | Review minimum campaign duration validation outcome | Assistant response | DC-001, DC-002, DC-003 | below-minimum duration is blocked with an error containing DD Competition page and must be at least configured days; at-minimum and above-minimum durations do not show the minimum duration error | error message is visible or absent according to the data case |
+| 1 | AC-001 | Build a fresh guided plan and send DC-001 | Assistant channel request | inclusive duration = configured minimum minus one day; end=start+duration-1 | The channel is absent and one contiguous error names DD Competition page and the configured minimum days | assert contiguous error regex and zero channel rows |
+| 2 | AC-002 | Build a fresh guided plan and send DC-002 | Assistant channel request | configured minimum days | The channel is present and no minimum-duration error is shown | assert channel visible and error absent |
+| 3 | AC-002 | Build a separate fresh guided plan and send DC-003 | Assistant channel request | configured minimum plus one day | The channel is present and no minimum-duration error is shown | assert channel visible and error absent |
 
 ## Negative Cases
 
 | Case ID | Scenario | Expected Result |
 |---|---|---|
-| NEG-001 | DC-001 uses a duration below the configured minimum for DD Competition page | User is blocked and sees the minimum campaign duration error |
+| NEG-001 | Environment override is `1`, making minimum-minus-one a non-positive duration | Configuration fails deterministically before any live plan is created |
 
 ## Acceptance Criteria
 
-- AC-001: Media Planner planning page opens with the Nectar AI Assistant entry point visible.
-- AC-002: User can start the objective and budget guided assistant flow.
-- AC-003: User can complete advertiser, brand, objective, and SKU setup for the plan.
-- AC-004: User can enter an onsite DD Competition page channel request with campaign dates and budget.
-- AC-005: The system blocks below-minimum duration and shows a DD Competition page minimum campaign duration error, while at-minimum and above-minimum durations do not show that error.
+- AC-001: A below-minimum duration is blocked with one contiguous error naming the channel, configured minimum, and days, and the channel is not added.
+- AC-002: At-minimum and above-minimum durations are each accepted in their own fresh plan with no minimum-duration error.
 
 ## Locator Hints
 
@@ -187,10 +190,7 @@ So that I cannot proceed with a media plan that violates channel booking rules.
 - Must use test.step.
 - Must use Page Objects or Component Objects for all locators.
 - Must not create direct `page.getBy*` or `page.locator(...)` locators in generated test bodies.
-- Default generation mode is single-test mode.
-- Generate a suite only when the spec declares `Generation Mode | suite` or a suite is explicitly requested.
-- In single-test mode, must generate one requested-scenario test with one primary final assertion step.
-- In suite mode, must split broad flows into focused tests.
+- This spec declares `Generation Mode | suite`; emit one fresh-plan test per UI boundary row plus one offline invalid-configuration test.
 - Must put `expect(...)` only in the final assertion step for each test.
 - Must title assertion steps `Assert AC-###: ...` or `Assert NEG-###: ...`.
 - Must include meaningful expect assertions for user-visible behavior.
@@ -199,6 +199,8 @@ So that I cannot proceed with a media plan that violates channel booking rules.
 - Cross-browser generated-test execution is opt-in.
 - Must enumerate every Data Cases as JSON case ID.
 - Must assert the salient expected values DD Competition page, must be at least, days.
+- Must compute end dates as `start + inclusiveDuration - 1` with calendar-date arithmetic, never fixed 24-hour millisecond addition.
+- Must verify the effective configured minimum is an integer >= 2 and matches the read-only channel configuration before any UI boundary send.
 - Must not use page.waitForTimeout.
 - Must not use page.waitForLoadState('networkidle').
 - Must not use XPath.
@@ -211,5 +213,6 @@ So that I cannot proceed with a media plan that violates channel booking rules.
 
 - This test intentionally avoids admin pages and does not change booking-deadline or channel configuration.
 - Read-only media configuration reports `bookingDeadlineDays=5` and `minCampaignDurationDays=21` for DD Competition page in the current dev environment.
-- The expected error message is asserted through environment-independent fragments (`DD Competition page`, `must be at least`, `days`); the concrete day count comes from the configured default (21).
+- The expected error is asserted as one contiguous regex containing `DD Competition page`, `must be at least`, the configured number, and `days`.
 - Set `E2E_MP_DD_COMPETITION_PAGE_MIN_DURATION_DAYS` if another non-production environment uses a different configured minimum duration; when set, that override is the source of truth for the expected day count.
+- Human review must verify the live configured minimum, inclusive day-count convention, channel-specific error token order, and acceptance at exactly the configured duration before signoff.

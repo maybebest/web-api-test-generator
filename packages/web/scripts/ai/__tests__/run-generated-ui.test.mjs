@@ -101,7 +101,7 @@ function withGeneratedUiFixtures(assertions) {
 }
 
 function buildFlowSpec({ flowId, flowName, generationStatus, targetTestFile }) {
-  return `# Flow: ${flowName}
+  let content = `# Flow: ${flowName}
 
 ## Metadata
 
@@ -116,7 +116,6 @@ function buildFlowSpec({ flowId, flowName, generationStatus, targetTestFile }) {
 | Target Test File | ${targetTestFile} |
 | Base Path | /planning |
 | Tags | @generated @regression @fixture @authenticated |
-| Review Status | human-reviewed |
 | Generation Source | test-fixture |
 | Generation Status | ${generationStatus} |
 
@@ -189,7 +188,9 @@ So that runner selection can be tested without depending on repository specs.
 
 ## Mocks
 
-- none
+| API/Route | Scenario | Response |
+|---|---|---|
+| none | The local fixture does not use mocked network traffic | [] |
 
 ## Mocks as JSON
 
@@ -207,9 +208,9 @@ So that runner selection can be tested without depending on repository specs.
 
 ## Negative Cases
 
-| Case ID | Related AC | Input | Expected Result | Assertion Hint |
-|---|---|---|---|---|
-| NEG-001 | AC-002 | fixtureInput=empty | Submit remains blocked | Assert blocked state |
+| Case ID | Scenario | Expected Result |
+|---|---|---|
+| NEG-001 | Submit an empty fixture input | Submit remains blocked |
 
 ## Acceptance Criteria
 
@@ -231,4 +232,6 @@ So that runner selection can be tested without depending on repository specs.
 
 - This spec is generated only inside unit tests and is deleted after each run.
 `;
+  content = content.replace('__BEHAVIORAL_HASH__', specSha256(content));
+  return content;
 }

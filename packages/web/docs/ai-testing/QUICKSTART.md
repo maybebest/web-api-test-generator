@@ -11,18 +11,32 @@ npx playwright install --with-deps
 
 This installs all browser engines locally (same as `npm run pw:install`). CI installs browsers per need instead: the quality job installs chromium only, and the regression matrix installs the matrix project's engine (`chromium-auth`/`mobile-chrome` map to chromium).
 
-## Configure The Target App
+## Run The Deterministic Local Target
 
 ```bash
-export PLAYWRIGHT_TEST_BASE_URL=http://localhost:3000
+npm run fixture:start
 ```
 
-Start the bundled demo app with `npm run demo:start` (serves `http://localhost:3000`, the default `PLAYWRIGHT_TEST_BASE_URL`). `playwright test` starts it automatically via `webServer`; start it manually for DOM discovery, recording, or exploration sessions.
+The fixture serves `http://127.0.0.1:3000`. Playwright starts it automatically; run it manually only for discovery or recording.
+
+`PLAYWRIGHT_TEST_BASE_URL` is reserved for an explicit external non-production target:
+
+```bash
+export PLAYWRIGHT_TEST_BASE_URL=https://your-non-production-host.example
+```
+
+Authenticated execution accepts targets with an explicit non-production hostname label such as
+`dev`, `test`, `stage`, `qa`, or `uat`. For an unusually named reviewed test host, set
+`E2E_AUTH_ALLOWED_HOSTS` to that exact hostname; wildcards are rejected.
 
 Optional non-production credentials:
 
+If you store them in `packages/web/.env`, restrict that file first with
+`chmod 600 packages/web/.env`; exported-only configuration needs no file.
+
 ```bash
 export E2E_AUTH_ENABLED=true
+export E2E_AUTH_ALLOWED_HOSTS=your-non-production-host.example
 export E2E_USER_EMAIL=test@example.com
 export E2E_USER_PASSWORD=<non-production-password>
 export E2E_AUTH_SUCCESS_SELECTOR="[data-testid='user-menu']"
@@ -31,8 +45,10 @@ export E2E_AUTH_SUCCESS_SELECTOR="[data-testid='user-menu']"
 ## Run Tests
 
 ```bash
-PLAYWRIGHT_TEST_BASE_URL=http://localhost:3000 npx playwright test tests/smoke --project=chromium
-npx playwright test tests/regression
+npm run test:e2e:local
+npm run test:e2e:smoke
+# External and opt-in only; the safety wrapper pins chromium-auth, one worker, and zero retries:
+E2E_AUTH_ENABLED=true npm run test:e2e:regression
 npx playwright test --ui
 npx playwright test --debug
 ```
@@ -45,7 +61,7 @@ If you start from raw manual QA text, draft a strict spec first:
 npm run ai:spec:import -- --input docs/manual/scenario-4.md --out specs/scenario-4.draft.md
 ```
 
-Review the `NEEDS_REVIEW` fields, confirm business rules and data cases, then promote `Review Status` from `ai-draft` to `human-reviewed`.
+Resolve every `NEEDS_REVIEW` field and supply deterministic business rules/data cases. The normal validator fails closed until no unresolved markers remain.
 
 Create a spec manually:
 
@@ -80,7 +96,7 @@ The spec is the contract. The generated test is the implementation. The gate is 
 
 Each spec must include `Spec Version`, Flow Step `AC IDs`, stability requirements, variants, includes, business rules, data cases, `Data Cases as JSON`, and `Mocks as JSON` when API mocking is needed.
 
-For validation rules such as minimum campaign duration, fill below-minimum, at-minimum, and above-minimum JSON data cases before promoting the draft to human-reviewed.
+For validation rules such as minimum campaign duration, fill below-minimum, at-minimum, and above-minimum JSON data cases before automated validation.
 
 Variant axes are configured in `ai/config.json`. Change them before writing product-specific specs when your app needs axes like `Channel`, `Market`, or `Plan Type`.
 
@@ -93,6 +109,8 @@ AI generation (`npm run ai:brain:generate`) picks a "brain" at run time. Keys ma
 3. Otherwise a locally installed `claude` CLI, then a `codex` CLI.
 
 `AI_BRAIN` forces a choice (`anthropic|openai|claude-cli|codex-cli`, with `claude`/`codex` aliases) and errors clearly when the forced brain is unavailable. Run `npm run ai:brain:doctor` to see the resolution and where each key came from — it makes no paid call and never prints key material. See `.env.example` for all knobs.
+
+CLI brains run from a disposable read-only directory and receive only common runtime settings plus the selected provider's authentication/configuration variables. Claude runs with tools, MCP, browser integration, and session persistence disabled; Codex runs in its read-only ephemeral sandbox with no inherited shell environment. On macOS, an additional OS sandbox denies writes anywhere in this monorepo. Other operating systems rely on those provider controls and the read-only temporary directory. Cloud-specific CLI credential families such as AWS Bedrock, Vertex AI, and Azure are intentionally not forwarded; use an existing interactive CLI login or the corresponding REST brain instead.
 
 ## Auth Projects
 

@@ -1,0 +1,76 @@
+{
+  "outputPath": "/Users/maybebest/Documents/Projects/general/web-api-test-generator/outputs/e2e-curated-20260713/Nectar360_Pollen_Curated_E2E_Suite_20260713.xlsx",
+  "checks": {
+    "canonicalJourneys": 55,
+    "externalCanonical": 48,
+    "extensions": 7,
+    "sourceAuditRows": 800,
+    "uniqueExecutableVariantRows": 395,
+    "excludedRows": 357,
+    "semanticAliases": 131,
+    "movedRows": 170,
+    "removedRows": 56,
+    "danglingTargets": 0,
+    "formulaErrors": 0
+  },
+  "decisionCounts": {
+    "MERGE_AS_ASSERTION": 174,
+    "MOVE_TO_LOWER_LEVEL": 152,
+    "MERGE_AS_VARIANT": 187,
+    "REMOVE_INVALID_RECORD": 2,
+    "MERGE_DUPLICATE_ALIAS": 131,
+    "REMOVE_AMBIGUOUS": 15,
+    "REMOVE_SCOPE_UNCONFIRMED": 11,
+    "MERGE_INTO_EXTENSION": 17,
+    "REMOVE_LOW_VALUE": 6,
+    "MOVE_TO_UNIT_OR_CONTRACT": 18,
+    "REMOVE_COVERAGE_WRAPPER": 14,
+    "MERGE_DECISION_GATED_VARIANT": 17,
+    "REMOVE_OBSOLETE": 6,
+    "REMOVE_VERSION_GATED": 2,
+    "KEEP_CANONICAL": 48
+  },
+  "executionCounts": {
+    "Conditional": 31,
+    "Blocked": 23,
+    "Manual": 1
+  },
+  "sourceHashes": {
+    "externalWorkbook": "de457895412bde105e45a6719a099780fbc5a99522d021edcef789589d094788",
+    "repositoryInventory": "7fa90bbd81351f749cc4dd5f481091cd4dbccb3876a119efa11b029565bea586",
+    "journeyMapping": "063fddce2689263e06d9cb8a81383b65ccdedc0be5d89c01c5978d2c7849cd41",
+    "dedupeGroups": "bd43a69bcf58fcb9f5ea903c5dd1bb9f17cd3e9747d9502595acdec3cac852c1"
+  },
+  "falseBareIdCollisions": [
+    {
+      "bareId": "TC-VAL-001",
+      "repositoryId": "REPO::TC-VAL-001",
+      "externalId": "XLSX::TC-VAL-001",
+      "reason": "Repository case assigns selected SKUs to channels; external journey validates independent Hero limits."
+    },
+    {
+      "bareId": "TC-VAL-002",
+      "repositoryId": "REPO::TC-VAL-002",
+      "externalId": "XLSX::TC-VAL-002",
+      "reason": "Repository case inherits global Heroes on a later channel; external journey blocks save while Hero-limit warnings remain."
+    },
+    {
+      "bareId": "TC-VAL-003",
+      "repositoryId": "REPO::TC-VAL-003",
+      "externalId": "XLSX::TC-VAL-003",
+      "reason": "Repository case propagates Measurement SKUs to channels; external journey filters ineligible Heroes and continues batches."
+    },
+    {
+      "bareId": "TC-VAL-004",
+      "repositoryId": "REPO::TC-VAL-004",
+      "externalId": "XLSX::TC-VAL-004",
+      "reason": "Repository case assigns single-prompt SKUs to channels; external journey handles invalid or changed channel-limit configuration."
+    }
+  ],
+  "repairedSourceCase": "AB-007",
+  "notes": [
+    "All 800 source rows remain in Decision Audit.",
+    "External Ready rows are normalized to Conditional until environment controls are verified.",
+    "No source repository files were modified."
+  ]
+}

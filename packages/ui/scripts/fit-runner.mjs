@@ -14,36 +14,46 @@
 // so they never appear in `ps`.
 
 import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-import { resolveEnv, runBrain } from '../../web/scripts/ai/lib/ai-client.mjs';
+import { runFitGeneration } from './lib/fit-generation-run.mjs';
 
 async function main() {
-  const requestPath = process.argv[2];
-  if (!requestPath) {
-    throw new Error('Missing request file path argument.');
+  const controller = new AbortController();
+  const abortForSignal = (signalName) => {
+    if (!controller.signal.aborted) {
+      controller.abort(new Error(`Fit generation cancelled by ${signalName}.`));
+    }
+  };
+  const onSigint = () => abortForSignal('SIGINT');
+  const onSigterm = () => abortForSignal('SIGTERM');
+  process.once('SIGINT', onSigint);
+  process.once('SIGTERM', onSigterm);
+
+  try {
+    const requestPath = process.argv[2];
+    if (!requestPath) {
+      throw new Error('Missing request file path argument.');
+    }
+
+    const request = JSON.parse(fs.readFileSync(requestPath, 'utf8'));
+    if (typeof request.prompt !== 'string' || !request.prompt) {
+      throw new Error('Request is missing a prompt.');
+    }
+
+    const result = await runFitGeneration({ request, signal: controller.signal });
+    process.stdout.write(JSON.stringify(result));
+  } finally {
+    process.removeListener('SIGINT', onSigint);
+    process.removeListener('SIGTERM', onSigterm);
   }
-
-  const request = JSON.parse(fs.readFileSync(requestPath, 'utf8'));
-  if (typeof request.prompt !== 'string' || !request.prompt) {
-    throw new Error('Request is missing a prompt.');
-  }
-
-  const { env } = resolveEnv(process.env);
-  const result = await runBrain(request.prompt, {
-    env,
-    systemPrompt: request.systemPrompt
-  });
-
-  process.stdout.write(
-    JSON.stringify({
-      text: result.text,
-      brain: { kind: result.brain?.kind, model: result.brain?.model ?? null },
-      usage: result.usage ?? null
-    })
-  );
 }
 
-main().catch((error) => {
-  process.stderr.write(String(error?.message || error));
-  process.exit(1);
-});
+const currentFile = fileURLToPath(import.meta.url);
+if (process.argv[1] && path.resolve(process.argv[1]) === currentFile) {
+  main().catch((error) => {
+    process.stderr.write(String(error?.message || error));
+    process.exitCode = 1;
+  });
+}

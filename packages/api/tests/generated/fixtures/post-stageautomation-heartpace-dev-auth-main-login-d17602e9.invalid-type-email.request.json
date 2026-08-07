@@ -1,0 +1,4 @@
+{
+  "email": 12345,
+  "password": "${TEST_PASSWORD}"
+}

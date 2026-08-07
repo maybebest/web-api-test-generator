@@ -1,4 +1,4 @@
-import { mkdir } from 'node:fs/promises';
+import { chmod, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 
 import type { Locator, Page } from '@playwright/test';
@@ -105,8 +105,13 @@ export async function loginAndSaveStorageState(
   await loginSubmitButton(page, config).click();
   await assertAuthenticated(page, config);
 
-  await mkdir(path.dirname(storagePath), { recursive: true });
+  const storageDirectory = path.dirname(storagePath);
+  const createdDirectory = await mkdir(storageDirectory, { recursive: true, mode: 0o700 });
+  if (createdDirectory !== undefined) {
+    await chmod(storageDirectory, 0o700);
+  }
   await page.context().storageState({ path: storagePath });
+  await chmod(storagePath, 0o600);
 }
 
 function loginEmailField(page: Page, config: AuthConfig): Locator {

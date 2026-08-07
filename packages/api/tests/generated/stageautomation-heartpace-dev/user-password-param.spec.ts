@@ -6,7 +6,6 @@ import {
   assertNoSensitiveFieldsInJsonResponse,
   assertResponseTime,
   assertStatusCode,
-  inferredTest,
   sendApiRequest,
   loadJsonFromTestFile,
   resolvePayload
@@ -34,7 +33,7 @@ test.describe('stageautomation.heartpace.dev /user/password/{param}', () => {
 
   // origin: inferred | category: negative | confidence: medium | execution: active | mutationRisk: guarded | calibration: confirmed
   test('negative: POST /user/password/{param} rejects invalid path parameter @extended @auth @mutating', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-password-param-5fe744e7.invalid-path-param.request.json'));
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-password-param-006329db.invalid-path-param.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://stageautomation.heartpace.dev',
@@ -55,9 +54,9 @@ test.describe('stageautomation.heartpace.dev /user/password/{param}', () => {
   });
 
 
-  // origin: inferred | category: negative | confidence: high | execution: fixme | mutationRisk: guarded | calibration: lenient
-  inferredTest('negative: POST /user/password/{param} rejects missing PasswordForm[password] @extended @auth @mutating @calibrate', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-password-param-5fe744e7.missing-passwordform-password.request.json'));
+  // origin: inferred | category: negative | confidence: high | execution: skip | mutationRisk: guarded | calibration: lenient
+  test.skip('negative: POST /user/password/{param} rejects missing PasswordForm[password] @extended @auth @mutating', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-password-param-006329db.missing-field-passwordform-password.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://stageautomation.heartpace.dev',
@@ -78,9 +77,9 @@ test.describe('stageautomation.heartpace.dev /user/password/{param}', () => {
   });
 
 
-  // origin: inferred | category: negative | confidence: high | execution: fixme | mutationRisk: guarded | calibration: lenient
-  inferredTest('negative: POST /user/password/{param} rejects missing PasswordForm[password_old] @extended @auth @mutating @calibrate', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-password-param-5fe744e7.missing-passwordform-password-old.request.json'));
+  // origin: inferred | category: negative | confidence: high | execution: skip | mutationRisk: guarded | calibration: lenient
+  test.skip('negative: POST /user/password/{param} rejects missing PasswordForm[password_old] @extended @auth @mutating', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-password-param-006329db.missing-field-passwordform-password-old.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://stageautomation.heartpace.dev',
@@ -101,9 +100,9 @@ test.describe('stageautomation.heartpace.dev /user/password/{param}', () => {
   });
 
 
-  // origin: inferred | category: negative | confidence: high | execution: fixme | mutationRisk: guarded | calibration: lenient
-  inferredTest('negative: POST /user/password/{param} rejects missing PasswordForm[password_repeat] @extended @auth @mutating @calibrate', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-password-param-5fe744e7.missing-passwordform-password-repeat.request.json'));
+  // origin: inferred | category: negative | confidence: high | execution: skip | mutationRisk: guarded | calibration: lenient
+  test.skip('negative: POST /user/password/{param} rejects missing PasswordForm[password_repeat] @extended @auth @mutating', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-password-param-006329db.missing-field-passwordform-password-repeat.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://stageautomation.heartpace.dev',
@@ -124,9 +123,9 @@ test.describe('stageautomation.heartpace.dev /user/password/{param}', () => {
   });
 
 
-  // origin: inferred | category: negative | confidence: high | execution: fixme | mutationRisk: guarded | calibration: lenient
-  inferredTest('negative: POST /user/password/{param} rejects missing _csrf @extended @auth @mutating @calibrate', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-password-param-5fe744e7.missing-csrf.request.json'));
+  // origin: inferred | category: negative | confidence: high | execution: skip | mutationRisk: guarded | calibration: lenient
+  test.skip('negative: POST /user/password/{param} rejects missing _csrf @extended @auth @mutating', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-password-param-006329db.missing-field-csrf.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://stageautomation.heartpace.dev',
@@ -147,14 +146,15 @@ test.describe('stageautomation.heartpace.dev /user/password/{param}', () => {
   });
 
 
-  // origin: inferred | category: security | confidence: high | execution: fixme | mutationRisk: guarded | calibration: lenient
-  inferredTest('security: POST /user/password/{param} rejects invalid x-csrf-token @extended @auth @mutating @calibrate', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-password-param-5fe744e7.invalid-x-csrf-token.request.json'));
+  // origin: inferred | category: security | confidence: high | execution: skip | mutationRisk: guarded | calibration: lenient
+  test.skip('security: POST /user/password/{param} rejects invalid x-csrf-token @extended @auth @mutating', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-password-param-006329db.invalid-x-csrf-token.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://stageautomation.heartpace.dev',
       path: '/user/password/${USER_ID}',
       method: 'POST',
+      suppressGeneratedAuth: true,
       headers: {
         "accept": "application/json, text/javascript, */*; q=0.01",
         "content-type": "multipart/form-data; boundary=----WebKitFormBoundaryStafjRQmY575eFnG",
@@ -170,14 +170,15 @@ test.describe('stageautomation.heartpace.dev /user/password/{param}', () => {
   });
 
 
-  // origin: inferred | category: security | confidence: high | execution: fixme | mutationRisk: guarded | calibration: lenient
-  inferredTest('security: POST /user/password/{param} rejects missing x-csrf-token @extended @auth @mutating @calibrate', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-password-param-5fe744e7.missing-x-csrf-token.request.json'));
+  // origin: inferred | category: security | confidence: high | execution: skip | mutationRisk: guarded | calibration: lenient
+  test.skip('security: POST /user/password/{param} rejects missing x-csrf-token @extended @auth @mutating', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-password-param-006329db.missing-x-csrf-token.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://stageautomation.heartpace.dev',
       path: '/user/password/${USER_ID}',
       method: 'POST',
+      suppressGeneratedAuth: true,
       headers: {
         "accept": "application/json, text/javascript, */*; q=0.01",
         "content-type": "multipart/form-data; boundary=----WebKitFormBoundaryStafjRQmY575eFnG",
@@ -211,9 +212,9 @@ test.describe('stageautomation.heartpace.dev /user/password/{param}', () => {
   });
 
 
-  // origin: observed | category: smoke | confidence: high | execution: fixme | mutationRisk: unsafe
-  test.fixme('smoke: POST /user/password/{param} returns 200 @smoke @auth @mutating', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-password-param-5fe744e7.request.json'));
+  // origin: observed | category: smoke | confidence: high | execution: skip | mutationRisk: unsafe
+  test.skip('smoke: POST /user/password/{param} returns 200 @smoke @auth @mutating', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-password-param-006329db.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://stageautomation.heartpace.dev',

@@ -56,9 +56,8 @@ Exploration notes are not a spec. To turn them into a generation-ready spec:
 npm run ai:spec:validate -- specs/<flow-name>.md
 ```
 
-The spec is the contract handed to generation only after `ai:spec:validate` passes. A spec that is human-reviewed but cannot yet be implemented against a live environment should set `Generation Status | pending-generation`. A pending-generation spec whose Target Test File already exists fails `ai:test:gate:all` and `ai:spec:validate --strict` as a stale status. If the flow should always be generated as a multi-test suite, declare it once in the optional `Generation Mode | suite` Metadata row so review/gate resolve the mode from the spec instead of relying on `--mode` flags.
+The spec is the contract handed to generation only after `ai:spec:validate` passes. A valid spec that cannot yet be implemented against a live environment should set `Generation Status | pending-generation`. A pending-generation spec whose Target Test File already exists fails `ai:test:gate:all` and `ai:spec:validate --strict` as a stale status. If the flow should always be generated as a multi-test suite, declare it once in the optional `Generation Mode | suite` Metadata row so review/gate resolve the mode from the spec instead of relying on `--mode` flags.
 
 ## Output
 
 Exploration notes plus a `specs/<flow-name>.md` that passes `ai:spec:validate`.
-

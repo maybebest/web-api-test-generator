@@ -38,6 +38,8 @@ import {
   walk
 } from './lib/ts-ast.mjs';
 import { validateSpecFile } from './validate-flow-spec.mjs';
+import { containsSecretLikeValue } from './lib/secret-safety.mjs';
+import { checkGeneratedRuntimeCapabilities } from './lib/generated-capability-policy.mjs';
 
 const SEMANTIC_LOCATOR_NAMES = new Set(['getByRole', 'getByLabel', 'getByPlaceholder', 'getByText', 'getByTestId']);
 // Precondition helpers whose arrangement is NOT yet achievable against the live environment, so a
@@ -73,25 +75,10 @@ const PAGE_STRING_SELECTOR_ACTION_APIS = new Set([
   '$',
   '$$'
 ]);
-const EXISTING_SECRET_PATTERNS = [
-  /\bbearer\s+[a-z0-9._-]{10,}/i,
-  /\bbasic\s+[A-Za-z0-9+/=]{12,}/i,
-  /\b(?:password|passwd|pwd)\s*[:=]\s*['"`][^'"`]{4,}/i,
-  /\b(?:api[_-]?key|apikey|client[_-]?secret|secret|access[_-]?token|refresh[_-]?token)\s*[:=]\s*['"`][^'"`]{8,}/i,
-  /\btoken\s*[:=]\s*['"`][^'"`]{8,}/i,
-  /\bsession(?:id)?\s*[:=]\s*['"`][^'"`]{8,}/i,
-  /\bgh[opsur]_[A-Za-z0-9]{20,}/,
-  /\bgithub_pat_[A-Za-z0-9_]{20,}/,
-  /\bxox[baprs]-[A-Za-z0-9-]{10,}/,
-  /\bsk-[A-Za-z0-9]{20,}/,
-  /\bAIza[0-9A-Za-z_-]{20,}/,
-  /-----BEGIN (?:RSA |EC |OPENSSH |PGP )?PRIVATE KEY-----/
-];
-
-export function reviewGeneratedTest({ specPath, testPath, mode = undefined }) {
+export function reviewGeneratedTest({ specPath, testPath, mode = undefined, validation: providedValidation = undefined }) {
   const issues = [];
   const warnings = [];
-  const validation = validateSpecFile(specPath);
+  const validation = providedValidation ?? validateSpecFile(specPath);
 
   if (!validation.valid) {
     return {
@@ -136,8 +123,9 @@ export function reviewGeneratedTest({ specPath, testPath, mode = undefined }) {
   // not satisfy data-case, mock, or salient-token coverage.
   const countableStringLiterals = collectCountableStringLiterals(sourceFile, constStringIdentifiers);
 
-  checkHeader(content, specPath, issues);
+  checkHeader(content, specPath, validation, issues);
   checkFixtureImport(sourceFile, issues);
+  checkGeneratedRuntimeCapabilities(sourceFile, issues, { constStringIdentifiers });
   checkGenerationModeShape(generationMode, parsedSpec, testCases, sourceFile, locatorIdentifiers, issues, warnings);
   if (generationMode === 'suite') {
     checkPerAcceptanceCriteria(parsedSpec, stepCalls, sourceFile, locatorIdentifiers, constLiteralIdentifiers, issues);
@@ -170,8 +158,7 @@ export function reviewGeneratedTest({ specPath, testPath, mode = undefined }) {
   };
 }
 
-function checkHeader(content, specPath, issues) {
-  const validation = validateSpecFile(specPath);
+function checkHeader(content, specPath, validation, issues) {
   const specVersion = validation.metadata['Spec Version'];
   const escapedSpec = escapeRegExp(specPath);
   const pattern = new RegExp(
@@ -212,7 +199,9 @@ function checkFixtureImport(sourceFile, issues) {
     }
 
     const names = namedBindings.elements.map((element) => element.name.text);
-    hasFixtureImport = names.includes('test') && names.includes('expect');
+    if (names.includes('test') && names.includes('expect')) {
+      hasFixtureImport = true;
+    }
   }
 
   if (!hasFixtureImport) {
@@ -1764,11 +1753,7 @@ function checkSecretAndUrlLiterals(sourceFile, constStringIdentifiers, issues) {
       issues.push('AWS access key detected in generated test.');
     }
 
-    if (EXISTING_SECRET_PATTERNS.some((pattern) => pattern.test(value))) {
-      issues.push('Obvious secret, token, password, bearer token, or session ID detected in generated test.');
-    }
-
-    if (isHighEntropySecretLike(value) || isOpaqueTokenLike(value)) {
+    if (containsSecretLikeValue(value)) {
       issues.push('High-entropy string literal detected in generated test.');
     }
   };
@@ -2100,46 +2085,6 @@ function isProductionUrl(value) {
   }
 }
 
-function isHighEntropySecretLike(value) {
-  if (value.length < 20 || /\s/.test(value) || !/[A-Z]/.test(value) || !/[a-z]/.test(value) || !/\d/.test(value)) {
-    return false;
-  }
-
-  const entropy = shannonEntropy(value);
-  return entropy >= 4;
-}
-
-// Catches single-case opaque API keys/SDK keys that the upper+lower+digit
-// entropy gate misses (e.g. the all-lowercase+digit split.io key that leaked).
-function isOpaqueTokenLike(value) {
-  if (/\s/.test(value) || value.length < 26 || !/^[A-Za-z0-9._-]+$/.test(value)) {
-    return false;
-  }
-
-  const letters = (value.match(/[A-Za-z]/g) ?? []).length;
-  const digits = (value.match(/\d/g) ?? []).length;
-  if (letters < 3 || digits < 3) {
-    return false;
-  }
-
-  return shannonEntropy(value) >= 3.5;
-}
-
-function shannonEntropy(value) {
-  const counts = new Map();
-  for (const char of value) {
-    counts.set(char, (counts.get(char) ?? 0) + 1);
-  }
-
-  let entropy = 0;
-  for (const count of counts.values()) {
-    const probability = count / value.length;
-    entropy -= probability * Math.log2(probability);
-  }
-
-  return entropy;
-}
-
 function readPageObjectCorpus() {
   if (!fs.existsSync('pages')) {
     return '';
@@ -2213,7 +2158,8 @@ function printHelp() {
 
 Reviews a generated Playwright test against its flow spec using the TypeScript compiler API.
 Without --mode, the spec's optional "Generation Mode" metadata applies (default single).
-A --mode flag that contradicts the spec's Generation Mode is a hard error.`);
+A --mode flag that contradicts the spec's Generation Mode is a hard error.
+The deterministic spec validator is the only pre-generation policy gate.`);
 }
 
 function escapeRegExp(value) {

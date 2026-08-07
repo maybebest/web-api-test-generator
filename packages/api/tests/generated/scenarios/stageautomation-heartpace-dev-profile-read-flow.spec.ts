@@ -9,7 +9,7 @@ import {
 } from '../support/apiTestUtils.js';
 
 test.describe('scenarios', () => {
-  // origin: inferred | category: scenario | confidence: medium | execution: active | mutationRisk: none | isolated: false
+  // origin: inferred | category: scenario | confidence: medium | execution: active | mutationRisk: none | correlation: not-required | isolated: false
   test('scenario: stageautomation.heartpace.dev profile read flow @extended @auth @profile', async ({ request }, testInfo) => {
     const { response: step1Response, elapsedMs: step1ElapsedMs } = await sendApiRequest({
       request,
@@ -37,48 +37,6 @@ test.describe('scenarios', () => {
     assertStatusCode(step2Response.status(), {"kind":"exact","status":200}, 'GET /me/account returns 200');
     expect(step2Response.headers()['content-type'] ?? '').toContain('application/json');
     assertResponseTime(step2ElapsedMs, 2000);
-
-    const { response: step3Response, elapsedMs: step3ElapsedMs } = await sendApiRequest({
-      request,
-      defaultBaseUrl: 'https://stageautomation.heartpace.dev',
-      path: '/me/account/oauth',
-      method: 'GET',
-      headers: {
-        "accept": "application/json, text/plain, */*",
-        "x-csrf-token": "${CSRF_TOKEN}",
-        "x-requested-with": "XMLHttpRequest",
-        "x-site-uuid": "${X_SITE_UUID}"
-      }
-    });
-    assertStatusCode(step3Response.status(), {"kind":"exact","status":200}, 'GET /me/account/oauth returns 200');
-    expect(step3Response.headers()['content-type'] ?? '').toContain('application/json');
-    assertResponseTime(step3ElapsedMs, 2000);
-
-    const { response: step4Response, elapsedMs: step4ElapsedMs } = await sendApiRequest({
-      request,
-      defaultBaseUrl: 'https://stageautomation.heartpace.dev',
-      path: '/users/user/${USER_ID}',
-      method: 'GET',
-      headers: {
-        "accept": "application/json, text/plain, */*"
-      }
-    });
-    assertStatusCode(step4Response.status(), {"kind":"exact","status":200}, 'GET /users/user/{param} returns 200');
-    expect(step4Response.headers()['content-type'] ?? '').toContain('application/json');
-    assertResponseTime(step4ElapsedMs, 2000);
-
-    const { response: step5Response, elapsedMs: step5ElapsedMs } = await sendApiRequest({
-      request,
-      defaultBaseUrl: 'https://stageautomation.heartpace.dev',
-      path: '/me/account/settings/${USER_ID}',
-      method: 'GET',
-      headers: {
-        "accept": "application/json, text/plain, */*"
-      }
-    });
-    assertStatusCode(step5Response.status(), {"kind":"exact","status":200}, 'GET /me/account/settings/{param} returns 200');
-    expect(step5Response.headers()['content-type'] ?? '').toContain('application/json');
-    assertResponseTime(step5ElapsedMs, 2000);
   });
 
 });

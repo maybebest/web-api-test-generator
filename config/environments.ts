@@ -1,0 +1,50 @@
+import './load-dotenv';
+
+/**
+ * All environments live here. To switch, set TEST_ENV (see .env.example):
+ *
+ *   TEST_ENV=stage npm run test:api
+ *
+ * Nothing else in the project should hard-code a host name. If a test or a
+ * page needs a URL, it takes it from `environment` below.
+ */
+
+export type EnvironmentName = 'stage';
+
+export type Environment = {
+  name: EnvironmentName;
+  /** Site the user works with. */
+  webUrl: string;
+  /** API gateway behind the site. */
+  apiUrl: string;
+  /** Agent cabinet (helpdesk). Tests drive agents over the API, not here. */
+  helpdeskUrl: string;
+  /** Service that generates experts for the admin panel. */
+  generationApiUrl: string;
+  /** Verification codes the environment accepts. */
+  emailCode: string;
+  smsCode: string;
+};
+
+const environments: Record<EnvironmentName, Environment> = {
+  stage: {
+    name: 'stage',
+    webUrl: 'https://user.stage.psychicbook.net',
+    apiUrl: 'https://api.stage.psychicbook.net',
+    helpdeskUrl: 'https://helpdesk.stage.psychicbook.net',
+    generationApiUrl: 'https://agpt.stage.psychicbook.net/api',
+    emailCode: '1234',
+    smsCode: '1234'
+  }
+};
+
+function currentEnvironmentName(): EnvironmentName {
+  const name = (process.env.TEST_ENV ?? 'stage') as EnvironmentName;
+  if (!environments[name]) {
+    throw new Error(`Unknown TEST_ENV "${name}". Known environments: ${Object.keys(environments).join(', ')}`);
+  }
+  return name;
+}
+
+/** The environment the current run works against. */
+export const environment: Environment = environments[currentEnvironmentName()];

@@ -5,27 +5,27 @@
 name: API
 
 on:
-  # Manual re-run button (flake investigation / on-demand regeneration) plus a nightly
+  # On-demand reruns plus a nightly
   # deterministic run: lint + build + unit + drift + the mock-backed replay below need no
   # live credentials, so the scheduled run is safe and self-contained.
   workflow_dispatch: {}
   schedule:
-    - cron: '0 6 * * *'
+    - cron: "0 6 * * *"
   pull_request:
     paths:
-      - 'packages/api/**'
-      - '.github/workflows/api.yml'
-      - 'package.json'
-      - 'package-lock.json'
+      - "packages/api/**"
+      - ".github/workflows/api.yml"
+      - "package.json"
+      - "package-lock.json"
   push:
     branches:
       - main
       - master
     paths:
-      - 'packages/api/**'
-      - '.github/workflows/api.yml'
-      - 'package.json'
-      - 'package-lock.json'
+      - "packages/api/**"
+      - ".github/workflows/api.yml"
+      - "package.json"
+      - "package-lock.json"
 
 # Least privilege: every step only reads the repo (checkout, local generation, git diff against
 # the local index); nothing pushes, comments, or writes via the GitHub API.
@@ -40,18 +40,14 @@ jobs:
   test:
     name: Lint, build, and test
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    env:
-      RUN_GENERATED_API_SMOKE: ${{ vars.RUN_GENERATED_API_SMOKE }}
-      SMOKE_BASE_URL: ${{ secrets.BASE_URL }}
-      SMOKE_USER_ID: ${{ secrets.USER_ID }}
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
@@ -64,13 +60,13 @@ jobs:
       - name: Validate
         run: npm run ci
 
-      - name: Audit dependencies (advisory)
+      - name: Audit dependencies
         working-directory: ${{ github.workspace }}
-        run: npm audit --audit-level=high || true
+        run: npm audit --audit-level=high
 
       # Deterministic, credential-free execution of the generated @smoke suite against an in-repo
       # mock (scripts/replay-mock-server.mjs). Proves the generated tests run and assert green
-      # without a live system-under-test — unlike the opt-in live smoke below.
+      # without a live system-under-test.
       - name: Generated suite replay (mock-backed)
         run: npm run test:api:replay
 
@@ -101,25 +97,97 @@ jobs:
             exit 1
           fi
 
-      - name: Generated API smoke
-        if: ${{ env.RUN_GENERATED_API_SMOKE == 'true' && env.SMOKE_BASE_URL != '' && env.SMOKE_USER_ID != '' }}
-        env:
-          BASE_URL: ${{ env.SMOKE_BASE_URL }}
-          TEST_EMAIL: ${{ secrets.TEST_EMAIL }}
-          TEST_PASSWORD: ${{ secrets.TEST_PASSWORD }}
-          USER_ID: ${{ env.SMOKE_USER_ID }}
-          QUERY_ID: ${{ secrets.QUERY_ID }}
-          X_SITE_UUID: ${{ secrets.X_SITE_UUID }}
-        run: npm run test:api:smoke
-
       - name: Upload Playwright and generated-test artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: api-test-artifacts
           if-no-files-found: ignore
           path: |
             packages/api/playwright-report
             packages/api/test-results
+            packages/api/tests/generated/.har-api-tests-generated.json
             packages/api/tests/generated/run-manifest.json
             packages/api/tests/generated/.env.generated.example
+            packages/api/config/calibration-overrides.json
+
+  live:
+    name: Trusted live API checks
+    needs: test
+    # Secrets are never evaluated by pull_request or schedule jobs. Live traffic is limited to the
+    # checked-in default branch after merge (or a dispatch of that same branch) and enabled by a
+    # repository-level machine policy flag.
+    if: >-
+      ${{
+        vars.RUN_API_LIVE == 'true' &&
+        (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+        (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+      }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      BASE_URL: ${{ secrets.BASE_URL }}
+      TRUSTED_API_ORIGINS: ${{ vars.TRUSTED_API_ORIGINS }}
+      API_ENVIRONMENT_CLASS: ${{ vars.API_ENVIRONMENT_CLASS }}
+      API_MUTATION_SCOPE: ${{ vars.API_MUTATION_SCOPE }}
+      TEST_EMAIL: ${{ secrets.TEST_EMAIL }}
+      TEST_PASSWORD: ${{ secrets.TEST_PASSWORD }}
+      USER_ID: ${{ secrets.USER_ID }}
+      QUERY_ID: ${{ secrets.QUERY_ID }}
+      X_SITE_UUID: ${{ secrets.X_SITE_UUID }}
+      API_TOKEN: ${{ secrets.API_TOKEN }}
+      API_AUTHORIZATION: ${{ secrets.API_AUTHORIZATION }}
+      API_COOKIE: ${{ secrets.API_COOKIE }}
+      API_KEY: ${{ secrets.API_KEY }}
+      CSRF_TOKEN: ${{ secrets.CSRF_TOKEN }}
+      AUTH_STRATEGY: ${{ vars.AUTH_STRATEGY }}
+      AUTH_LOGIN_URL: ${{ vars.AUTH_LOGIN_URL }}
+      AUTH_LOGIN_BODY: ${{ secrets.AUTH_LOGIN_BODY }}
+      AUTH_COOKIE_ORIGINS: ${{ vars.AUTH_COOKIE_ORIGINS }}
+      AUTH_BEARER_ORIGINS: ${{ vars.AUTH_BEARER_ORIGINS }}
+      AUTH_API_KEY_ORIGINS: ${{ vars.AUTH_API_KEY_ORIGINS }}
+      AUTH_SECRET_HEADER_ORIGINS: ${{ vars.AUTH_SECRET_HEADER_ORIGINS }}
+
+    steps:
+      - name: Checkout trusted default branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies (workspace root)
+        working-directory: ${{ github.workspace }}
+        run: npm ci
+
+      - name: Enforce live-target machine policy
+        run: npx tsx src/safety/liveExecutionPolicy.ts live
+
+      - name: Generated API read-only smoke
+        run: npm run test:api:smoke
+
+      - name: Enforce mutating-target machine policy
+        if: ${{ vars.RUN_API_MUTATING == 'true' || vars.RUN_API_CALIBRATION == 'true' }}
+        run: npx tsx src/safety/liveExecutionPolicy.ts mutation
+
+      - name: Generated API mutating smoke
+        if: ${{ vars.RUN_API_MUTATING == 'true' }}
+        run: npm run test:api:smoke:mutating
+
+      - name: Calibrate pending generated contracts
+        if: ${{ vars.RUN_API_CALIBRATION == 'true' }}
+        run: npm run calibrate:auto
+
+      - name: Upload live API artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: api-live-artifacts
+          if-no-files-found: ignore
+          path: |
+            packages/api/playwright-report
+            packages/api/test-results
+            packages/api/config/calibration-overrides.json

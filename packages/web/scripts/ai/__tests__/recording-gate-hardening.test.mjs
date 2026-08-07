@@ -7,12 +7,14 @@ import { fileURLToPath } from 'node:url';
 
 import { pinnedAgentBrowserVersion, resolveAgentBrowserBin } from '../lib/agent-browser-runner.mjs';
 import {
+  buildRecordingPlaywrightArgs,
   cleanupJsonReport,
   copyEvidence,
   playwrightJsonVerdict,
   playwrightStageEnv,
   readPlaywrightReportVerdict
 } from '../recording-test-gate.mjs';
+import { runRecordingGateAll } from '../recording-gate-all.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
@@ -29,6 +31,33 @@ function inDirectory(directory, run) {
     process.chdir(previous);
   }
 }
+
+test('recording review-all statically reviews every target with a secret-free environment', () => {
+  const calls = [];
+  const result = runRecordingGateAll({
+    recordingsDir: 'recordings',
+    reviewOnly: true,
+    validateDirectory: () => ({ valid: true, issues: [] }),
+    listFiles: () => ['recordings/flow.json'],
+    normalizeFile: () => ({ targetTestFile: 'tests/recorded/flow.spec.ts' }),
+    env: {
+      PATH: '/bin',
+      E2E_USER_PASSWORD: 'login-secret',
+      OPENAI_API_KEY: 'provider-secret'
+    },
+    commandRunner(command, args, env) {
+      calls.push({ command, args, env });
+      return 0;
+    }
+  });
+
+  assert.equal(result.passed, true);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].args.slice(0, 2), ['run', 'ai:recording:review']);
+  assert.equal(calls[0].env.AI_GATE_SANITIZED_ENV, 'true');
+  assert.equal(calls[0].env.E2E_USER_PASSWORD, '');
+  assert.equal(calls[0].env.OPENAI_API_KEY, '');
+});
 
 test('playwright JSON verdict accepts an honest run with executed expected tests', () => {
   const verdict = playwrightJsonVerdict({ stats: { expected: 2, unexpected: 0, skipped: 0, flaky: 0 } });
@@ -78,6 +107,15 @@ test('playwright stage env disables HTML report auto-open and pins the JSON outp
   assert.equal(env.PLAYWRIGHT_HTML_OPEN, 'never');
   assert.equal(env.PW_TEST_HTML_REPORT_OPEN, 'never');
   assert.equal(env.PLAYWRIGHT_JSON_OUTPUT_NAME, path.join('.ai-runs', 'recording-gate-last-run.json'));
+});
+
+test('recording gate has explicit one-repeat fast and three-repeat full lanes', () => {
+  assert.deepEqual(
+    buildRecordingPlaywrightArgs('tests/recorded/checkout.spec.ts', 1).slice(-3),
+    ['--retries=0', '--repeat-each=1', '--max-failures=1']
+  );
+  assert.ok(buildRecordingPlaywrightArgs('tests/recorded/checkout.spec.ts').includes('--repeat-each=3'));
+  assert.throws(() => buildRecordingPlaywrightArgs('tests/recorded/checkout.spec.ts', 2), /1 \(fast\) or 3 \(full\)/);
 });
 
 test('cleanupJsonReport removes a green-run report and the then-empty .ai-runs directory', () => {

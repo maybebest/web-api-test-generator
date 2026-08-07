@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
 
 const FORBIDDEN_DIRS = ['.ai-runs', 'playwright-report', 'test-results', 'allure-results', 'allure-report', 'performance'];
 const FORBIDDEN_FILE_PATTERNS = [/\.trace\.zip$/i, /^trace\.zip$/i, /\.webm$/i, /\.mp4$/i, /\.har$/i];
@@ -61,8 +62,24 @@ export function collectCleanTreeIssues(rootDir = '.') {
   return issues;
 }
 
+export function collectTrackedCleanTreeIssues(rootDir = '.') {
+  const result = spawnSync('git', ['-C', path.resolve(rootDir), 'ls-files', '-z'], { encoding: 'utf8' });
+  if (result.status !== 0) {
+    return ['Git could not enumerate tracked files; tracked distributable clean check failed closed.'];
+  }
+  return result.stdout
+    .split('\0')
+    .filter(Boolean)
+    .filter((file) => {
+      const segments = file.split('/');
+      return FORBIDDEN_DIRS.some((dir) => segments.includes(dir)) || FORBIDDEN_FILE_PATTERNS.some((pattern) => pattern.test(path.basename(file)));
+    })
+    .map((file) => `${file}: tracked runtime artifact must not be distributed.`);
+}
+
 function runCli() {
-  const issues = collectCleanTreeIssues();
+  const trackedOnly = process.argv.includes('--tracked-only');
+  const issues = trackedOnly ? collectTrackedCleanTreeIssues() : collectCleanTreeIssues();
 
   if (issues.length > 0) {
     console.error('Clean-tree check failed:');
@@ -73,7 +90,11 @@ function runCli() {
     process.exit(1);
   }
 
-  console.log('Clean-tree check passed: no runtime artifacts in the distributable tree.');
+  console.log(
+    trackedOnly
+      ? 'Tracked clean-tree check passed: no runtime artifacts are committed.'
+      : 'Clean-tree check passed: no runtime artifacts in the distributable tree.'
+  );
 }
 
 const currentFile = fileURLToPath(import.meta.url);

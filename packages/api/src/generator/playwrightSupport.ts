@@ -1,11 +1,15 @@
 export interface SupportFileHosts {
   primaryHost: string;
   knownHosts: string[];
+  secretHeaderNames?: string[];
 }
 
-export function buildPlaywrightSupportFile(hosts: SupportFileHosts = { primaryHost: '', knownHosts: [] }): string {
+export function buildPlaywrightSupportFile(
+  hosts: SupportFileHosts = { primaryHost: "", knownHosts: [] },
+): string {
   return `import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test';
 import { Ajv } from 'ajv/dist/ajv.js';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -14,12 +18,18 @@ const ajv = new Ajv({ allErrors: true, strict: false });
 // Hosts observed in the source capture, injected at generation time.
 const KNOWN_HOSTS: string[] = ${JSON.stringify(hosts.knownHosts)};
 const PRIMARY_HOST = ${JSON.stringify(hosts.primaryHost)};
-// Non-primary first-party hosts default to bearer auth (the primary host uses the session cookie).
-// Override with AUTH_BEARER_HOSTS.
-const DEFAULT_BEARER_HOSTS: string[] = ${JSON.stringify(hosts.knownHosts.filter((host) => host !== hosts.primaryHost))};
+const GENERATED_SECRET_HEADER_NAMES = new Set(${JSON.stringify(
+    (hosts.secretHeaderNames ?? [])
+      .map((name) => name.trim().toLowerCase())
+      .filter(Boolean)
+      .sort(),
+  )});
+const DERIVED_AUTH_ENV_NAMES = new Set(['USER_ID', 'API_TOKEN', 'API_AUTHORIZATION', 'API_COOKIE', 'CSRF_TOKEN']);
+const GENERATED_AUTH_FILE_MARKER = '# har-api-tests generated auth snapshot v1';
 
-// In calibration mode the inferred fixme tests run for real so their actual statuses can be recorded.
-export const inferredTest = process.env.CALIBRATION_MODE === 'true' ? test : (test.fixme as unknown as typeof test);
+// Pending inferred tests are machine-calibrated: normal runs quarantine them, while calibration
+// runs execute them and record the observed status without requiring a human approval step.
+export const calibrationTest = process.env.CALIBRATION_MODE === 'true' ? test : (test.skip as unknown as typeof test);
 
 export type ExpectedStatus =
   | { kind: 'exact'; status: number }
@@ -35,6 +45,8 @@ export interface SendApiRequestOptions {
   // When true, the caller supplies its own isolated context (own cookie jar): do NOT attach the
   // shared session cookie or bearer — the context authenticates itself (e.g. a login step).
   isolatedSession?: boolean;
+  // Security negatives intentionally remove/poison credentials. Never restore them implicitly.
+  suppressGeneratedAuth?: boolean;
 }
 
 export interface TimedApiResponse {
@@ -61,6 +73,72 @@ export function resolveBaseUrl(defaultBaseUrl: string): string {
   }
 
   return defaultBaseUrl.replace(/\\/$/, '');
+}
+
+export function assertAllowedTarget(urlValue: string, purpose = 'API request'): void {
+  let target: URL;
+  try {
+    target = new URL(urlValue);
+  } catch {
+    throw new Error('Refusing ' + purpose + ' because the target is not a valid absolute URL.');
+  }
+  if (target.protocol !== 'http:' && target.protocol !== 'https:') {
+    throw new Error('Refusing ' + purpose + ' because only HTTP(S) targets are allowed.');
+  }
+  if (target.username || target.password) {
+    throw new Error('Refusing ' + purpose + ' because target URLs must not contain credentials.');
+  }
+
+  if (process.env.HAR_API_REPLAY_MODE === 'true') {
+    const configuredReplayOrigin = process.env.HAR_API_REPLAY_ORIGIN;
+    if (!configuredReplayOrigin) {
+      throw new Error('HAR_API_REPLAY_ORIGIN is required when HAR_API_REPLAY_MODE=true.');
+    }
+    const replayOrigin = normalizeOrigin(configuredReplayOrigin, 'HAR_API_REPLAY_ORIGIN');
+    if (!isLoopbackHostname(target.hostname) || target.origin !== replayOrigin) {
+      throw new Error('Refusing ' + purpose + ' outside the exact loopback replay origin: ' + target.origin);
+    }
+    return;
+  }
+
+  const trusted = configuredOrigins('TRUSTED_API_ORIGINS');
+  if (trusted.length === 0 || !trusted.includes(target.origin)) {
+    throw new Error(
+      'Refusing ' + purpose + ' for untrusted origin ' + target.origin +
+        '. Add the exact origin to TRUSTED_API_ORIGINS.'
+    );
+  }
+}
+
+function configuredOrigins(envName: string): string[] {
+  const raw = process.env[envName] ?? '';
+  return uniqueStrings(
+    raw
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .map((value) => normalizeOrigin(value, envName))
+  );
+}
+
+function normalizeOrigin(value: string, label: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error(label + ' contains an invalid origin.');
+  }
+  if ((parsed.protocol !== 'http:' && parsed.protocol !== 'https:') || parsed.username || parsed.password) {
+    throw new Error(label + ' must contain HTTP(S) origins without credentials.');
+  }
+  if ((parsed.pathname !== '/' && parsed.pathname !== '') || parsed.search || parsed.hash) {
+    throw new Error(label + ' must contain origins only, without paths, query strings, or fragments.');
+  }
+  return parsed.origin;
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  return hostname === '127.0.0.1' || hostname === '::1' || hostname === '[::1]' || hostname === 'localhost';
 }
 
 function envHostSlug(host: string): string {
@@ -111,34 +189,115 @@ export function updateGeneratedEnvValue(envName: string, value: string): void {
     throw new Error('Refusing to write an empty value for generated test environment variable ' + envName);
   }
 
-  process.env[envName] = value;
+  replaceGeneratedEnvValues({ ...readGeneratedAuthFileValues(), [envName]: value });
+}
+
+export function clearGeneratedEnvValues(): void {
+  for (const envName of DERIVED_AUTH_ENV_NAMES) {
+    delete process.env[envName];
+  }
+  clearGeneratedAuthSnapshot();
+}
+
+export function clearGeneratedAuthSnapshot(): void {
+  const envFilePath = writableEnvFilePath();
+  assertWritableEnvTarget(envFilePath);
+  fs.rmSync(envFilePath, { force: true });
+  cachedGeneratedAuthFileValues = undefined;
+  cachedGeneratedAuthFilePath = undefined;
+}
+
+export function replaceGeneratedEnvValues(values: Record<string, string>): void {
+  const entries = Object.entries(values).sort(([left], [right]) => left.localeCompare(right));
+  if (entries.length === 0) {
+    throw new Error('Refusing to write an empty generated authentication snapshot.');
+  }
+  for (const [envName, value] of entries) {
+    if (!/^[A-Z_][A-Z0-9_]*$/.test(envName) || !value || /[\\r\\n]/.test(value)) {
+      throw new Error('Refusing to write an invalid generated authentication value for ' + envName);
+    }
+  }
 
   const envFilePath = writableEnvFilePath();
-  fs.mkdirSync(path.dirname(envFilePath), { recursive: true });
-  const existing = fs.existsSync(envFilePath) ? fs.readFileSync(envFilePath, 'utf8') : '';
-  fs.writeFileSync(envFilePath, upsertEnvValue(existing, envName, value), 'utf8');
-  cachedEnvFileValues = undefined;
+  const envDirectory = path.dirname(envFilePath);
+  const createdDirectory = fs.mkdirSync(envDirectory, { recursive: true, mode: 0o700 });
+  if (createdDirectory !== undefined) {
+    fs.chmodSync(envDirectory, 0o700);
+  }
+  assertWritableEnvTarget(envFilePath);
+  const temporaryPath = envFilePath + '.' + process.pid + '-' + randomUUID() + '.tmp';
+  const content =
+    GENERATED_AUTH_FILE_MARKER + '\\n' +
+    entries.map(([envName, value]) => envName + '=' + formatEnvValue(value)).join('\\n') +
+    '\\n';
+  try {
+    fs.writeFileSync(temporaryPath, content, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+    fs.renameSync(temporaryPath, envFilePath);
+    fs.chmodSync(envFilePath, 0o600);
+  } finally {
+    fs.rmSync(temporaryPath, { force: true });
+  }
+
+  for (const envName of DERIVED_AUTH_ENV_NAMES) {
+    delete process.env[envName];
+  }
+  for (const [envName, value] of entries) {
+    process.env[envName] = value;
+  }
+  cachedGeneratedAuthFileValues = Object.fromEntries(entries);
+  cachedGeneratedAuthFilePath = envFilePath;
+}
+
+function assertWritableEnvTarget(envFilePath: string): void {
+  if (!fs.existsSync(envFilePath)) {
+    return;
+  }
+  const fileStat = fs.lstatSync(envFilePath);
+  if (fileStat.isSymbolicLink() || !fileStat.isFile()) {
+    throw new Error('Refusing to use generated auth state through a symlink or non-file path: ' + envFilePath);
+  }
+  const firstLine = fs.readFileSync(envFilePath, 'utf8').split(/\\r?\\n/, 1)[0];
+  if (firstLine !== GENERATED_AUTH_FILE_MARKER) {
+    throw new Error(
+      'Refusing to read, replace, or delete an unowned authentication file without the har-api-tests marker: ' + envFilePath
+    );
+  }
 }
 
 export async function sendApiRequest(options: SendApiRequestOptions): Promise<TimedApiResponse> {
   const baseUrl = resolveBaseUrl(options.defaultBaseUrl);
   const endpointPath = resolveEndpointPath(options.path);
   const url = \`\${baseUrl}\${endpointPath}\`;
+  // Reject the destination before resolving headers or reading any credential snapshot.
+  assertAllowedTarget(url, 'generated API request');
   const fetchOptions: Parameters<APIRequestContext['fetch']>[1] = {
-    method: options.method
+    method: options.method,
+    // Validate only the exact trusted destination. Following a redirect could forward a request
+    // (and possibly credentials) to an origin that never passed assertAllowedTarget.
+    maxRedirects: 0
   };
   const headers = options.headers ? resolveHeaders(options.headers) : {};
 
+  if (process.env.HAR_API_REPLAY_MODE === 'true') {
+    const capturedHost = hostnameFromUrl(options.defaultBaseUrl);
+    if (capturedHost) {
+      headers['x-har-replay-host'] = capturedHost;
+    }
+  }
+
+  if (!options.suppressGeneratedAuth) {
+    removeDisallowedGeneratedCredentialHeaders(headers, baseUrl);
+  }
+
   // Isolated sessions manage their own cookies (via the context's jar) and auth, so skip the
   // shared session cookie and bearer injection entirely.
-  if (!options.isolatedSession) {
+  if (!options.isolatedSession && !options.suppressGeneratedAuth) {
     const defaultCookieHeader = resolveDefaultCookieHeader(baseUrl);
     if (defaultCookieHeader && !hasHeader(headers, 'cookie')) {
       headers.cookie = defaultCookieHeader;
     }
 
-    // Some services authenticate via Authorization: Bearer rather than the session cookie. For
-    // hosts in AUTH_BEARER_HOSTS, attach the captured login token when no Authorization is present.
+    // Bearer injection is opt-in for exact origins; captured hosts never authorize credentials.
     if (!hasHeader(headers, 'authorization') && shouldAttachBearer(baseUrl)) {
       const bearer = bearerAuthorizationValue();
       if (bearer) {
@@ -167,65 +326,57 @@ export async function sendApiRequest(options: SendApiRequestOptions): Promise<Ti
 }
 
 function resolveDefaultCookieHeader(baseUrl: string): string {
-  const cookie = resolveEnvironmentValue('API_COOKIE', {});
-  if (!cookie || !shouldAttachGeneratedCookie(baseUrl)) {
+  if (!shouldAttachGeneratedCookie(baseUrl)) {
     return '';
   }
-
-  return cookie;
+  return resolveEnvironmentValue('API_COOKIE', {});
 }
 
 function shouldAttachGeneratedCookie(baseUrl: string): boolean {
-  const requestHost = hostnameFromUrl(baseUrl);
-  if (!requestHost) {
+  const requestOrigin = originFromUrl(baseUrl);
+  if (!requestOrigin) {
     return false;
   }
-
-  // Attach the captured session cookie to any first-party host observed in the capture, not just
-  // the login host — multi-host suites share one session.
-  if (cookieHosts().includes(requestHost) || KNOWN_HOSTS.includes(requestHost)) {
-    return true;
-  }
-
-  // Optional shared cookie domain (e.g. AUTH_COOKIE_DOMAIN=.heartpace.dev) attaches the session to
-  // every subdomain.
-  const cookieDomain = optionalEnvironmentValue('AUTH_COOKIE_DOMAIN');
-  if (cookieDomain) {
-    const bare = cookieDomain.replace(/^\\./, '');
-    if (requestHost === bare || requestHost.endsWith('.' + bare)) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-function cookieHosts(): string[] {
-  return uniqueStrings([
-    optionalEnvironmentValue('AUTH_COOKIE_HOST'),
-    hostnameFromUrl(optionalEnvironmentValue('AUTH_BASE_URL') ?? ''),
-    hostnameFromUrl(optionalEnvironmentValue('BASE_URL') ?? '')
-  ]);
+  return configuredOrigins('AUTH_COOKIE_ORIGINS').includes(requestOrigin);
 }
 
 function shouldAttachBearer(baseUrl: string): boolean {
-  const requestHost = hostnameFromUrl(baseUrl);
-  if (!requestHost) {
+  const requestOrigin = originFromUrl(baseUrl);
+  if (!requestOrigin) {
     return false;
   }
-
-  return bearerHosts().includes(requestHost);
+  return configuredOrigins('AUTH_BEARER_ORIGINS').includes(requestOrigin);
 }
 
-function bearerHosts(): string[] {
-  const configured = (optionalEnvironmentValue('AUTH_BEARER_HOSTS') ?? '')
-    .split(',')
-    .map((value) => value.trim().toLowerCase())
-    .filter(Boolean);
+function removeDisallowedGeneratedCredentialHeaders(headers: Record<string, string>, baseUrl: string): void {
+  const requestOrigin = originFromUrl(baseUrl);
+  for (const headerName of Object.keys(headers)) {
+    const normalizedName = headerName.toLowerCase();
+    if (!GENERATED_SECRET_HEADER_NAMES.has(normalizedName)) {
+      continue;
+    }
+    if (normalizedName === 'set-cookie') {
+      delete headers[headerName];
+      continue;
+    }
+    const allowlistName = credentialOriginAllowlistName(normalizedName);
+    if (!requestOrigin || !configuredOrigins(allowlistName).includes(requestOrigin)) {
+      delete headers[headerName];
+    }
+  }
+}
 
-  // No explicit list -> default to the non-primary first-party hosts derived at generation time,
-  // so multi-service captures authenticate out of the box (only the tenant value + creds needed).
-  return configured.length > 0 ? configured : DEFAULT_BEARER_HOSTS;
+function credentialOriginAllowlistName(headerName: string): string {
+  if (headerName === 'authorization') {
+    return 'AUTH_BEARER_ORIGINS';
+  }
+  if (headerName === 'cookie' || headerName.includes('csrf') || headerName.includes('xsrf')) {
+    return 'AUTH_COOKIE_ORIGINS';
+  }
+  if (headerName.includes('api-key') || headerName === 'apikey') {
+    return 'AUTH_API_KEY_ORIGINS';
+  }
+  return 'AUTH_SECRET_HEADER_ORIGINS';
 }
 
 function bearerAuthorizationValue(): string {
@@ -249,6 +400,18 @@ function hostnameFromUrl(value: string): string | undefined {
 
   try {
     return new URL(value).hostname;
+  } catch {
+    return undefined;
+  }
+}
+
+function originFromUrl(value: string): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  try {
+    return new URL(value).origin;
   } catch {
     return undefined;
   }
@@ -372,6 +535,8 @@ interface PlaceholderResolutionOptions {
 }
 
 let cachedEnvFileValues: Record<string, string> | undefined;
+let cachedGeneratedAuthFileValues: Record<string, string> | undefined;
+let cachedGeneratedAuthFilePath: string | undefined;
 
 function resolvePlaceholder(value: string, options: PlaceholderResolutionOptions = {}): string {
   const exactMatch = /^\\$\\{([A-Z0-9_]+)\\}$/.exec(value);
@@ -385,7 +550,14 @@ function resolvePlaceholder(value: string, options: PlaceholderResolutionOptions
 }
 
 function resolveEnvironmentValue(envName: string, options: PlaceholderResolutionOptions): string {
-  const value = process.env[envName] ?? readGeneratedEnvFileValues()[envName] ?? defaultPlaceholderValue(envName);
+  const baselineValue = readEnvFileValues()[envName];
+  const authStrategy = (process.env.AUTH_STRATEGY ?? baselineValueFor('AUTH_STRATEGY') ?? 'none').toLowerCase();
+  const useGeneratedSnapshot = authStrategy === 'http-login';
+  const generatedValue = useGeneratedSnapshot ? readGeneratedAuthFileValues()[envName] : undefined;
+  const value =
+    DERIVED_AUTH_ENV_NAMES.has(envName) && useGeneratedSnapshot
+      ? generatedValue ?? defaultPlaceholderValue(envName)
+      : process.env[envName] ?? baselineValue ?? defaultPlaceholderValue(envName);
 
   // Blank values (e.g. an untouched "NAME=" line copied from .env.generated.example, or an unset
   // CI secret expanding to '') never satisfy a required placeholder — fail fast in preflight
@@ -397,12 +569,17 @@ function resolveEnvironmentValue(envName: string, options: PlaceholderResolution
   return value ?? '';
 }
 
+function baselineValueFor(envName: string): string | undefined {
+  const value = readEnvFileValues()[envName];
+  return value === '' ? undefined : value;
+}
+
 function optionalEnvironmentValue(envName: string): string | undefined {
   const value = resolveEnvironmentValue(envName, {});
   return value === '' ? undefined : value;
 }
 
-function readGeneratedEnvFileValues(): Record<string, string> {
+function readEnvFileValues(): Record<string, string> {
   if (cachedEnvFileValues) {
     return cachedEnvFileValues;
   }
@@ -419,14 +596,27 @@ function readGeneratedEnvFileValues(): Record<string, string> {
   return cachedEnvFileValues;
 }
 
+function readGeneratedAuthFileValues(): Record<string, string> {
+  const envFilePath = writableEnvFilePath();
+  if (cachedGeneratedAuthFileValues && cachedGeneratedAuthFilePath === envFilePath) {
+    return cachedGeneratedAuthFileValues;
+  }
+  cachedGeneratedAuthFilePath = envFilePath;
+  if (!fs.existsSync(envFilePath)) {
+    cachedGeneratedAuthFileValues = {};
+    return cachedGeneratedAuthFileValues;
+  }
+  assertWritableEnvTarget(envFilePath);
+  cachedGeneratedAuthFileValues = parseEnvFile(fs.readFileSync(envFilePath, 'utf8'));
+  return cachedGeneratedAuthFileValues;
+}
+
 function readableEnvFilePaths(): string[] {
-  // Lowest-to-highest precedence. The user's .env is the baseline; freshly derived auth state in
-  // the generated auth file is read LAST so it overrides any stale CSRF/cookie left in .env.
-  // (globalSetup runs in a separate process from test workers, so workers only see it via file.)
+  // Lowest-to-highest baseline precedence. The dedicated generated auth snapshot is read
+  // separately so derived values can prefer it when global auth setup is enabled.
   return uniquePaths([
     path.resolve(process.cwd(), '.env'),
-    process.env.DOTENV_CONFIG_PATH,
-    process.env.GENERATED_ENV_FILE || defaultGeneratedEnvFilePath()
+    process.env.DOTENV_CONFIG_PATH
   ]);
 }
 
@@ -471,41 +661,12 @@ function unquoteEnvValue(value: string): string {
   return value;
 }
 
-function upsertEnvValue(content: string, envName: string, value: string): string {
-  const lines = content ? content.split(/\\r?\\n/) : [];
-  const nextLine = \`\${envName}=\${formatEnvValue(value)}\`;
-  const envLinePattern = new RegExp('^\\\\s*' + escapeRegExp(envName) + '\\\\s*=');
-  let updated = false;
-
-  const nextLines = lines.map((line) => {
-    if (envLinePattern.test(line)) {
-      updated = true;
-      return nextLine;
-    }
-
-    return line;
-  });
-
-  if (!updated) {
-    if (nextLines.length > 0 && nextLines[nextLines.length - 1] !== '') {
-      nextLines.push('');
-    }
-    nextLines.push(nextLine);
-  }
-
-  return \`\${nextLines.join('\\n').replace(/\\n*$/, '')}\\n\`;
-}
-
 function formatEnvValue(value: string): string {
   if (/^[A-Za-z0-9_@%+=:,./-]+$/.test(value)) {
     return value;
   }
 
   return JSON.stringify(value);
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[|\\\\{}()[\\]^$+*?.]/g, '\\\\$&');
 }
 
 function defaultPlaceholderValue(envName: string): string | undefined {
@@ -522,7 +683,13 @@ export function buildPlaywrightAuthSetupFile(): string {
   return String.raw`import { request, type APIRequestContext, type APIResponse } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
-import { resolveGeneratedEnvValue, updateGeneratedEnvValue } from './apiTestUtils.js';
+import {
+  assertAllowedTarget,
+  clearGeneratedAuthSnapshot,
+  clearGeneratedEnvValues,
+  replaceGeneratedEnvValues,
+  resolveGeneratedEnvValue
+} from './apiTestUtils.js';
 
 type LoginData = string | Record<string, unknown>;
 
@@ -534,7 +701,7 @@ interface LoginConfig {
   data?: LoginData;
   csrfHeaderName: string;
   csrfJsonPath?: string;
-  csrfSourcePath: string;
+  csrfSourcePath?: string;
 }
 
 export default async function globalSetup(): Promise<void> {
@@ -544,53 +711,70 @@ export default async function globalSetup(): Promise<void> {
     fs.rmSync(path.resolve(process.env.CALIBRATION_OUTPUT_FILE || 'test-results/calibration-results.jsonl'), { force: true });
   }
 
-  if (envValue('AUTH_SETUP_ENABLED', 'true').toLowerCase() === 'false') {
+  // A non-login strategy must not leave a previous user or environment's snapshot available to
+  // workers. AUTH_STRATEGY is the single source of truth; no separate enable/approval flag exists.
+  clearGeneratedAuthSnapshot();
+  const authStrategy = envValue('AUTH_STRATEGY', 'none').toLowerCase();
+  if (authStrategy === 'none' || authStrategy === 'static-env') {
     return;
   }
+  if (authStrategy !== 'http-login') {
+    throw new Error('Unsupported AUTH_STRATEGY: ' + authStrategy + '. Expected none, static-env, or http-login.');
+  }
 
+  // Never let a failed or partial login leave a previous user/environment's derived credentials
+  // available to test workers.
+  clearGeneratedEnvValues();
   const config = buildLoginConfig();
-  const context = await request.newContext({ ignoreHTTPSErrors: true });
+  assertAllowedTarget(config.url, 'authentication login');
+  const context = await request.newContext({
+    ignoreHTTPSErrors: envValue('AUTH_IGNORE_HTTPS_ERRORS', 'false').toLowerCase() === 'true'
+  });
 
   try {
     const response = await context.fetch(config.url, {
       method: config.method,
       headers: config.headers,
-      data: config.data
+      data: config.data,
+      maxRedirects: 0
     });
 
     if (!response.ok()) {
-      const bodyPreview = await response.text().catch(() => '');
-      const suffix = bodyPreview ? ' Body: ' + bodyPreview.slice(0, 500) : '';
       throw new Error(
-        'Auth setup login failed: ' + config.method + ' ' + config.url + ' returned ' + response.status() + '.' + suffix
+        'Auth setup login failed: ' + config.method + ' returned HTTP ' + response.status() + '.'
       );
     }
 
     const loginBody = await readJsonResponse(response);
     const userId = userIdFromLoginBody(loginBody);
-    if (userId) {
-      updateGeneratedEnvValue('USER_ID', userId);
-    }
-
     const authToken = tokenFromLoginBody(loginBody);
-    if (authToken) {
-      updateGeneratedEnvValue('API_TOKEN', authToken);
-      updateGeneratedEnvValue('API_AUTHORIZATION', 'Bearer ' + authToken);
-    }
-
     const csrfToken = await extractCsrfToken(response, config, context, loginBody);
-    if (!csrfToken) {
+    if (!csrfToken && envValue('AUTH_REQUIRE_CSRF', 'false').toLowerCase() === 'true') {
       throw new Error(
         'Auth setup login did not return a CSRF token. Set AUTH_CSRF_HEADER or AUTH_CSRF_JSON_PATH if the login response uses a custom token location.'
       );
     }
 
-    updateGeneratedEnvValue('CSRF_TOKEN', csrfToken);
-
     const cookieHeader = cookieHeaderFromResponse(response);
-    if (cookieHeader) {
-      updateGeneratedEnvValue('API_COOKIE', cookieHeader);
+    if (!authToken && !cookieHeader) {
+      throw new Error('Auth setup login returned neither a bearer token nor a session cookie.');
     }
+    const generatedValues: Record<string, string> = {};
+    if (csrfToken) {
+      generatedValues.CSRF_TOKEN = csrfToken;
+    }
+    if (userId) {
+      generatedValues.USER_ID = userId;
+    }
+    if (authToken) {
+      generatedValues.API_TOKEN = authToken;
+      generatedValues.API_AUTHORIZATION = 'Bearer ' + authToken;
+    }
+    if (cookieHeader) {
+      generatedValues.API_COOKIE = cookieHeader;
+    }
+    // Publish one complete snapshot only after login and CSRF extraction have both succeeded.
+    replaceGeneratedEnvValues(generatedValues);
   } finally {
     await context.dispose();
   }
@@ -598,7 +782,7 @@ export default async function globalSetup(): Promise<void> {
 
 function buildLoginConfig(): LoginConfig {
   const contentType = envValue('AUTH_LOGIN_CONTENT_TYPE', 'application/json');
-  const bodyTemplate = optionalEnvValue('AUTH_LOGIN_BODY');
+  const bodyTemplate = requiredEnvValue('AUTH_LOGIN_BODY');
 
   return {
     url: loginUrl(),
@@ -609,10 +793,10 @@ function buildLoginConfig(): LoginConfig {
       'content-type': contentType,
       ...parseHeaderOverrides(envValue('AUTH_LOGIN_HEADERS', '{}'))
     },
-    data: bodyTemplate ? loginDataFromBody(bodyTemplate, contentType) : defaultLoginData(contentType),
+    data: loginDataFromBody(bodyTemplate, contentType),
     csrfHeaderName: envValue('AUTH_CSRF_HEADER', 'x-csrf-token'),
     csrfJsonPath: optionalEnvValue('AUTH_CSRF_JSON_PATH'),
-    csrfSourcePath: envValue('AUTH_CSRF_SOURCE_PATH', '/user/session')
+    csrfSourcePath: optionalEnvValue('AUTH_CSRF_SOURCE_PATH')
   };
 }
 
@@ -621,21 +805,7 @@ function loginUrl(): string {
   if (explicitUrl) {
     return explicitUrl;
   }
-
-  const baseUrl = envValue('AUTH_BASE_URL', envValue('BASE_URL', 'https://stageautomation.heartpace.dev')).replace(/\/$/, '');
-  const loginPath = envValue('AUTH_LOGIN_PATH', '/auth/main/login');
-  return baseUrl + (loginPath.startsWith('/') ? loginPath : '/' + loginPath);
-}
-
-function defaultLoginData(contentType: string): LoginData {
-  const email = resolveGeneratedEnvValue('TEST_EMAIL');
-  const password = resolveGeneratedEnvValue('TEST_PASSWORD');
-
-  if (contentType.includes('application/x-www-form-urlencoded')) {
-    return new URLSearchParams({ email, password }).toString();
-  }
-
-  return { email, password };
+  throw new Error('AUTH_LOGIN_URL is required when AUTH_STRATEGY=http-login.');
 }
 
 function loginDataFromBody(bodyTemplate: string, contentType: string): LoginData {
@@ -684,13 +854,19 @@ async function extractCsrfToken(
 }
 
 async function csrfFromSource(context: APIRequestContext, config: LoginConfig): Promise<string | undefined> {
+  if (!config.csrfSourcePath) {
+    return undefined;
+  }
+  const sourceUrl = resolveUrl(config.url, config.csrfSourcePath);
+  assertAllowedTarget(sourceUrl, 'authentication CSRF source');
   const response = await context
-    .fetch(resolveUrl(config.url, config.csrfSourcePath), {
+    .fetch(sourceUrl, {
       method: 'GET',
       headers: {
         accept: 'application/json, text/plain, */*',
         'x-requested-with': 'XMLHttpRequest'
-      }
+      },
+      maxRedirects: 0
     })
     .catch(() => undefined);
 
@@ -911,6 +1087,14 @@ function resolveEnvPlaceholders(value: string): string {
 
 function envValue(envName: string, fallback: string): string {
   return optionalEnvValue(envName) ?? fallback;
+}
+
+function requiredEnvValue(envName: string): string {
+  const value = optionalEnvValue(envName);
+  if (!value) {
+    throw new Error(envName + ' is required when AUTH_STRATEGY=http-login.');
+  }
+  return value;
 }
 
 function optionalEnvValue(envName: string): string | undefined {

@@ -5,7 +5,7 @@
 | Field | Value |
 |---|---|
 | Flow ID | FLOW-MP-007 |
-| Spec Version | 1.0.0 |
+| Spec Version | 1.2.0 |
 | Owner | aqa-team@example.com |
 | Priority | P1 |
 | Test Type | regression |
@@ -14,15 +14,16 @@
 | Base Path | /planning |
 | Tags | @generated @regression @media-planner @authenticated @no-preconditions |
 | Review Status | pending-review |
+| Review Sign-off | pending |
 | Generation Source | manual-test-case |
-| Generation Status | pending-generation |
+| Generation Status | generated |
 | Generation Mode | suite |
 
 ## User Story
 
 As a media planner,
-I want a confirmation dialog when I click the delete control next to a channel in the media section,
-So that I can intentionally remove a channel (sending a delete request to the backend) or cancel and keep the channel unchanged.
+I want an accessible confirmation dialog when I activate the delete control next to a channel in the media section,
+So that I can intentionally remove a channel after a successful confirmation or cancel and keep the channel unchanged.
 
 ## Preconditions
 
@@ -30,16 +31,16 @@ So that I can intentionally remove a channel (sending a delete request to the ba
 - `PLAYWRIGHT_TEST_BASE_URL` points to `https://www.dev.rtd.js-devops.co.uk/`.
 - Local storage key `feature-flags` enables `FEATURE_NECTAR_AI`, `FEATURE_NUP`, and `FEATURE_NECTAR_AI_MP`.
 - The user can access Media Planner at `/planning`.
-- The advertiser `N360_Unilever_MS`, brand `Unilever | Knorr | MS`, objective `Customer retention`, and SKU `2001227` are available.
-- A media plan can be created via the Nectar AI Assistant with one or more standard channels (onsite, offsite, at home, in-store) listed in the media section (summary-panel). This satisfies the standard (group B) cases.
-- For the recompute-comparison cases (group A), the plan requires channels pre-configured with known staggered start/end dates and distinct per-channel budgets so that one channel bounds neither the earliest start nor the latest end. The configured dates and budgets are read-only fixture inputs; their source of truth is the env override `E2E_MP_DELETION_STAGGERED_FIXTURE` when set, otherwise the documented default schedule.
-- Campaign start dates are chosen at least 10 days from the current date so the separate booking-deadline validation does not interfere with the deletion flow.
+- The advertiser `N360_Unilever_MS`, brand `Unilever | Knorr | MS`, objective `Customer retention`, and product search `knorr` are available (SKU 2001227 is NOT brand-linked in dev — live-verified 2026-07-04: "None of your SKUs are associated with the selected advertiser and brand").
+- Every emitted case starts a fresh, unsaved conversation and creates exactly the one or two channels named by that case.
+- `E2E_MP_DELETION_ONSITE_CHANNEL` and `E2E_MP_DELETION_OFFSITE_CHANNEL` identify exact, brand-resolvable non-production channel names; the documented dev defaults are `Homepage Sponsored Product` and `Meta`.
+- Campaign start dates are chosen at least 20 days from the current date so the separate booking-deadline validation does not interfere with the deletion flow (live 2026-07-04: the offsite channel Meta enforces a 14-day booking deadline; onsite channels accepted +10).
 
 ## Out-of-scope
 
 - Admin configuration changes are out of scope and must remain read-only.
 - Booking-deadline and minimum-duration administration is out of scope.
-- Chat-driven deletion recompute parity is covered only as an equivalence partition against the UI delete path; full chat-deletion behaviour is owned by a separate flow.
+- Chat-driven deletion recompute parity is pending automation and is not claimed by the emitted suite.
 - Production credentials and production user data are out of scope.
 
 ## Stability Requirements
@@ -64,24 +65,21 @@ So that I can intentionally remove a channel (sending a delete request to the ba
 
 | Rule ID | Rule | Formula | Blocking Behavior |
 |---|---|---|---|
-| RULE-001 | The delete control in a channel's media row is active and clickable when the channel is listed | deleteControl.enabled === true when the channel row is present in summary-panel | Non-blocking; the control simply must not be disabled or greyed while the channel exists |
-| RULE-002 | Clicking the delete control opens a confirmation dialog showing the verbatim wording | dialogText === "Are you sure you want to delete this channel?" (case-sensitive, single space, trailing question mark, no period) | Blocking; no delete request is sent until the dialog is confirmed |
-| RULE-003 | Confirming removes the channel and cancelling/dismissing keeps it; remaining channels and the budget recompute deterministically | newTotalBudget = capturedTotalBudget - deletedChannelBudget on confirm; newTotalBudget = capturedTotalBudget and deleteRequestCount = 0 on cancel/dismiss | Blocking; on confirm a delete request is sent and the channel is removed, on cancel/dismiss no request is sent and the channel remains |
+| RULE-001 | The delete control in a channel's media row is enabled, keyboard-focusable, and accessibly named while the channel exists | deleteControl.enabled === true AND deleteControl accessible name identifies delete/remove and its channel | Test failure: an unavailable or ambiguous control prevents intentional deletion |
+| RULE-002 | Activating the delete control opens a modal confirmation dialog with the verbatim wording | role=dialog; dialogText === "Are you sure you want to delete this channel?" (case-sensitive, single space, trailing question mark, no period); focus is inside the dialog | Blocking: the summary remains unchanged until the user chooses Delete, Cancel, or Escape |
+| RULE-003 | A successful Delete removes only the target; Cancel/Escape keep the plan unchanged | on Delete: target absent AND survivor present AND newTotalBudget = capturedTotalBudget - deletedChannelBudget; on Cancel/Escape: rows, total, and dates equal their captured values | Blocking: the modal closes after any action; Cancel/Escape return focus to the invoking delete control; backend-failure rollback is separately pending because the delete operation is not captured |
 
 ## Data Cases
 
 | Case ID | Inputs | Expected Result | Notes |
 |---|---|---|---|
-| DC-001 | plan with one onsite channel (budget £50,000, start today+10, end today+40); action=inspect delete control | The onsite channel's delete control is enabled, focusable, and has an accessible name matching /delete\|remove/i | Group B standard channel; covers TC-DEL-001 |
-| DC-002 | plan with one onsite channel; action=click delete control | A role=dialog appears containing the exact text "Are you sure you want to delete this channel?" | Group B standard channel; covers TC-DEL-002 and the wording-lock TC-DEL-021 |
-| DC-003 | plan with onsite, offsite, at home, in-store; target=onsite; action=open dialog then click Confirm | A delete request is sent to the channel-deletion endpoint, the dialog closes, onsite is removed from summary-panel, the other three channels remain | Group B standard channels; covers TC-DEL-003 |
-| DC-004 | plan with onsite, offsite, at home, in-store; capture Total Budget before; target=onsite; action=open dialog then click Cancel | The dialog closes, no delete request is sent, all four channels remain, Total Budget and campaign start/end are byte-identical to the captured values | Group B standard channels; covers TC-DEL-004 and TC-DEL-023 |
-| DC-005 | plan with one onsite channel; action=open dialog then press Escape (and, in a second run, click any X/close control if present) | The dialog closes, no delete request is sent, the onsite channel remains listed | Group B standard channel; covers TC-DEL-005; if no X/Escape affordance exists the run records actual behaviour instead of failing |
-| DC-006 | plan with onsite (target) and offsite; action=enumerate dialog buttons, click the labelled Confirm for onsite, then re-open for offsite and click the labelled Cancel | The labelled Confirm button performs the delete (onsite removed) and the labelled Cancel button performs the no-op (offsite remains); buttons are not swapped, duplicated, mislabelled, or non-functional | Group B standard channels; NUP-19104 regression characterization; covers TC-DEL-006 |
-| DC-007 | plan with EXACTLY one onsite channel (budget £50,000, start today+10, end today+40); boundary=at-minimum; action=delete the only channel and confirm | The media section shows no channel rows, Total Budget shows the empty value "£--", and campaign start/end show no parseable dates | Group B standard channel; count=1 boundary of delete-all; covers TC-DEL-007 |
-| DC-008 | plan with staggered onsite (today+10..today+40, earliest start), at home (today+12..today+42, target/middle), in-store (today+14..today+47), offsite (today+16..today+52, latest end); boundary=below-minimum; action=delete at home and confirm | at home is removed, Total Budget = captured total − at home budget, campaign START and END are unchanged, all survivors' budgets and dates are unchanged | Group A; requires the pre-configured staggered multi-channel fixture; covers TC-DEL-008 and TC-DEL-009 |
-| DC-009 | two equivalent plans with onsite (today+10..today+40), at home (today+12..today+42), in-store (today+14..today+47), offsite (today+16..today+52); boundary=above-minimum; Plan A deletes offsite via UI dialog, Plan B deletes offsite via chat | Both paths remove offsite, both yield identical Total Budget = total − offsite budget, both yield campaign END = today+47 and START = today+10 | Group A; requires two pre-configured equivalent staggered fixtures; UI-vs-chat equivalence partition; covers TC-DEL-018 and TC-DEL-022 |
-| DC-010 | plan with onsite (target) and offsite; channel-delete endpoint fault-injected to return HTTP 500; action=open dialog and confirm | onsite is NOT removed from the summary, the channel and Total Budget remain unchanged, and an error indication is surfaced | Group B standard channels plus route fault-injection; covers TC-DEL-024 |
+| DC-001 | plan with one onsite channel (budget £50,000, start today+20, end today+50); action=inspect delete control | The control is enabled/focusable and its accessible name communicates delete/remove plus the target channel identity | Group B standard channel; repeated generic button names are not sufficient |
+| DC-002 | plan with one onsite channel; activate its delete control with the keyboard | A named role=dialog appears, focus is inside it, and it contains the exact text "Are you sure you want to delete this channel?" | Group B standard channel; covers TC-DEL-002, wording-lock TC-DEL-021, and keyboard/dialog accessibility |
+| DC-003 | plan with onsite £50,000 and offsite £40,000; target=onsite; action=open dialog then click the exact Delete button | The dialog closes, onsite is absent, offsite remains, and Total Budget recomputes from £90,000 to £40,000 | Group B; reduced from four groups — at-home/in-store additions are pending brand-resolvable dev channels (see Pending Automation); covers TC-DEL-003 |
+| DC-004 | plan with onsite and offsite; capture channel rows, Total Budget, and campaign dates; target=onsite; action=open dialog then click Cancel | The dialog closes, the captured plan state is byte-identical, and focus returns to the onsite delete control | Group B; reduced from four groups (see DC-003 note); covers TC-DEL-004 and TC-DEL-023 |
+| DC-005 | plan with onsite and offsite; capture channel rows, Total Budget, and campaign dates; action=open onsite dialog then press Escape | The dialog closes, the captured plan state is byte-identical, and focus returns to the onsite delete control | Group B standard channels; covers TC-DEL-005 and pairs with DC-004 as the cancel/dismiss equivalence table |
+| DC-006 | plan with onsite (target) and offsite; click the exact Delete button for onsite, then re-open for offsite and click the exact Cancel button | Delete removes onsite and Cancel keeps offsite; the buttons are not swapped, duplicated, mislabelled, or non-functional | Group B standard channels; NUP-19104 regression characterization; covers TC-DEL-006 |
+| DC-007 | plan with EXACTLY one onsite channel (budget £50,000, start today+20, end today+50); boundary=at-minimum; action=delete the only channel and confirm | The media section shows no channel rows, Total Budget shows the empty value "£--", and campaign start/end show no parseable dates | Group B standard channel; count=1 boundary of delete-all; covers TC-DEL-007 |
 
 ## Data Cases as JSON
 
@@ -90,26 +88,43 @@ So that I can intentionally remove a channel (sending a delete request to the ba
   {
     "caseId": "DC-001",
     "inputs": {
-      "channels": [{ "group": "onsite", "budget": "50000", "startOffsetDays": 10, "endOffsetDays": 40 }],
+      "channels": [
+        {
+          "group": "onsite",
+          "budget": "50000",
+          "startOffsetDays": 20,
+          "endOffsetDays": 50
+        }
+      ],
       "action": "inspect-delete-control",
       "target": "onsite"
     },
     "expected": {
       "result": "control-enabled",
-      "accessibleNamePattern": "/delete|remove/i"
+      "accessibleNamePattern": "/delete|remove/i",
+      "accessibleNameIdentifiesChannel": true
     },
     "notes": "Group B standard channel. Delete control must be enabled and focusable, not the previous inactive/greyed state per NUP-15407."
   },
   {
     "caseId": "DC-002",
     "inputs": {
-      "channels": [{ "group": "onsite", "budget": "50000", "startOffsetDays": 10, "endOffsetDays": 40 }],
+      "channels": [
+        {
+          "group": "onsite",
+          "budget": "50000",
+          "startOffsetDays": 20,
+          "endOffsetDays": 50
+        }
+      ],
       "action": "click-delete-control",
       "target": "onsite"
     },
     "expected": {
       "result": "dialog-open",
-      "dialogText": "Are you sure you want to delete this channel?"
+      "dialogText": "Are you sure you want to delete this channel?",
+      "namedDialog": true,
+      "focusInsideDialog": true
     },
     "notes": "Group B standard channel. Wording is case-sensitive against the CONFIRMATION_WORDING constant (capital A, single space, trailing question mark, no period). Covers wording-lock TC-DEL-021."
   },
@@ -117,68 +132,113 @@ So that I can intentionally remove a channel (sending a delete request to the ba
     "caseId": "DC-003",
     "inputs": {
       "channels": [
-        { "group": "onsite", "budget": "50000", "startOffsetDays": 10, "endOffsetDays": 40 },
-        { "group": "offsite" },
-        { "group": "at home" },
-        { "group": "in-store" }
+        {
+          "group": "onsite",
+          "budget": "50000",
+          "startOffsetDays": 20,
+          "endOffsetDays": 50
+        },
+        {
+          "group": "offsite",
+          "budget": "40000",
+          "startOffsetDays": 20,
+          "endOffsetDays": 50
+        }
       ],
-      "action": "open-dialog-then-confirm",
+      "action": "open-dialog-then-delete",
       "target": "onsite"
     },
     "expected": {
       "result": "deleted",
-      "deleteRequestSent": true,
       "dialogHidden": true,
       "removedChannel": "onsite",
-      "remainingChannels": ["offsite", "at home", "in-store"]
+      "remainingChannels": [
+        "offsite"
+      ],
+      "totalBudgetBefore": "£90,000",
+      "totalBudgetAfter": "£40,000"
     },
-    "notes": "Group B standard channels. Confirm button label is guessed /^(yes|confirm|delete)\\b/i pending NUP-15407 codegen verification."
+    "notes": "Group B standard channels. Use the dialog-scoped exact `Delete` button verified by the Page Object; do not guess Yes/Confirm aliases."
   },
   {
     "caseId": "DC-004",
     "inputs": {
       "channels": [
-        { "group": "onsite", "budget": "50000", "startOffsetDays": 10, "endOffsetDays": 40 },
-        { "group": "offsite" },
-        { "group": "at home" },
-        { "group": "in-store" }
+        {
+          "group": "onsite",
+          "budget": "50000",
+          "startOffsetDays": 20,
+          "endOffsetDays": 50
+        },
+        {
+          "group": "offsite",
+          "budget": "40000",
+          "startOffsetDays": 20,
+          "endOffsetDays": 50
+        }
       ],
       "action": "open-dialog-then-cancel",
+      "target": "onsite",
+      "captureBeforeAction": [
+        "totalBudget",
+        "campaignStart",
+        "campaignEnd"
+      ]
+    },
+    "expected": {
+      "result": "unchanged",
+      "dialogHidden": true,
+      "channelsUnchanged": true,
+      "totalBudgetUnchanged": true,
+      "campaignDatesUnchanged": true,
+      "focusReturnedToInvoker": true
+    },
+    "notes": "Group B standard channels. Use the dialog-scoped exact `Cancel` button verified by the Page Object. Asserts byte-identical Total Budget and timeline."
+  },
+  {
+    "caseId": "DC-005",
+    "inputs": {
+      "channels": [
+        {
+          "group": "onsite",
+          "budget": "50000",
+          "startOffsetDays": 20,
+          "endOffsetDays": 50
+        },
+        {
+          "group": "offsite",
+          "budget": "40000",
+          "startOffsetDays": 20,
+          "endOffsetDays": 50
+        }
+      ],
+      "action": "open-dialog-then-dismiss",
+      "dismissVia": ["Escape"],
       "target": "onsite",
       "captureBeforeAction": ["totalBudget", "campaignStart", "campaignEnd"]
     },
     "expected": {
       "result": "unchanged",
-      "deleteRequestSent": false,
       "dialogHidden": true,
       "channelsUnchanged": true,
       "totalBudgetUnchanged": true,
-      "campaignDatesUnchanged": true
+      "campaignDatesUnchanged": true,
+      "focusReturnedToInvoker": true
     },
-    "notes": "Group B standard channels. Cancel button label guessed /^(no|cancel)\\b/i. Asserts byte-identical Total Budget and timeline (folds TC-DEL-004 and TC-DEL-023)."
-  },
-  {
-    "caseId": "DC-005",
-    "inputs": {
-      "channels": [{ "group": "onsite", "budget": "50000", "startOffsetDays": 10, "endOffsetDays": 40 }],
-      "action": "open-dialog-then-dismiss",
-      "dismissVia": ["Escape", "close-icon-if-present"],
-      "target": "onsite"
-    },
-    "expected": {
-      "result": "unchanged",
-      "deleteRequestSent": false,
-      "dialogHidden": true,
-      "channelRemains": "onsite"
-    },
-    "notes": "Group B standard channel. Dismiss is inferred to equal Cancel per NUP-15407. If no X/Escape affordance exists, record actual behaviour rather than hard-failing."
+    "notes": "Group B standard channels. Escape dismissal is required to equal Cancel and is executed as the second row of the cancellation equivalence table."
   },
   {
     "caseId": "DC-006",
     "inputs": {
       "channels": [
-        { "group": "onsite", "budget": "50000" },
-        { "group": "offsite", "budget": "40000" }
+        {
+          "group": "onsite",
+          "budget": "50000"
+        },
+        {
+          "group": "offsite",
+          "budget": "40000"
+        }
       ],
       "action": "enumerate-buttons-then-confirm-onsite-then-cancel-offsite",
       "target": "onsite"
@@ -194,91 +254,30 @@ So that I can intentionally remove a channel (sending a delete request to the ba
   {
     "caseId": "DC-007",
     "inputs": {
-      "channels": [{ "group": "onsite", "budget": "50000", "startOffsetDays": 10, "endOffsetDays": 40 }],
+      "channels": [
+        {
+          "group": "onsite",
+          "budget": "50000",
+          "startOffsetDays": 20,
+          "endOffsetDays": 50
+        }
+      ],
       "boundary": "at-minimum",
       "action": "delete-only-channel-and-confirm",
       "target": "onsite",
-      "captureBeforeAction": ["totalBudget", "campaignStart", "campaignEnd"]
+      "captureBeforeAction": [
+        "totalBudget",
+        "campaignStart",
+        "campaignEnd"
+      ]
     },
     "expected": {
       "result": "emptied",
       "channelRowCount": 0,
-      "totalBudget": "£--",
+      "totalBudget": "\u00a3--",
       "campaignDatesParseable": false
     },
     "notes": "Group B standard channel. Count=1 -> 0 at-minimum boundary of the delete-all behaviour. Empty timeline may render a placeholder; assert zero parseable dates."
-  },
-  {
-    "caseId": "DC-008",
-    "inputs": {
-      "channels": [
-        { "group": "onsite", "startOffsetDays": 10, "endOffsetDays": 40, "note": "earliest start" },
-        { "group": "at home", "startOffsetDays": 12, "endOffsetDays": 42, "note": "middle/target" },
-        { "group": "in-store", "startOffsetDays": 14, "endOffsetDays": 47 },
-        { "group": "offsite", "startOffsetDays": 16, "endOffsetDays": 52, "note": "latest end" }
-      ],
-      "boundary": "below-minimum",
-      "action": "delete-middle-channel-and-confirm",
-      "target": "at home",
-      "captureBeforeAction": ["perChannelBudgets", "totalBudget", "campaignStart", "campaignEnd"]
-    },
-    "expected": {
-      "result": "deleted",
-      "removedChannel": "at home",
-      "totalBudgetFormula": "capturedTotal - atHomeBudget",
-      "campaignStartUnchanged": true,
-      "campaignEndUnchanged": true,
-      "survivorBudgetsUnchanged": true
-    },
-    "notes": "Group A. Requires the pre-configured staggered multi-channel fixture (source of truth env E2E_MP_DELETION_STAGGERED_FIXTURE). Middle channel bounds neither extreme; folds TC-DEL-008 and TC-DEL-009. Compute expected total via cost-oracle parity, never hardcoded UI strings."
-  },
-  {
-    "caseId": "DC-009",
-    "inputs": {
-      "planA": {
-        "channels": [
-          { "group": "onsite", "startOffsetDays": 10, "endOffsetDays": 40 },
-          { "group": "at home", "startOffsetDays": 12, "endOffsetDays": 42 },
-          { "group": "in-store", "startOffsetDays": 14, "endOffsetDays": 47 },
-          { "group": "offsite", "startOffsetDays": 16, "endOffsetDays": 52, "note": "latest end" }
-        ],
-        "deleteVia": "ui-dialog",
-        "target": "offsite"
-      },
-      "planB": {
-        "channels": "same as planA",
-        "deleteVia": "chat",
-        "target": "offsite"
-      },
-      "boundary": "above-minimum"
-    },
-    "expected": {
-      "result": "equivalent",
-      "bothRemoveOffsite": true,
-      "totalBudgetFormula": "capturedTotal - offsiteBudget",
-      "campaignEnd": "today+47",
-      "campaignStart": "today+10"
-    },
-    "notes": "Group A. Requires two pre-configured equivalent staggered fixtures. UI-vs-chat deletion equivalence partition; folds TC-DEL-018 and the delete/re-add idempotence intent of TC-DEL-022. Separate conversations on the shared dev env."
-  },
-  {
-    "caseId": "DC-010",
-    "inputs": {
-      "channels": [
-        { "group": "onsite", "budget": "50000" },
-        { "group": "offsite" }
-      ],
-      "action": "open-dialog-and-confirm",
-      "target": "onsite",
-      "faultInjection": { "endpoint": "channel-delete", "status": 500 }
-    },
-    "expected": {
-      "result": "not-removed",
-      "removedChannel": null,
-      "totalBudgetUnchanged": true,
-      "errorSurfaced": true
-    },
-    "notes": "Group B standard channels plus page.route fault-injection. Guards against optimistic-removal-without-rollback when the backend delete fails; error wording is undocumented, capture whatever is shown."
   }
 ]
 ```
@@ -290,18 +289,14 @@ So that I can intentionally remove a channel (sending a delete request to the ba
 | advertiser | N360_Unilever_MS | Non-production advertiser |
 | brand | Unilever \| Knorr \| MS | Non-production brand |
 | objective | Customer retention | Media Planner objective |
-| sku | 2001227 | SKU used by the guided flow |
-| onsiteChannel | onsite | Standard channel, primary delete target |
-| offsiteChannel | offsite | Standard channel |
-| atHomeChannel | at home | Standard channel, middle/bounded target in DC-008 |
-| inStoreChannel | in-store | Standard channel |
+| productSearch | knorr | Product search term for the guided flow (live-proven; the source case's SKU 2001227 is not brand-linked in dev) |
+| onsiteChannel | Homepage Sponsored Product | Default exact onsite channel; override with `E2E_MP_DELETION_ONSITE_CHANNEL` |
+| offsiteChannel | Meta | Default exact offsite channel; override with `E2E_MP_DELETION_OFFSITE_CHANNEL` |
 | onsiteBudget | 50000 | Per-channel budget for onsite |
 | offsiteBudget | 40000 | Per-channel budget for offsite |
 | confirmationWording | Are you sure you want to delete this channel? | Verbatim dialog text (case-sensitive constant CONFIRMATION_WORDING) |
 | emptyTotalBudget | £-- | Total Budget value shown when no channels remain (per authenticated selector audit) |
-| bookingDeadlineDays | 5 | Read-only configured booking-deadline rule avoided by choosing start >= today+10 |
-| staggeredFixtureEnv | E2E_MP_DELETION_STAGGERED_FIXTURE | Optional override; source of truth for the group A pre-configured staggered start/end dates and per-channel budgets |
-| deleteEndpointFaultStatus | 500 | HTTP status used to fault-inject the channel-delete endpoint in DC-010 |
+| bookingDeadlineDays | 14 | Read-only configured booking-deadline rule (live 2026-07-04: Meta enforces 14 days) avoided by choosing start >= today+20 |
 
 ## Mocks
 
@@ -319,40 +314,32 @@ So that I can intentionally remove a channel (sending a delete request to the ba
 
 | Step | AC IDs | Action | Target | Input | Expected Result | Assertion Hint |
 |---:|---|---|---|---|---|---|
-| 1 | AC-001 | Open Media Planner and build a plan with the required channels via the Nectar AI Assistant | /planning | feature-flags enabled; Try now; Help me build a plan based on my objective & budget; N360_Unilever_MS; Unilever \| Knorr \| MS; Customer retention; 2001227; Confirm; channel requests with budgets and dates | The requested channels appear as rows in the media section (summary-panel) | channel rows are visible in summary-panel |
-| 2 | AC-002 | Inspect the delete control in a channel's media row | summary-panel channel row | DC-001 target onsite | The delete control is enabled, focusable, and has an accessible name matching /delete\|remove/i | delete control toBeEnabled with accessible name /delete\|remove/i |
-| 3 | AC-003 | Click the delete control and read the confirmation dialog | channel delete control | DC-002 target onsite | A role=dialog appears with the verbatim wording "Are you sure you want to delete this channel?" | dialog toBeVisible and toContainText the exact confirmation wording |
-| 4 | AC-004 | Confirm deletion in the dialog and observe the network request and media list | confirmation dialog Confirm button | DC-003 target onsite | A delete request is sent, the dialog closes, onsite is removed, and the other three channels remain | delete request captured, dialog toBeHidden, summary-panel not.toContainText onsite, survivors still listed |
-| 5 | AC-005 | Cancel or dismiss the dialog and re-read the media list, Total Budget, and timeline | confirmation dialog Cancel/close control or Escape | DC-004, DC-005 | The dialog closes, no delete request is sent, the channel remains, and Total Budget plus campaign dates are byte-identical | no delete request, dialog toBeHidden, channel still listed, captured Total Budget and dates unchanged |
-| 6 | AC-006 | Enumerate the dialog buttons and verify each label performs its action | confirmation dialog buttons | DC-006 onsite Confirm and offsite Cancel | The labelled Confirm deletes onsite and the labelled Cancel keeps offsite; buttons are not swapped or mislabelled | captured button labels/outcomes match (NUP-19104) |
-| 7 | AC-007 | Delete channels and assert deterministic recompute across boundary and equivalence cases | summary-panel and delete dialog | DC-007, DC-008, DC-009 | Deleting the only channel empties the section to "£--" with no parseable dates; deleting a middle channel changes only the budget; UI and chat deletion produce the same recomputed summary | empty-state, recompute formulas via cost-oracle parity, and UI-vs-chat equality all hold |
-| 8 | AC-008 | Confirm deletion while the delete endpoint is fault-injected to 500 | confirmation dialog Confirm button | DC-010 target onsite, route 500 | onsite is not removed, Total Budget is unchanged, and an error indication is surfaced | summary-panel still toContainText onsite, total unchanged, error visible |
+| 1 | AC-001 | Build a one-channel plan and inspect its delete control | /planning and summary-panel channel row | DC-001 target onsite | The channel row appears and its delete control is enabled and accessibly named | row visible; delete control enabled with accessible name /delete\|remove/i |
+| 2 | AC-002 | Keyboard-activate the delete control and inspect the confirmation dialog | channel delete control | DC-002 target onsite | A named role=dialog appears with focus inside and the verbatim wording "Are you sure you want to delete this channel?" | role/name; focused descendant; exact confirmation wording |
+| 3 | AC-003 | Confirm deletion in a two-channel plan | confirmation dialog exact Delete button | DC-003 target onsite | Onsite is removed, offsite remains, and Total Budget changes from £90,000 to £40,000 | target count 0; survivor visible; computed remaining total |
+| 4 | AC-004 | Cancel or Escape deletion in independent two-channel plans | confirmation dialog Cancel button or Escape | DC-004, DC-005 | The dialog closes, all captured plan fields are unchanged, and focus returns to the invoking control | both rows; exact total/dates; invoking control focused |
+| 5 | NEG-001 | Use the exact Delete label for onsite, then the exact Cancel label for offsite | confirmation dialog buttons | DC-006 | Delete removes onsite and Cancel keeps offsite; swapped, duplicated, or non-functional labels fail | onsite count 0; offsite visible; dialog hidden |
+| 6 | AC-005 | Delete the only channel and assert the empty-state recompute boundary | summary-panel and delete dialog | DC-007 | Deleting the only channel empties the media section and Total Budget shows "£--" | delete-control count 0; Total Budget "£--"; no year in dates |
 
 ## Negative Cases
 
 | Case ID | Scenario | Expected Result |
 |---|---|---|
-| NEG-001 | DC-004: user opens the delete dialog for onsite and clicks Cancel | The dialog closes, no delete request is sent, all channels and Total Budget remain unchanged |
-| NEG-002 | DC-005: user dismisses the delete dialog via Escape or the X/close control | The dialog closes, no delete request is sent, and the channel remains listed |
-| NEG-003 | DC-006 (NUP-19104): the Confirm and Cancel buttons are swapped, mislabelled, duplicated, or non-functional | The test fails; the labelled Confirm must delete and the labelled Cancel must perform a no-op |
-| NEG-004 | DC-010: the channel-delete backend request returns HTTP 500 after Confirm | The channel is NOT removed (no optimistic removal without rollback), Total Budget is unchanged, and an error is surfaced |
+| NEG-001 | DC-006 (NUP-19104): the Delete and Cancel buttons are swapped, mislabelled, duplicated, or non-functional | The test fails; the exact labelled Delete action must remove onsite and the exact labelled Cancel action must keep offsite |
 
 ## Acceptance Criteria
 
-- AC-001: Media Planner opens and a plan with the requested standard channels is built so the channels appear as rows in the media section.
-- AC-002: The delete control in a channel's media row is active (enabled, focusable, accessibly named).
-- AC-003: Clicking the delete control opens a confirmation dialog containing the verbatim text "Are you sure you want to delete this channel?".
-- AC-004: Confirming the dialog sends a delete request, closes the dialog, removes the target channel, and leaves the remaining channels listed.
-- AC-005: Cancelling or dismissing the dialog closes it, sends no delete request, and leaves the channel, Total Budget, and campaign dates unchanged.
-- AC-006: The dialog's Confirm and Cancel buttons behave per their labels and are not swapped, duplicated, mislabelled, or non-functional (NUP-19104 regression).
-- AC-007: Channel deletion recomputes the summary deterministically — deleting the only channel empties the section to "£--" with no parseable dates, deleting a middle channel changes only the budget, and UI and chat deletion paths yield the same recomputed summary.
-- AC-008: When the backend delete request fails with 500, the channel is not removed, Total Budget is unchanged, and an error is surfaced.
+- AC-001: A built channel row exposes an enabled, focusable delete control whose accessible name identifies both the destructive action and target channel.
+- AC-002: Keyboard-activating the delete control opens a named modal dialog, moves focus inside it, and shows the verbatim text "Are you sure you want to delete this channel?".
+- AC-003: Choosing the exact Delete action removes only the target and recomputes Total Budget to the remaining channel's £40,000 budget.
+- AC-004: Cancelling or pressing Escape closes the dialog, preserves both rows, Total Budget, and campaign dates, and returns focus to the invoking delete control.
+- AC-005: Deleting the only channel empties the media section and Total Budget shows the empty value "£--" (the count=1 -> 0 boundary).
 
 ## Locator Hints
 
-- Prefer role/name locators for the delete control: `getByRole('row', { name: channelName }).getByRole('button', { name: /delete|remove/i })`.
+- Use the live-verified Page Object wrappers for the delete control: `PlanningPage.channelDeleteControlFor(channelName)` (the channel's summary block filtered by name, then `getByRole('button', { name: /delete channel/i })` — verified 2026-06-23; the DOM has no role=row grid).
 - Prefer `getByRole('dialog')` filtered by the confirmation wording for the confirmation dialog.
-- Prefer role/name for the dialog action buttons: Confirm `getByRole('button', { name: /^(yes|confirm|delete)\b/i })`, Cancel `getByRole('button', { name: /^(no|cancel)\b/i })`, close `getByRole('button', { name: /close/i })`.
+- Use the live-verified Page Object wrappers for the dialog actions: Confirm `PlanningPage.modalDeleteConfirmButton()` (`getByRole('button', { name: 'Delete', exact: true })`, verified 2026-06-23), Cancel `PlanningPage.modalDeleteCancelButton()` (dialog-scoped `getByRole('button', { name: 'Cancel', exact: true })`), dismiss via `PlanningPage.dismissDialogWithEscape()` (keyboard Escape; no X/close control is asserted).
 - Prefer exact visible text for assistant option chips such as advertiser, brand, objective, SKU, Add hero SKU, and Confirm.
 - Scope assertions to the active tabpanel; test-tab-{onsite|offsite|instore|athome} all stay mounted.
 - Use CSS only with an explicit locator-policy exception comment directly above the locator call.
@@ -363,15 +350,16 @@ So that I can intentionally remove a channel (sending a delete request to the ba
 - Must use test.step.
 - Must use Page Objects or Component Objects for all locators.
 - Must not create direct `page.getBy*` or `page.locator(...)` locators in generated test bodies.
-- This spec declares `Generation Mode | suite`; split the flow into focused tests (delete-control active, dialog wording, confirm-deletes, cancel/dismiss-keeps, NUP-19104 buttons, recompute boundary/equivalence, backend-failure).
+- This spec declares `Generation Mode | suite`; split the flow into focused tests, with DC-004/DC-005 as a real two-row cancellation equivalence table and every other emitted case executed once.
 - Must put `expect(...)` only in the final assertion step for each test.
 - Must title assertion steps `Assert AC-###: ...` or `Assert NEG-###: ...`.
 - Must include meaningful expect assertions for user-visible behavior.
 - In suite mode, must cover every AC ID from this spec with a final assertion step.
 - Must assert the salient expected values "Are you sure you want to delete this channel?", "£--", onsite, offsite.
+- Must assert dialog focus containment and focus restoration using locator-based focus assertions; a plain captured boolean is insufficient.
 - Default generated-test execution target is Chromium only.
 - Cross-browser generated-test execution is opt-in.
-- Must enumerate every Data Cases as JSON case ID: DC-001, DC-002, DC-003, DC-004, DC-005, DC-006, DC-007, DC-008, DC-009, DC-010.
+- Must enumerate every Data Cases as JSON case ID: DC-001, DC-002, DC-003, DC-004, DC-005, DC-006, DC-007.
 - Plan creation is multiple AI turns (30-60s each); mark slow tests `test.slow` with an extended expect timeout (~75s) for backend round-trips.
 - Must not use page.waitForTimeout.
 - Must not use page.waitForLoadState('networkidle').
@@ -381,11 +369,24 @@ So that I can intentionally remove a channel (sending a delete request to the ba
 - Must not use real credentials.
 - Must not commit auth state.
 
+## Pending Automation (no test emitted)
+
+Cases that are specified but cannot be verified end-to-end today (E2E-only policy: no placeholder
+tests). Automate each once its blocker is removed.
+
+| Source Case | Blocker |
+|---|---|
+| DC-008 (TC-DEL-008/009) — staggered middle-channel recompute | Needs the pre-configured staggered multi-channel fixture (E2E_MP_DELETION_STAGGERED_FIXTURE unset) plus cost-oracle parity for the expected totals |
+| DC-009 (TC-DEL-018/022) — UI-vs-chat deletion equivalence | Same staggered fixture dependency; also two equivalent plans per run |
+| DC-010 / NEG-004 (TC-DEL-024) — delete endpoint fault-injection (HTTP 500) | The channel-delete request (GraphQL op name) is uncaptured; route interception needs one HAR of a manual delete to pin the op without breaking sibling reads |
+| Four-group variants of DC-003/DC-004 (at home, in-store) | No live-proven brand-available at-home/in-store dev channel for Unilever \| Knorr \| MS; the emitted cases run on the two proven groups (onsite, offsite) |
+
 ## Notes
 
 - This test intentionally avoids admin pages and does not change Channel Management or channel configuration; channel rules are treated as pre-configured and read-only.
 - The confirmation wording is asserted case-sensitively against the constant `CONFIRMATION_WORDING` = "Are you sure you want to delete this channel?" (capital A, single space, trailing question mark, no period); source confirmed in NUP-15407.doc.
-- Group B cases (DC-001 through DC-007, DC-010) run on standard channels added to a fresh plan with no required field values. Group A cases (DC-008, DC-009) require channels pre-configured with known staggered start/end dates and distinct per-channel budgets; set `E2E_MP_DELETION_STAGGERED_FIXTURE` when a non-production environment uses a different configured schedule, in which case that override is the source of truth.
-- Confirm/Cancel button labels are guessed pending codegen against NUP-15407; the NUP-19104 button regression (DC-006) is a characterization test that captures actual labels/order/outcomes before asserting pass/fail.
-- Recompute expectations are computed via cost-oracle parity from captured numbers, never from hardcoded UI strings.
-- Campaign start dates are kept at least 10 days out so the booking-deadline validation does not interfere with the deletion flow.
+- Emitted cases DC-001 through DC-007 run on exact, env-overridable channels added to a fresh plan. Pending DC-008/DC-009 require pre-configured staggered fixtures; pending DC-010 requires the captured delete operation and a safe fault-injection contract.
+- The Page Object uses the live-verified exact `Delete` and `Cancel` labels. DC-006 proves those labelled actions are neither swapped nor non-functional.
+- Recompute expectations are derived from the requested channel budgets; defaults are £90,000 before and £40,000 after deleting onsite.
+- Campaign start dates are kept at least 20 days out so the booking-deadline validation does not interfere with the deletion flow.
+- Human review must confirm the exact dialog wording, accessible dialog name, focus placement/restoration, empty-state copy, and the two default channel names. Backend failure/rollback remains blocked until the GraphQL delete operation is captured safely.

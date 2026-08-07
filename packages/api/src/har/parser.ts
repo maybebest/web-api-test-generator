@@ -81,13 +81,101 @@ function tryParseHarObject(text: string): HarFile | undefined {
 }
 
 function validateHarFile(har: HarFile, filePath: string): void {
-  if (!har?.log || !Array.isArray(har.log.entries)) {
-    throw new Error(`Invalid HAR file: ${filePath}`);
+  if (!isRecord(har) || !isRecord(har.log) || !Array.isArray(har.log.entries)) {
+    throw new Error(`Invalid HAR file ${filePath} at $.log.entries: expected an array`);
   }
 
   for (const [index, entry] of har.log.entries.entries()) {
-    if (!entry.request?.method || !entry.request.url || typeof entry.response?.status !== 'number') {
-      throw new Error(`Invalid HAR entry ${index} in ${filePath}`);
+    const entryPath = `$.log.entries[${index}]`;
+    if (!isRecord(entry) || !isRecord(entry.request) || !isRecord(entry.response)) {
+      throw new Error(`Invalid HAR file ${filePath} at ${entryPath}: request and response objects are required`);
+    }
+    if (
+      entry.startedDateTime !== undefined &&
+      (typeof entry.startedDateTime !== 'string' || Number.isNaN(Date.parse(entry.startedDateTime)))
+    ) {
+      throw new Error(`Invalid HAR file ${filePath} at ${entryPath}.startedDateTime: expected an ISO date-time string`);
+    }
+    if (entry.time !== undefined && (typeof entry.time !== 'number' || !Number.isFinite(entry.time))) {
+      throw new Error(`Invalid HAR file ${filePath} at ${entryPath}.time: expected a finite number`);
+    }
+    if (typeof entry.request.method !== 'string' || entry.request.method.trim() === '') {
+      throw new Error(`Invalid HAR file ${filePath} at ${entryPath}.request.method: expected a non-empty string`);
+    }
+    if (typeof entry.request.url !== 'string') {
+      throw new Error(`Invalid HAR file ${filePath} at ${entryPath}.request.url: expected a string`);
+    }
+    try {
+      const url = new URL(entry.request.url);
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+        throw new Error('unsupported protocol');
+      }
+    } catch {
+      throw new Error(`Invalid HAR file ${filePath} at ${entryPath}.request.url: expected an absolute HTTP(S) URL`);
+    }
+    if (!Number.isInteger(entry.response.status) || entry.response.status < 100 || entry.response.status > 599) {
+      throw new Error(`Invalid HAR file ${filePath} at ${entryPath}.response.status: expected an HTTP status`);
+    }
+
+    validateNameValuePairs(entry.request.headers, filePath, `${entryPath}.request.headers`);
+    validateNameValuePairs(entry.request.queryString, filePath, `${entryPath}.request.queryString`);
+    validateNameValuePairs(entry.response.headers, filePath, `${entryPath}.response.headers`);
+
+    if (entry.request.postData !== undefined) {
+      if (!isRecord(entry.request.postData)) {
+        throw new Error(`Invalid HAR file ${filePath} at ${entryPath}.request.postData: expected an object`);
+      }
+      if (entry.request.postData.text !== undefined && typeof entry.request.postData.text !== 'string') {
+        throw new Error(`Invalid HAR file ${filePath} at ${entryPath}.request.postData.text: expected a string`);
+      }
+      if (entry.request.postData.mimeType !== undefined && typeof entry.request.postData.mimeType !== 'string') {
+        throw new Error(`Invalid HAR file ${filePath} at ${entryPath}.request.postData.mimeType: expected a string`);
+      }
+      validateNameValuePairs(entry.request.postData.params, filePath, `${entryPath}.request.postData.params`);
+    }
+
+    if (entry.response.content !== undefined) {
+      if (!isRecord(entry.response.content)) {
+        throw new Error(`Invalid HAR file ${filePath} at ${entryPath}.response.content: expected an object`);
+      }
+      if (entry.response.content.text !== undefined && typeof entry.response.content.text !== 'string') {
+        throw new Error(`Invalid HAR file ${filePath} at ${entryPath}.response.content.text: expected a string`);
+      }
+      if (entry.response.content.mimeType !== undefined && typeof entry.response.content.mimeType !== 'string') {
+        throw new Error(`Invalid HAR file ${filePath} at ${entryPath}.response.content.mimeType: expected a string`);
+      }
+      if (entry.response.content.encoding !== undefined && entry.response.content.encoding !== 'base64') {
+        throw new Error(`Invalid HAR file ${filePath} at ${entryPath}.response.content.encoding: only base64 is supported`);
+      }
+      if (
+        entry.response.content.encoding === 'base64' &&
+        entry.response.content.text !== undefined &&
+        !isValidBase64(entry.response.content.text)
+      ) {
+        throw new Error(`Invalid HAR file ${filePath} at ${entryPath}.response.content.text: invalid base64 payload`);
+      }
     }
   }
+}
+
+function validateNameValuePairs(value: unknown, filePath: string, jsonPath: string): void {
+  if (value === undefined) {
+    return;
+  }
+  if (!Array.isArray(value)) {
+    throw new Error(`Invalid HAR file ${filePath} at ${jsonPath}: expected an array`);
+  }
+  value.forEach((pair, index) => {
+    if (!isRecord(pair) || typeof pair.name !== 'string' || typeof pair.value !== 'string') {
+      throw new Error(`Invalid HAR file ${filePath} at ${jsonPath}[${index}]: expected string name and value`);
+    }
+  });
+}
+
+function isValidBase64(value: string): boolean {
+  return value.length % 4 === 0 && /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value);
+}
+
+function isRecord(value: unknown): value is Record<string, any> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

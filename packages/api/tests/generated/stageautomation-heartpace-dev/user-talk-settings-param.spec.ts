@@ -6,7 +6,6 @@ import {
   assertNoSensitiveFieldsInJsonResponse,
   assertResponseTime,
   assertStatusCode,
-  inferredTest,
   sendApiRequest,
   loadJsonFromTestFile,
   resolvePayload
@@ -34,7 +33,7 @@ test.describe('stageautomation.heartpace.dev /user/talk-settings/{param}', () =>
 
   // origin: inferred | category: negative | confidence: medium | execution: active | mutationRisk: guarded | calibration: confirmed
   test('negative: POST /user/talk-settings/{param} rejects invalid path parameter @extended @profile @mutating', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-talk-settings-param-68190a0a.invalid-path-param.request.json'));
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-talk-settings-param-4d145823.invalid-path-param.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://stageautomation.heartpace.dev',
@@ -55,9 +54,9 @@ test.describe('stageautomation.heartpace.dev /user/talk-settings/{param}', () =>
   });
 
 
-  // origin: inferred | category: negative | confidence: high | execution: fixme | mutationRisk: guarded | calibration: lenient
-  inferredTest('negative: POST /user/talk-settings/{param} rejects missing TalkSettingsForm[talkDuration] @extended @profile @mutating @calibrate', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-talk-settings-param-68190a0a.missing-talksettingsform-talkduration.request.json'));
+  // origin: inferred | category: negative | confidence: high | execution: skip | mutationRisk: guarded | calibration: lenient
+  test.skip('negative: POST /user/talk-settings/{param} rejects missing TalkSettingsForm[talkDuration] @extended @profile @mutating', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-talk-settings-param-4d145823.missing-field-talksettingsform-talkduration.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://stageautomation.heartpace.dev',
@@ -78,9 +77,9 @@ test.describe('stageautomation.heartpace.dev /user/talk-settings/{param}', () =>
   });
 
 
-  // origin: inferred | category: negative | confidence: high | execution: fixme | mutationRisk: guarded | calibration: lenient
-  inferredTest('negative: POST /user/talk-settings/{param} rejects missing _csrf @extended @profile @mutating @calibrate', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-talk-settings-param-68190a0a.missing-csrf.request.json'));
+  // origin: inferred | category: negative | confidence: high | execution: skip | mutationRisk: guarded | calibration: lenient
+  test.skip('negative: POST /user/talk-settings/{param} rejects missing _csrf @extended @profile @mutating', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-talk-settings-param-4d145823.missing-field-csrf.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://stageautomation.heartpace.dev',
@@ -101,14 +100,15 @@ test.describe('stageautomation.heartpace.dev /user/talk-settings/{param}', () =>
   });
 
 
-  // origin: inferred | category: security | confidence: high | execution: fixme | mutationRisk: guarded | calibration: lenient
-  inferredTest('security: POST /user/talk-settings/{param} rejects invalid x-csrf-token @extended @profile @mutating @calibrate', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-talk-settings-param-68190a0a.invalid-x-csrf-token.request.json'));
+  // origin: inferred | category: security | confidence: high | execution: skip | mutationRisk: guarded | calibration: lenient
+  test.skip('security: POST /user/talk-settings/{param} rejects invalid x-csrf-token @extended @profile @mutating', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-talk-settings-param-4d145823.invalid-x-csrf-token.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://stageautomation.heartpace.dev',
       path: '/user/talk-settings/${USER_ID}',
       method: 'POST',
+      suppressGeneratedAuth: true,
       headers: {
         "accept": "application/json, text/javascript, */*; q=0.01",
         "content-type": "multipart/form-data; boundary=----WebKitFormBoundaryVKk2ASAqxsxqeKQN",
@@ -124,14 +124,15 @@ test.describe('stageautomation.heartpace.dev /user/talk-settings/{param}', () =>
   });
 
 
-  // origin: inferred | category: security | confidence: high | execution: fixme | mutationRisk: guarded | calibration: lenient
-  inferredTest('security: POST /user/talk-settings/{param} rejects missing x-csrf-token @extended @profile @mutating @calibrate', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-talk-settings-param-68190a0a.missing-x-csrf-token.request.json'));
+  // origin: inferred | category: security | confidence: high | execution: skip | mutationRisk: guarded | calibration: lenient
+  test.skip('security: POST /user/talk-settings/{param} rejects missing x-csrf-token @extended @profile @mutating', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-talk-settings-param-4d145823.missing-x-csrf-token.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://stageautomation.heartpace.dev',
       path: '/user/talk-settings/${USER_ID}',
       method: 'POST',
+      suppressGeneratedAuth: true,
       headers: {
         "accept": "application/json, text/javascript, */*; q=0.01",
         "content-type": "multipart/form-data; boundary=----WebKitFormBoundaryVKk2ASAqxsxqeKQN",
@@ -167,7 +168,7 @@ test.describe('stageautomation.heartpace.dev /user/talk-settings/{param}', () =>
 
   // origin: observed | category: smoke | confidence: high | execution: active | mutationRisk: guarded
   test('smoke: POST /user/talk-settings/{param} returns 200 @smoke @profile @mutating', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-talk-settings-param-68190a0a.request.json'));
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-talk-settings-param-4d145823.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://stageautomation.heartpace.dev',

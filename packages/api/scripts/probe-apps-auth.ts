@@ -54,7 +54,9 @@ async function main(): Promise<void> {
   }
 
   // 2. Log in.
-  const ctx = await request.newContext({ ignoreHTTPSErrors: true });
+  const ctx = await request.newContext({
+    ignoreHTTPSErrors: process.env.API_IGNORE_HTTPS_ERRORS === 'true'
+  });
   const login = await ctx.fetch(LOGIN, {
     method: 'POST',
     headers: { accept: 'application/json, text/plain, */*', 'content-type': 'application/json' },
@@ -73,7 +75,9 @@ async function main(): Promise<void> {
   console.log('');
 
   async function probe(label: string, headers: Record<string, string>): Promise<void> {
-    const c = await request.newContext({ ignoreHTTPSErrors: true });
+    const c = await request.newContext({
+      ignoreHTTPSErrors: process.env.API_IGNORE_HTTPS_ERRORS === 'true'
+    });
     const r = await c.fetch(APPS, {
       method: 'GET',
       headers: { accept: 'application/json, text/plain, */*', 'x-requested-with': 'XMLHttpRequest', ...headers }

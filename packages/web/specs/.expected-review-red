@@ -6,8 +6,6 @@
 # This keeps CI green while the red-ness itself stays asserted; it does NOT weaken the reviewer
 # (`npm run ai:test:review` on these specs still fails loudly).
 #
-# Currently empty (2026-07-03). The five SKU suites were delisted after the E2E-only regeneration:
-# three suites now emit ONLY live-proven executable E2E tests (review passes for real), and two
-# (max-hero-skus-per-channel, single-prompt-hero-measurement-parsing) have zero automatable cases
-# today, so they are honestly `Generation Status | pending-generation` with no test file. The
-# non-automatable cases are enumerated per spec under "Pending Automation" with their blockers.
+# Currently empty (2026-07-13). No header-linked suite is allowed to bypass static review here.
+# Specs marked pending-review remain intentionally rejected by the normal release gate until a
+# human reviewer creates a hash-bound sign-off; use --allow-pending-review only for static preview.

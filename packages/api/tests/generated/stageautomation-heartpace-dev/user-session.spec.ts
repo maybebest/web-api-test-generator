@@ -6,18 +6,59 @@ import {
   assertNoSensitiveFieldsInJsonResponse,
   assertResponseTime,
   assertStatusCode,
-  inferredTest,
+  calibrationTest,
   sendApiRequest
 } from '../support/apiTestUtils.js';
 
 test.describe('stageautomation.heartpace.dev /user/session', () => {
-  // origin: inferred | category: security | confidence: high | execution: fixme | mutationRisk: guarded | calibration: lenient
-  inferredTest('security: GET /user/session rejects invalid x-csrf-token @extended @auth @mutating @calibrate', async ({ request }, testInfo) => {
+  // origin: inferred | category: negative | confidence: low | execution: calibrate | mutationRisk: none | calibration: pending
+  calibrationTest('negative: GET /user/session rejects invalid query _ @extended @auth @calibrate', async ({ request }, testInfo) => {
+    const { response, elapsedMs } = await sendApiRequest({
+      request,
+      defaultBaseUrl: 'https://stageautomation.heartpace.dev',
+      path: '/user/session?_=not-a-valid-_',
+      method: 'GET',
+      headers: {
+        "accept": "application/json, text/javascript, */*; q=0.01",
+        "x-csrf-token": "${CSRF_TOKEN}",
+        "x-requested-with": "XMLHttpRequest"
+      }
+    });
+
+    assertStatusCode(response.status(), {"kind":"family","family":"4xx"}, 'negative: GET /user/session rejects invalid query _', 'stageautomation.heartpace.dev');
+    assertResponseTime(elapsedMs, 2000);
+    await assertNoSensitiveFieldsInJsonResponse(response, 'negative: GET /user/session rejects invalid query _');
+  });
+
+
+  // origin: inferred | category: negative | confidence: low | execution: calibrate | mutationRisk: none | calibration: pending
+  calibrationTest('negative: GET /user/session rejects missing query _ @extended @auth @calibrate', async ({ request }, testInfo) => {
+    const { response, elapsedMs } = await sendApiRequest({
+      request,
+      defaultBaseUrl: 'https://stageautomation.heartpace.dev',
+      path: '/user/session',
+      method: 'GET',
+      headers: {
+        "accept": "application/json, text/javascript, */*; q=0.01",
+        "x-csrf-token": "${CSRF_TOKEN}",
+        "x-requested-with": "XMLHttpRequest"
+      }
+    });
+
+    assertStatusCode(response.status(), {"kind":"family","family":"4xx"}, 'negative: GET /user/session rejects missing query _', 'stageautomation.heartpace.dev');
+    assertResponseTime(elapsedMs, 2000);
+    await assertNoSensitiveFieldsInJsonResponse(response, 'negative: GET /user/session rejects missing query _');
+  });
+
+
+  // origin: inferred | category: security | confidence: high | execution: skip | mutationRisk: guarded | calibration: lenient
+  test.skip('security: GET /user/session rejects invalid x-csrf-token @extended @auth @mutating', async ({ request }, testInfo) => {
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://stageautomation.heartpace.dev',
       path: '/user/session?_=${CACHE_BUSTER}',
       method: 'GET',
+      suppressGeneratedAuth: true,
       headers: {
         "accept": "application/json, text/javascript, */*; q=0.01",
         "x-csrf-token": "invalid-csrf-token",
@@ -31,13 +72,14 @@ test.describe('stageautomation.heartpace.dev /user/session', () => {
   });
 
 
-  // origin: inferred | category: security | confidence: high | execution: fixme | mutationRisk: guarded | calibration: lenient
-  inferredTest('security: GET /user/session rejects missing x-csrf-token @extended @auth @mutating @calibrate', async ({ request }, testInfo) => {
+  // origin: inferred | category: security | confidence: high | execution: skip | mutationRisk: guarded | calibration: lenient
+  test.skip('security: GET /user/session rejects missing x-csrf-token @extended @auth @mutating', async ({ request }, testInfo) => {
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://stageautomation.heartpace.dev',
       path: '/user/session?_=${CACHE_BUSTER}',
       method: 'GET',
+      suppressGeneratedAuth: true,
       headers: {
         "accept": "application/json, text/javascript, */*; q=0.01",
         "x-requested-with": "XMLHttpRequest"

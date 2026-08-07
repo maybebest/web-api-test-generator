@@ -6,16 +6,136 @@ import {
   assertNoSensitiveFieldsInJsonResponse,
   assertResponseTime,
   assertStatusCode,
-  inferredTest,
+  calibrationTest,
   sendApiRequest,
   loadJsonFromTestFile,
   resolvePayload
 } from '../support/apiTestUtils.js';
 
 test.describe('workforce.heartpace.dev /v1/approval/my-team/running-chains/requests', () => {
-  // origin: inferred | category: negative | confidence: high | execution: fixme | mutationRisk: guarded | calibration: lenient
-  inferredTest('negative: POST /v1/approval/my-team/running-chains/requests rejects missing current_approver_uuid @extended @approval @mutating @calibrate', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-workforce-heartpace-dev-v1-approval-my-team-running-chains-requests-ea73aa37.missing-current-approver-uuid.request.json'));
+  // origin: inferred | category: negative | confidence: medium | execution: calibrate | mutationRisk: guarded | calibration: pending
+  calibrationTest('negative: POST /v1/approval/my-team/running-chains/requests rejects invalid type for current_approver_uuid @extended @approval @mutating @calibrate', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-workforce-heartpace-dev-v1-approval-my-team-running-chains-requests-6c340cfb.invalid-type-current-approver-uuid.request.json'));
+    const { response, elapsedMs } = await sendApiRequest({
+      request,
+      defaultBaseUrl: 'https://workforce.heartpace.dev',
+      path: '/v1/approval/my-team/running-chains/requests',
+      method: 'POST',
+      headers: {
+        "accept": "application/json, text/plain, */*",
+        "content-type": "application/json",
+        "x-requested-with": "XMLHttpRequest",
+        "x-site-uuid": "${X_SITE_UUID}",
+        "x-subdomain": "stageautomation"
+      },
+      payload: requestBody
+    });
+
+    assertStatusCode(response.status(), {"kind":"family","family":"4xx"}, 'negative: POST /v1/approval/my-team/running-chains/requests rejects invalid type for current_approver_uuid', 'workforce.heartpace.dev');
+    assertResponseTime(elapsedMs, 2000);
+    await assertNoSensitiveFieldsInJsonResponse(response, 'negative: POST /v1/approval/my-team/running-chains/requests rejects invalid type for current_approver_uuid');
+  });
+
+
+  // origin: inferred | category: negative | confidence: medium | execution: calibrate | mutationRisk: guarded | calibration: pending
+  calibrationTest('negative: POST /v1/approval/my-team/running-chains/requests rejects invalid type for order_by @extended @approval @mutating @calibrate', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-workforce-heartpace-dev-v1-approval-my-team-running-chains-requests-6c340cfb.invalid-type-order-by.request.json'));
+    const { response, elapsedMs } = await sendApiRequest({
+      request,
+      defaultBaseUrl: 'https://workforce.heartpace.dev',
+      path: '/v1/approval/my-team/running-chains/requests',
+      method: 'POST',
+      headers: {
+        "accept": "application/json, text/plain, */*",
+        "content-type": "application/json",
+        "x-requested-with": "XMLHttpRequest",
+        "x-site-uuid": "${X_SITE_UUID}",
+        "x-subdomain": "stageautomation"
+      },
+      payload: requestBody
+    });
+
+    assertStatusCode(response.status(), {"kind":"family","family":"4xx"}, 'negative: POST /v1/approval/my-team/running-chains/requests rejects invalid type for order_by', 'workforce.heartpace.dev');
+    assertResponseTime(elapsedMs, 2000);
+    await assertNoSensitiveFieldsInJsonResponse(response, 'negative: POST /v1/approval/my-team/running-chains/requests rejects invalid type for order_by');
+  });
+
+
+  // origin: inferred | category: negative | confidence: medium | execution: calibrate | mutationRisk: guarded | calibration: pending
+  calibrationTest('negative: POST /v1/approval/my-team/running-chains/requests rejects invalid type for order_by.column @extended @approval @mutating @calibrate', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-workforce-heartpace-dev-v1-approval-my-team-running-chains-requests-6c340cfb.invalid-type-order-by-column.request.json'));
+    const { response, elapsedMs } = await sendApiRequest({
+      request,
+      defaultBaseUrl: 'https://workforce.heartpace.dev',
+      path: '/v1/approval/my-team/running-chains/requests',
+      method: 'POST',
+      headers: {
+        "accept": "application/json, text/plain, */*",
+        "content-type": "application/json",
+        "x-requested-with": "XMLHttpRequest",
+        "x-site-uuid": "${X_SITE_UUID}",
+        "x-subdomain": "stageautomation"
+      },
+      payload: requestBody
+    });
+
+    assertStatusCode(response.status(), {"kind":"family","family":"4xx"}, 'negative: POST /v1/approval/my-team/running-chains/requests rejects invalid type for order_by.column', 'workforce.heartpace.dev');
+    assertResponseTime(elapsedMs, 2000);
+    await assertNoSensitiveFieldsInJsonResponse(response, 'negative: POST /v1/approval/my-team/running-chains/requests rejects invalid type for order_by.column');
+  });
+
+
+  // origin: inferred | category: negative | confidence: medium | execution: calibrate | mutationRisk: guarded | calibration: pending
+  calibrationTest('negative: POST /v1/approval/my-team/running-chains/requests rejects invalid type for order_by.direction @extended @approval @mutating @calibrate', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-workforce-heartpace-dev-v1-approval-my-team-running-chains-requests-6c340cfb.invalid-type-order-by-direction.request.json'));
+    const { response, elapsedMs } = await sendApiRequest({
+      request,
+      defaultBaseUrl: 'https://workforce.heartpace.dev',
+      path: '/v1/approval/my-team/running-chains/requests',
+      method: 'POST',
+      headers: {
+        "accept": "application/json, text/plain, */*",
+        "content-type": "application/json",
+        "x-requested-with": "XMLHttpRequest",
+        "x-site-uuid": "${X_SITE_UUID}",
+        "x-subdomain": "stageautomation"
+      },
+      payload: requestBody
+    });
+
+    assertStatusCode(response.status(), {"kind":"family","family":"4xx"}, 'negative: POST /v1/approval/my-team/running-chains/requests rejects invalid type for order_by.direction', 'workforce.heartpace.dev');
+    assertResponseTime(elapsedMs, 2000);
+    await assertNoSensitiveFieldsInJsonResponse(response, 'negative: POST /v1/approval/my-team/running-chains/requests rejects invalid type for order_by.direction');
+  });
+
+
+  // origin: inferred | category: negative | confidence: medium | execution: calibrate | mutationRisk: guarded | calibration: pending
+  calibrationTest('negative: POST /v1/approval/my-team/running-chains/requests rejects invalid type for page @extended @approval @mutating @calibrate', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-workforce-heartpace-dev-v1-approval-my-team-running-chains-requests-6c340cfb.invalid-type-page.request.json'));
+    const { response, elapsedMs } = await sendApiRequest({
+      request,
+      defaultBaseUrl: 'https://workforce.heartpace.dev',
+      path: '/v1/approval/my-team/running-chains/requests',
+      method: 'POST',
+      headers: {
+        "accept": "application/json, text/plain, */*",
+        "content-type": "application/json",
+        "x-requested-with": "XMLHttpRequest",
+        "x-site-uuid": "${X_SITE_UUID}",
+        "x-subdomain": "stageautomation"
+      },
+      payload: requestBody
+    });
+
+    assertStatusCode(response.status(), {"kind":"family","family":"4xx"}, 'negative: POST /v1/approval/my-team/running-chains/requests rejects invalid type for page', 'workforce.heartpace.dev');
+    assertResponseTime(elapsedMs, 2000);
+    await assertNoSensitiveFieldsInJsonResponse(response, 'negative: POST /v1/approval/my-team/running-chains/requests rejects invalid type for page');
+  });
+
+
+  // origin: inferred | category: negative | confidence: high | execution: skip | mutationRisk: guarded | calibration: lenient
+  test.skip('negative: POST /v1/approval/my-team/running-chains/requests rejects missing current_approver_uuid @extended @approval @mutating', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-workforce-heartpace-dev-v1-approval-my-team-running-chains-requests-6c340cfb.missing-field-current-approver-uuid.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://workforce.heartpace.dev',
@@ -37,9 +157,9 @@ test.describe('workforce.heartpace.dev /v1/approval/my-team/running-chains/reque
   });
 
 
-  // origin: inferred | category: negative | confidence: high | execution: fixme | mutationRisk: guarded | calibration: lenient
-  inferredTest('negative: POST /v1/approval/my-team/running-chains/requests rejects missing order_by @extended @approval @mutating @calibrate', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-workforce-heartpace-dev-v1-approval-my-team-running-chains-requests-ea73aa37.missing-order-by.request.json'));
+  // origin: inferred | category: negative | confidence: high | execution: skip | mutationRisk: guarded | calibration: lenient
+  test.skip('negative: POST /v1/approval/my-team/running-chains/requests rejects missing order_by @extended @approval @mutating', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-workforce-heartpace-dev-v1-approval-my-team-running-chains-requests-6c340cfb.missing-field-order-by.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://workforce.heartpace.dev',
@@ -61,9 +181,57 @@ test.describe('workforce.heartpace.dev /v1/approval/my-team/running-chains/reque
   });
 
 
+  // origin: inferred | category: negative | confidence: high | execution: calibrate | mutationRisk: guarded | calibration: pending
+  calibrationTest('negative: POST /v1/approval/my-team/running-chains/requests rejects missing order_by.column @extended @approval @mutating @calibrate', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-workforce-heartpace-dev-v1-approval-my-team-running-chains-requests-6c340cfb.missing-field-order-by-column.request.json'));
+    const { response, elapsedMs } = await sendApiRequest({
+      request,
+      defaultBaseUrl: 'https://workforce.heartpace.dev',
+      path: '/v1/approval/my-team/running-chains/requests',
+      method: 'POST',
+      headers: {
+        "accept": "application/json, text/plain, */*",
+        "content-type": "application/json",
+        "x-requested-with": "XMLHttpRequest",
+        "x-site-uuid": "${X_SITE_UUID}",
+        "x-subdomain": "stageautomation"
+      },
+      payload: requestBody
+    });
+
+    assertStatusCode(response.status(), {"kind":"family","family":"4xx"}, 'negative: POST /v1/approval/my-team/running-chains/requests rejects missing order_by.column', 'workforce.heartpace.dev');
+    assertResponseTime(elapsedMs, 2000);
+    await assertNoSensitiveFieldsInJsonResponse(response, 'negative: POST /v1/approval/my-team/running-chains/requests rejects missing order_by.column');
+  });
+
+
+  // origin: inferred | category: negative | confidence: high | execution: calibrate | mutationRisk: guarded | calibration: pending
+  calibrationTest('negative: POST /v1/approval/my-team/running-chains/requests rejects missing order_by.direction @extended @approval @mutating @calibrate', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-workforce-heartpace-dev-v1-approval-my-team-running-chains-requests-6c340cfb.missing-field-order-by-direction.request.json'));
+    const { response, elapsedMs } = await sendApiRequest({
+      request,
+      defaultBaseUrl: 'https://workforce.heartpace.dev',
+      path: '/v1/approval/my-team/running-chains/requests',
+      method: 'POST',
+      headers: {
+        "accept": "application/json, text/plain, */*",
+        "content-type": "application/json",
+        "x-requested-with": "XMLHttpRequest",
+        "x-site-uuid": "${X_SITE_UUID}",
+        "x-subdomain": "stageautomation"
+      },
+      payload: requestBody
+    });
+
+    assertStatusCode(response.status(), {"kind":"family","family":"4xx"}, 'negative: POST /v1/approval/my-team/running-chains/requests rejects missing order_by.direction', 'workforce.heartpace.dev');
+    assertResponseTime(elapsedMs, 2000);
+    await assertNoSensitiveFieldsInJsonResponse(response, 'negative: POST /v1/approval/my-team/running-chains/requests rejects missing order_by.direction');
+  });
+
+
   // origin: inferred | category: negative | confidence: high | execution: active | mutationRisk: guarded | calibration: confirmed
   test('negative: POST /v1/approval/my-team/running-chains/requests rejects missing page @extended @approval @mutating', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-workforce-heartpace-dev-v1-approval-my-team-running-chains-requests-ea73aa37.missing-page.request.json'));
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-workforce-heartpace-dev-v1-approval-my-team-running-chains-requests-6c340cfb.missing-field-page.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://workforce.heartpace.dev',
@@ -85,57 +253,9 @@ test.describe('workforce.heartpace.dev /v1/approval/my-team/running-chains/reque
   });
 
 
-  // origin: inferred | category: negative | confidence: high | execution: fixme | mutationRisk: guarded | calibration: lenient
-  inferredTest('negative: POST /v1/approval/my-team/running-chains/requests rejects missing per_page @extended @approval @mutating @calibrate', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-workforce-heartpace-dev-v1-approval-my-team-running-chains-requests-ea73aa37.missing-per-page.request.json'));
-    const { response, elapsedMs } = await sendApiRequest({
-      request,
-      defaultBaseUrl: 'https://workforce.heartpace.dev',
-      path: '/v1/approval/my-team/running-chains/requests',
-      method: 'POST',
-      headers: {
-        "accept": "application/json, text/plain, */*",
-        "content-type": "application/json",
-        "x-requested-with": "XMLHttpRequest",
-        "x-site-uuid": "${X_SITE_UUID}",
-        "x-subdomain": "stageautomation"
-      },
-      payload: requestBody
-    });
-
-    assertStatusCode(response.status(), {"kind":"family","family":"4xx"}, 'negative: POST /v1/approval/my-team/running-chains/requests rejects missing per_page', 'workforce.heartpace.dev');
-    assertResponseTime(elapsedMs, 2000);
-    await assertNoSensitiveFieldsInJsonResponse(response, 'negative: POST /v1/approval/my-team/running-chains/requests rejects missing per_page');
-  });
-
-
-  // origin: inferred | category: negative | confidence: high | execution: fixme | mutationRisk: guarded | calibration: lenient
-  inferredTest('negative: POST /v1/approval/my-team/running-chains/requests rejects missing perspective @extended @approval @mutating @calibrate', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-workforce-heartpace-dev-v1-approval-my-team-running-chains-requests-ea73aa37.missing-perspective.request.json'));
-    const { response, elapsedMs } = await sendApiRequest({
-      request,
-      defaultBaseUrl: 'https://workforce.heartpace.dev',
-      path: '/v1/approval/my-team/running-chains/requests',
-      method: 'POST',
-      headers: {
-        "accept": "application/json, text/plain, */*",
-        "content-type": "application/json",
-        "x-requested-with": "XMLHttpRequest",
-        "x-site-uuid": "${X_SITE_UUID}",
-        "x-subdomain": "stageautomation"
-      },
-      payload: requestBody
-    });
-
-    assertStatusCode(response.status(), {"kind":"family","family":"4xx"}, 'negative: POST /v1/approval/my-team/running-chains/requests rejects missing perspective', 'workforce.heartpace.dev');
-    assertResponseTime(elapsedMs, 2000);
-    await assertNoSensitiveFieldsInJsonResponse(response, 'negative: POST /v1/approval/my-team/running-chains/requests rejects missing perspective');
-  });
-
-
   // origin: observed | category: smoke | confidence: high | execution: active | mutationRisk: guarded
   test('smoke: POST /v1/approval/my-team/running-chains/requests returns 200 @smoke @approval @mutating', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-workforce-heartpace-dev-v1-approval-my-team-running-chains-requests-ea73aa37.request.json'));
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-workforce-heartpace-dev-v1-approval-my-team-running-chains-requests-6c340cfb.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://workforce.heartpace.dev',

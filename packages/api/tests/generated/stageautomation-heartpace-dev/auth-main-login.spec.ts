@@ -6,16 +6,58 @@ import {
   assertNoSensitiveFieldsInJsonResponse,
   assertResponseTime,
   assertStatusCode,
-  inferredTest,
+  calibrationTest,
   sendApiRequest,
   loadJsonFromTestFile,
   resolvePayload
 } from '../support/apiTestUtils.js';
 
 test.describe('stageautomation.heartpace.dev /auth/main/login', () => {
-  // origin: inferred | category: negative | confidence: high | execution: fixme | mutationRisk: guarded | calibration: lenient
-  inferredTest('negative: POST /auth/main/login rejects missing email @extended @auth @mutating @calibrate', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-auth-main-login-0b7504f5.missing-email.request.json'));
+  // origin: inferred | category: negative | confidence: medium | execution: calibrate | mutationRisk: guarded | calibration: pending
+  calibrationTest('negative: POST /auth/main/login rejects invalid type for email @extended @auth @mutating @calibrate', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-auth-main-login-d17602e9.invalid-type-email.request.json'));
+    const { response, elapsedMs } = await sendApiRequest({
+      request,
+      defaultBaseUrl: 'https://stageautomation.heartpace.dev',
+      path: '/auth/main/login',
+      method: 'POST',
+      headers: {
+        "accept": "application/json, text/plain, */*",
+        "content-type": "application/json"
+      },
+      payload: requestBody
+    });
+
+    assertStatusCode(response.status(), {"kind":"family","family":"4xx"}, 'negative: POST /auth/main/login rejects invalid type for email', 'stageautomation.heartpace.dev');
+    assertResponseTime(elapsedMs, 2000);
+    await assertNoSensitiveFieldsInJsonResponse(response, 'negative: POST /auth/main/login rejects invalid type for email');
+  });
+
+
+  // origin: inferred | category: negative | confidence: medium | execution: calibrate | mutationRisk: guarded | calibration: pending
+  calibrationTest('negative: POST /auth/main/login rejects invalid type for password @extended @auth @mutating @calibrate', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-auth-main-login-d17602e9.invalid-type-password.request.json'));
+    const { response, elapsedMs } = await sendApiRequest({
+      request,
+      defaultBaseUrl: 'https://stageautomation.heartpace.dev',
+      path: '/auth/main/login',
+      method: 'POST',
+      headers: {
+        "accept": "application/json, text/plain, */*",
+        "content-type": "application/json"
+      },
+      payload: requestBody
+    });
+
+    assertStatusCode(response.status(), {"kind":"family","family":"4xx"}, 'negative: POST /auth/main/login rejects invalid type for password', 'stageautomation.heartpace.dev');
+    assertResponseTime(elapsedMs, 2000);
+    await assertNoSensitiveFieldsInJsonResponse(response, 'negative: POST /auth/main/login rejects invalid type for password');
+  });
+
+
+  // origin: inferred | category: negative | confidence: high | execution: skip | mutationRisk: guarded | calibration: lenient
+  test.skip('negative: POST /auth/main/login rejects missing email @extended @auth @mutating', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-auth-main-login-d17602e9.missing-field-email.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://stageautomation.heartpace.dev',
@@ -34,9 +76,9 @@ test.describe('stageautomation.heartpace.dev /auth/main/login', () => {
   });
 
 
-  // origin: inferred | category: negative | confidence: high | execution: fixme | mutationRisk: guarded | calibration: lenient
-  inferredTest('negative: POST /auth/main/login rejects missing password @extended @auth @mutating @calibrate', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-auth-main-login-0b7504f5.missing-password.request.json'));
+  // origin: inferred | category: negative | confidence: high | execution: skip | mutationRisk: guarded | calibration: lenient
+  test.skip('negative: POST /auth/main/login rejects missing password @extended @auth @mutating', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-auth-main-login-d17602e9.missing-field-password.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://stageautomation.heartpace.dev',
@@ -75,7 +117,7 @@ test.describe('stageautomation.heartpace.dev /auth/main/login', () => {
 
   // origin: observed | category: smoke | confidence: high | execution: active | mutationRisk: guarded
   test('smoke: POST /auth/main/login returns 200 @smoke @auth @mutating', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-auth-main-login-0b7504f5.request.json'));
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-auth-main-login-d17602e9.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://stageautomation.heartpace.dev',

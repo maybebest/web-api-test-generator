@@ -3704,7 +3704,7 @@ testCases:
     technique: [Positive, Data-Persistence]
     traces:
       tickets: [NUP-17751 Description]
-      sourceRefs: [NUP-17751.md#Description, NUP-17751.md#[Story] Assign all SKUs to Hero SKUS to selected channel]
+      sourceRefs: [NUP-17751.md#Description, "NUP-17751.md#[Story] Assign all SKUs to Hero SKUS to selected channel"]
     preconditions:
     - Logged into Nectar AI Media Planner
     - A brand is selected so brand-linked SKUs exist

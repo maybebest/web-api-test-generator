@@ -35,6 +35,22 @@ network, data, assertion-mismatch, and unclassified failures require human actio
 reported as not repairable. Recorded targets use the recorded reviewer before runtime verification;
 other spec-bound targets use the generated-test reviewer.
 
+## Automated Option
+
+An opt-in automated healer implements this workflow end to end:
+
+```bash
+AI_AUTOHEAL_ENABLED=true npm run ai:test:heal -- --test <path/to/file.spec.ts>
+```
+
+It runs the failing test, sends the runtime failure evidence through the `heal` AI stage, rejects
+candidates that violate the rules below (deterministic guard plus the static reviewer for
+spec-bound tests), and promotes a heal only after `AI_AUTOHEAL_VERIFY_RUNS` (default 2)
+consecutive green runs with `--retries=0`. It gives up after `AI_AUTOHEAL_MAX_ATTEMPTS`
+(default 3) attempts, leaving the original file untouched; every attempt and the original are
+archived under `.ai-runs/heal/<run-id>/`. Use the manual workflow below when the automated
+healer exhausts its attempts or when the failure needs human judgment.
+
 ## Workflow
 
 1. Use Playwright CLI snapshot first:

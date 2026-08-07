@@ -5,7 +5,7 @@
 | Field | Value |
 |---|---|
 | Flow ID | FLOW-MP-008 |
-| Spec Version | 2.0.0 |
+| Spec Version | 2.1.0 |
 | Owner | aqa-team@example.com |
 | Priority | P1 |
 | Test Type | regression |
@@ -14,6 +14,7 @@
 | Base Path | /planning |
 | Tags | @generated @regression @media-planner @authenticated @special-preconditions |
 | Review Status | pending-review |
+| Review Sign-off | pending |
 | Generation Source | manual-test-case |
 | Generation Status | verified |
 | Generation Mode | suite |
@@ -27,12 +28,13 @@ So that the displayed total always reflects only the channels that remain.
 ## Preconditions
 
 - The user has a valid non-production authenticated Playwright storage state.
-- `PLAYWRIGHT_TEST_BASE_URL` points to the dev Pollen host `https://www.dev.pollen.js-devops.co.uk/`.
+- `PLAYWRIGHT_TEST_BASE_URL` points to an explicitly configured non-production Pollen environment.
 - Local storage key `feature-flags` enables `FEATURE_NECTAR_AI`, `FEATURE_NUP`, and `FEATURE_NECTAR_AI_MP` (set by the Page Object on navigation).
 - The user can access Media Planner at `/planning`.
 - The advertiser `N360_Unilever_MS`, brand `Unilever | Knorr | MS`, objective `Customer retention`, and product search term `knorr` resolve in the guided assistant.
 - A fresh Nectar AI conversation is started for each test so the plan contains exactly the test's channels.
-- Two onsite channels resolve by name in the dev environment: `Homepage Sponsored Product` and `SmartShop Handset Home Page (DEMO)`. Both accept a `Self-Serve` onsite request with a 30-day window starting `15/08/2026`. Override the channel names via `E2E_MP_RECOMPUTE_CHANNEL_A` / `E2E_MP_RECOMPUTE_CHANNEL_B` for other environments.
+- Two onsite channels resolve by exact name in the dev environment: `Homepage Sponsored Product` and `SmartShop Handset Home Page (DEMO)`. Both accept a `Self-Serve` request with a runtime calendar window from today+45 through today+75. Override the names via `E2E_MP_RECOMPUTE_CHANNEL_A` / `E2E_MP_RECOMPUTE_CHANNEL_B`.
+- Each case captures one calendar-date anchor, derives dates with calendar arithmetic, and fails if the date rolls over before the final assertion.
 
 ## Out-of-scope
 
@@ -63,8 +65,8 @@ So that the displayed total always reflects only the channels that remain.
 
 | Rule ID | Rule | Formula | Blocking Behavior |
 |---|---|---|---|
-| RULE-001 | The summary Total Budget equals the sum of the budgets of the channels currently in the plan | totalBudget = sum(channel.budget for channel in plan) | A Total Budget that does not equal the sum of present channels is a failure |
-| RULE-002 | Deleting a channel removes its row and recomputes Total Budget to the remaining channels' combined budget | totalBudgetAfter = totalBudgetBefore - deletedChannel.budget; deleted row no longer present | A stale or unchanged total, or a still-present deleted row, is a failure |
+| RULE-001 | The accessibly labelled summary Total Budget equals the sum of the budgets of channels currently in the plan | totalBudgetMinorUnits = sum(channel.budgetMinorUnits for channel in plan); render with en-GB GBP grouping | An unnamed, stale, or arithmetically incorrect Total Budget is a failure |
+| RULE-002 | A successful channel deletion removes only its row and recomputes Total Budget | totalBudgetAfter = totalBudgetBefore - deletedChannelBudget; target absent; every survivor present | A stale total, removed survivor, or still-present target is a failure |
 
 ## Data Cases
 
@@ -79,8 +81,10 @@ So that the displayed total always reflects only the channels that remain.
   {
     "caseId": "DC-001",
     "inputs": {
-      "channelA": { "name": "Homepage Sponsored Product", "budget": "£15,000" },
-      "channelB": { "name": "SmartShop Handset Home Page (DEMO)", "budget": "£10,000" }
+      "channelA": { "name": "Homepage Sponsored Product", "budgetPounds": 15000 },
+      "channelB": { "name": "SmartShop Handset Home Page (DEMO)", "budgetPounds": 10000 },
+      "startOffsetDays": 45,
+      "endOffsetDays": 75
     },
     "expected": {
       "combinedTotal": "£25,000",
@@ -101,9 +105,11 @@ So that the displayed total always reflects only the channels that remain.
 | productSearch | knorr | Measurement/hero SKU search term |
 | channelA | Homepage Sponsored Product | First onsite channel; £15,000 |
 | channelB | SmartShop Handset Home Page (DEMO) | Second onsite channel; £10,000 |
-| budgetA | £15,000 | channelA budget as rendered in the summary |
-| budgetB | £10,000 | channelB budget as rendered in the summary |
-| combinedTotal | £25,000 | Total Budget with both channels present |
+| budgetA | 15000 | channelA request budget; renders as £15,000 |
+| budgetB | 10000 | channelB request budget; renders as £10,000 |
+| combinedTotal | 25000 | Arithmetic sum; renders as £25,000 |
+| startOffsetDays | 45 | Runtime calendar offset, safely beyond known booking deadlines |
+| endOffsetDays | 75 | Runtime calendar offset; 31 inclusive calendar days after start |
 | aiReplyTimeoutMs | 60000 | Polling budget for each assistant turn |
 
 ## Mocks
@@ -124,7 +130,7 @@ So that the displayed total always reflects only the channels that remain.
 |---:|---|---|---|---|---|---|
 | 1 | AC-001 | Open Media Planner planning page | /planning | feature-flags enabled | Nectar AI Assistant entry point is visible | Nectar AI Assistant entry point visible |
 | 2 | AC-002 | Start the objective and budget flow and complete advertiser, brand, objective, SKU setup | Nectar AI Assistant | Try now; Help me build a plan based on my objective & budget; N360_Unilever_MS; Unilever \| Knorr \| MS; Customer retention; knorr; Add hero SKU; Confirm | The assistant requests a channel, budget and timeline | assistant requests a channel |
-| 3 | AC-003 | Add channelA and channelB and read the summary | Assistant channel request input | Homepage Sponsored Product £15,000; SmartShop Handset Home Page (DEMO) £10,000 | Both channel rows are visible and Total Budget shows £25,000 | both rows visible; total £25,000 |
+| 3 | AC-003 | Add channelA and channelB and read the summary | Assistant channel request input | exact env-resolved names; £15,000 and £10,000; today+45 through today+75 | Both channel rows are visible and the labelled Total Budget equals the formatted arithmetic sum £25,000 | both rows; accessible Total Budget label; computed/formatted total |
 | 4 | AC-004 | Delete channelA from the two-channel plan | Summary channel delete control | delete Homepage Sponsored Product | channelA row removed; channelB remains; Total Budget recomputes to £10,000 | recomputed total £10,000; channelA gone |
 
 ## Negative Cases
@@ -164,6 +170,8 @@ So that the displayed total always reflects only the channels that remain.
 - Cross-browser generated-test execution is opt-in.
 - Must enumerate every Data Cases as JSON case ID: DC-001.
 - Must assert the salient values `£25,000`, `£10,000` and the empty-state `£--` from the summary Total Budget.
+- Must compute the combined and remaining totals from numeric request budgets before formatting; do not use the displayed pre-delete total as the oracle for both assertions.
+- Must derive dates from one per-test calendar anchor; do not hardcode dates or add offsets as fixed 24-hour millisecond intervals.
 - Must not use page.waitForTimeout.
 - Must not use page.waitForLoadState('networkidle').
 - Must not use XPath.
@@ -177,4 +185,5 @@ So that the displayed total always reflects only the channels that remain.
 - This test avoids admin pages and does not change Channel Management or channel configuration.
 - The two channels are named exactly so the assistant resolves each to a specific channel; the summary then renders one row per channel with its own budget, and the Media Total Budget is their sum.
 - Budgets are entered as whole pounds (£15000, £10000) and render as £15,000 / £10,000 / £25,000 in the summary.
-- Campaign dates are kept well in the future (15/08/2026 + 30 days) so unrelated date validations do not interfere.
+- Campaign dates are runtime-relative (today+45 through today+75) so the suite does not rot and unrelated booking-deadline/duration validations do not interfere.
+- Human review must confirm both default channels remain resolvable, the labelled Total Budget formatting, the `£--` empty state, and successful-delete semantics before signoff.

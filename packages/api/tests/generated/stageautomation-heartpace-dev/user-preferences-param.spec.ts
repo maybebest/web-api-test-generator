@@ -6,7 +6,6 @@ import {
   assertNoSensitiveFieldsInJsonResponse,
   assertResponseTime,
   assertStatusCode,
-  inferredTest,
   sendApiRequest,
   loadJsonFromTestFile,
   resolvePayload
@@ -34,7 +33,7 @@ test.describe('stageautomation.heartpace.dev /user/preferences/{param}', () => {
 
   // origin: inferred | category: negative | confidence: medium | execution: active | mutationRisk: guarded | calibration: confirmed
   test('negative: POST /user/preferences/{param} rejects invalid path parameter @extended @profile @mutating', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-preferences-param-515439e5.invalid-path-param.request.json'));
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-preferences-param-97ed8c73.invalid-path-param.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://stageautomation.heartpace.dev',
@@ -55,9 +54,9 @@ test.describe('stageautomation.heartpace.dev /user/preferences/{param}', () => {
   });
 
 
-  // origin: inferred | category: negative | confidence: high | execution: fixme | mutationRisk: guarded | calibration: lenient
-  inferredTest('negative: POST /user/preferences/{param} rejects missing PreferencesForm[dateFormat] @extended @profile @mutating @calibrate', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-preferences-param-515439e5.missing-preferencesform-dateformat.request.json'));
+  // origin: inferred | category: negative | confidence: high | execution: skip | mutationRisk: guarded | calibration: lenient
+  test.skip('negative: POST /user/preferences/{param} rejects missing PreferencesForm[dateFormat] @extended @profile @mutating', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-preferences-param-97ed8c73.missing-field-preferencesform-dateformat.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://stageautomation.heartpace.dev',
@@ -78,9 +77,9 @@ test.describe('stageautomation.heartpace.dev /user/preferences/{param}', () => {
   });
 
 
-  // origin: inferred | category: negative | confidence: high | execution: fixme | mutationRisk: guarded | calibration: lenient
-  inferredTest('negative: POST /user/preferences/{param} rejects missing PreferencesForm[language] @extended @profile @mutating @calibrate', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-preferences-param-515439e5.missing-preferencesform-language.request.json'));
+  // origin: inferred | category: negative | confidence: high | execution: skip | mutationRisk: guarded | calibration: lenient
+  test.skip('negative: POST /user/preferences/{param} rejects missing PreferencesForm[language] @extended @profile @mutating', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-preferences-param-97ed8c73.missing-field-preferencesform-language.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://stageautomation.heartpace.dev',
@@ -101,9 +100,9 @@ test.describe('stageautomation.heartpace.dev /user/preferences/{param}', () => {
   });
 
 
-  // origin: inferred | category: negative | confidence: high | execution: fixme | mutationRisk: guarded | calibration: lenient
-  inferredTest('negative: POST /user/preferences/{param} rejects missing PreferencesForm[timeFormat] @extended @profile @mutating @calibrate', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-preferences-param-515439e5.missing-preferencesform-timeformat.request.json'));
+  // origin: inferred | category: negative | confidence: high | execution: skip | mutationRisk: guarded | calibration: lenient
+  test.skip('negative: POST /user/preferences/{param} rejects missing PreferencesForm[timeFormat] @extended @profile @mutating', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-preferences-param-97ed8c73.missing-field-preferencesform-timeformat.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://stageautomation.heartpace.dev',
@@ -124,9 +123,9 @@ test.describe('stageautomation.heartpace.dev /user/preferences/{param}', () => {
   });
 
 
-  // origin: inferred | category: negative | confidence: high | execution: fixme | mutationRisk: guarded | calibration: lenient
-  inferredTest('negative: POST /user/preferences/{param} rejects missing PreferencesForm[timeZone] @extended @profile @mutating @calibrate', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-preferences-param-515439e5.missing-preferencesform-timezone.request.json'));
+  // origin: inferred | category: negative | confidence: high | execution: skip | mutationRisk: guarded | calibration: lenient
+  test.skip('negative: POST /user/preferences/{param} rejects missing PreferencesForm[timeZone] @extended @profile @mutating', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-preferences-param-97ed8c73.missing-field-preferencesform-timezone.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://stageautomation.heartpace.dev',
@@ -147,9 +146,9 @@ test.describe('stageautomation.heartpace.dev /user/preferences/{param}', () => {
   });
 
 
-  // origin: inferred | category: negative | confidence: high | execution: fixme | mutationRisk: guarded | calibration: lenient
-  inferredTest('negative: POST /user/preferences/{param} rejects missing _csrf @extended @profile @mutating @calibrate', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-preferences-param-515439e5.missing-csrf.request.json'));
+  // origin: inferred | category: negative | confidence: high | execution: skip | mutationRisk: guarded | calibration: lenient
+  test.skip('negative: POST /user/preferences/{param} rejects missing _csrf @extended @profile @mutating', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-preferences-param-97ed8c73.missing-field-csrf.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://stageautomation.heartpace.dev',
@@ -170,14 +169,15 @@ test.describe('stageautomation.heartpace.dev /user/preferences/{param}', () => {
   });
 
 
-  // origin: inferred | category: security | confidence: high | execution: fixme | mutationRisk: guarded | calibration: lenient
-  inferredTest('security: POST /user/preferences/{param} rejects invalid x-csrf-token @extended @profile @mutating @calibrate', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-preferences-param-515439e5.invalid-x-csrf-token.request.json'));
+  // origin: inferred | category: security | confidence: high | execution: skip | mutationRisk: guarded | calibration: lenient
+  test.skip('security: POST /user/preferences/{param} rejects invalid x-csrf-token @extended @profile @mutating', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-preferences-param-97ed8c73.invalid-x-csrf-token.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://stageautomation.heartpace.dev',
       path: '/user/preferences/${USER_ID}',
       method: 'POST',
+      suppressGeneratedAuth: true,
       headers: {
         "accept": "application/json, text/javascript, */*; q=0.01",
         "content-type": "multipart/form-data; boundary=----WebKitFormBoundaryfeOhkK5lt4PBEQno",
@@ -193,14 +193,15 @@ test.describe('stageautomation.heartpace.dev /user/preferences/{param}', () => {
   });
 
 
-  // origin: inferred | category: security | confidence: high | execution: fixme | mutationRisk: guarded | calibration: lenient
-  inferredTest('security: POST /user/preferences/{param} rejects missing x-csrf-token @extended @profile @mutating @calibrate', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-preferences-param-515439e5.missing-x-csrf-token.request.json'));
+  // origin: inferred | category: security | confidence: high | execution: skip | mutationRisk: guarded | calibration: lenient
+  test.skip('security: POST /user/preferences/{param} rejects missing x-csrf-token @extended @profile @mutating', async ({ request }, testInfo) => {
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-preferences-param-97ed8c73.missing-x-csrf-token.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://stageautomation.heartpace.dev',
       path: '/user/preferences/${USER_ID}',
       method: 'POST',
+      suppressGeneratedAuth: true,
       headers: {
         "accept": "application/json, text/javascript, */*; q=0.01",
         "content-type": "multipart/form-data; boundary=----WebKitFormBoundaryfeOhkK5lt4PBEQno",
@@ -236,7 +237,7 @@ test.describe('stageautomation.heartpace.dev /user/preferences/{param}', () => {
 
   // origin: observed | category: smoke | confidence: high | execution: active | mutationRisk: guarded
   test('smoke: POST /user/preferences/{param} returns 200 @smoke @profile @mutating', async ({ request }, testInfo) => {
-    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-preferences-param-515439e5.request.json'));
+    const requestBody = resolvePayload(loadJsonFromTestFile<unknown>(testInfo.file, '../fixtures/post-stageautomation-heartpace-dev-user-preferences-param-97ed8c73.request.json'));
     const { response, elapsedMs } = await sendApiRequest({
       request,
       defaultBaseUrl: 'https://stageautomation.heartpace.dev',

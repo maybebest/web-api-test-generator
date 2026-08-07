@@ -99,6 +99,13 @@ const dataCases: SkuDataCase[] = [
 const countPattern = (count: number): RegExp =>
   count === 0 ? new RegExp('(?<!\\d)0 SKUs?|To be defined') : new RegExp(`(?<!\\d)${count} SKUs?`);
 
+function expectedCounter(dataCase: SkuDataCase): { editor: 'Measurement' | 'Hero'; count: number } {
+  if (dataCase.expected.heroCount !== null) {
+    return { editor: 'Hero', count: dataCase.expected.heroCount };
+  }
+  return { editor: 'Measurement', count: dataCase.expected.measurementCount as number };
+}
+
 // Spec Stability Requirements declare Parallel Safe = no, so the suite runs serially.
 test.describe.serial("Hero-SKU indicators, all-brand-linked modal, auto-add and count recompute", () => {
   for (const dataCase of dataCases) {
@@ -107,22 +114,17 @@ test.describe.serial("Hero-SKU indicators, all-brand-linked modal, auto-add and 
       { tag: ['@generated', '@regression', '@media-planner', '@authenticated', '@hero-sku-indicators-and-count-recompute'] },
       async ({ page, dataManager }) => {
         const planningPage = new PlanningPage(page);
+
         await test.step('seed the session with the case SKU sets and open it', async () => {
           const sessionId = await dataManager.ensurePlanningSession();
-          if (dataCase.heroSkus.length > 0) {
-            await dataManager.setPlanHeroSkus(sessionId, 'offsite', dataCase.heroSkus);
-          }
-          if (dataCase.measurementSkus.length > 0) {
-            await dataManager.setPlanMeasurementSkus(sessionId, 'offsite', dataCase.measurementSkus);
-          }
+          await dataManager.setPlanHeroSkus(sessionId, 'offsite', dataCase.heroSkus);
+          await dataManager.setPlanMeasurementSkus(sessionId, 'offsite', dataCase.measurementSkus);
           await planningPage.gotoSession(sessionId);
         });
+
         await test.step('Assert AC-004: seeded Hero/Measurement counter matches the data case', async () => {
-          if (dataCase.expected.heroCount !== null) {
-            await expect(planningPage.summaryHeroCount()).toContainText(countPattern(dataCase.expected.heroCount));
-          } else {
-            await expect(planningPage.summaryMeasurementCount()).toContainText(countPattern(dataCase.expected.measurementCount as number));
-          }
+          const expected = expectedCounter(dataCase);
+          await expect(planningPage.summarySkuCount(expected.editor)).toContainText(countPattern(expected.count));
         });
       }
     );
@@ -133,10 +135,12 @@ test.describe.serial("Hero-SKU indicators, all-brand-linked modal, auto-add and 
     { tag: ['@generated', '@regression', '@media-planner', '@authenticated', '@hero-sku-indicators-and-count-recompute'] },
     async ({ page }) => {
       const planningPage = new PlanningPage(page);
+
       await test.step('walk the planner entry path', async () => {
         await planningPage.goto();
         await planningPage.startNectarAiPlanner();
       });
+
       await test.step('Assert AC-001: the guided objective-and-budget flow is reachable', async () => {
         await expect(planningPage.buildByObjectiveButton()).toBeVisible();
       });
@@ -148,10 +152,12 @@ test.describe.serial("Hero-SKU indicators, all-brand-linked modal, auto-add and 
     { tag: ['@generated', '@regression', '@media-planner', '@authenticated', '@hero-sku-indicators-and-count-recompute'] },
     async ({ page, dataManager }) => {
       const planningPage = new PlanningPage(page);
+
       await test.step('open the live planning session directly', async () => {
         const sessionId = await dataManager.ensurePlanningSession();
         await planningPage.gotoSession(sessionId);
       });
+
       await test.step('Assert AC-002: the seeded session hydrates to its summary panel', async () => {
         await expect(planningPage.summaryPanel()).toBeVisible();
       });
@@ -163,11 +169,13 @@ test.describe.serial("Hero-SKU indicators, all-brand-linked modal, auto-add and 
     { tag: ['@generated', '@regression', '@media-planner', '@authenticated', '@hero-sku-indicators-and-count-recompute'] },
     async ({ page, dataManager }) => {
       const planningPage = new PlanningPage(page);
+
       await test.step('seed exactly two Hero SKUs from the real catalogue pool', async () => {
         const sessionId = await dataManager.ensurePlanningSession();
         await dataManager.setPlanHeroSkus(sessionId, 'offsite', ["7096764","7304367"]);
         await planningPage.gotoSession(sessionId);
       });
+
       await test.step('Assert AC-003: the Hero counter equals the seeded Hero count', async () => {
         await expect(planningPage.summaryHeroCount()).toContainText(countPattern(2));
       });
@@ -179,11 +187,14 @@ test.describe.serial("Hero-SKU indicators, all-brand-linked modal, auto-add and 
     { tag: ['@generated', '@regression', '@media-planner', '@authenticated', '@hero-sku-indicators-and-count-recompute'] },
     async ({ page, dataManager }) => {
       const planningPage = new PlanningPage(page);
+
       await test.step('clear the session SKU selection via API and open it', async () => {
         const sessionId = await dataManager.ensurePlanningSession();
         await dataManager.setPlanHeroSkus(sessionId, 'offsite', []);
+        await dataManager.setPlanMeasurementSkus(sessionId, 'offsite', []);
         await planningPage.gotoSession(sessionId);
       });
+
       await test.step('Assert NEG-001: no SKU edit control renders for an empty selection', async () => {
         await expect(planningPage.summaryEditMeasurementButton()).toBeHidden();
       });

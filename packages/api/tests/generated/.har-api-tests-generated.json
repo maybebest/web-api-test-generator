@@ -1,0 +1,93 @@
+{
+  "generator": "har-api-tests",
+  "inventorySha256": "cda85a1db28d10c557facb0324ee34c216e930f15773c71f852720d5f5fc96ca",
+  "notice": "This entire directory is managed by har-api-tests. Regenerate it instead of editing files in place.",
+  "formatVersion": 2,
+  "generationFingerprintSha256": "sha256:uh0yQ65prpX1LFWzxEGEF9LPiEflfNTp4ECqObhWos4",
+  "provenance": {
+    "formatVersion": 1,
+    "inputs": {
+      "sha256": "sha256:4OElzX6sArzmN-zBBtDDITxS45oCkAL7Y66cpsubvEI",
+      "files": [
+        {
+          "path": "input-001/Login-logout.md",
+          "sizeBytes": 789372,
+          "sha256": "sha256:kEifKSVnDtCD0OJ47va3ev3oFcopoM135jK_Pf_fugk"
+        },
+        {
+          "path": "input-001/User-profile-calendar.md",
+          "sizeBytes": 55718,
+          "sha256": "sha256:0cfLveQ65VEnB6_VG-LQ4oyuYA80dG3wSGNQ8KVocTs"
+        },
+        {
+          "path": "input-001/User-profile-notifications.md",
+          "sizeBytes": 937412,
+          "sha256": "sha256:tSDNHnYZxl8crENhU1hMjn0ISFqUAvXVTn9fl1km2K0"
+        },
+        {
+          "path": "input-001/User-profile-pref-default.md",
+          "sizeBytes": 48586,
+          "sha256": "sha256:vdS4y0ftzKRb-0AdlzQt4GLvzUgjrcCR4_3_ks_M6Us"
+        },
+        {
+          "path": "input-001/User-profile-preferences.md",
+          "sizeBytes": 188452,
+          "sha256": "sha256:mlOsR1yW8-hsEtLPGAk1IKxnGbATFrxdlrcMoAPUT8M"
+        },
+        {
+          "path": "input-001/User-profile-recent-activ.md",
+          "sizeBytes": 54557,
+          "sha256": "sha256:EYyyZ9ed9Z_Ci5Pi_Y9RCgtcYPVmPF-LI-QvlMyeBQE"
+        },
+        {
+          "path": "input-001/User-profile-security.md",
+          "sizeBytes": 105390,
+          "sha256": "sha256:leXA7Vhl1eLn18LC6F-QQndmsq1YWlhkCaMYkpAoVfo"
+        },
+        {
+          "path": "input-001/User-profile-support.md",
+          "sizeBytes": 94238,
+          "sha256": "sha256:-Ejy8JPMnG4XHUZBS5cGZFtr8YedrRBYJF4mu0XjnqY"
+        },
+        {
+          "path": "input-001/User-profile-talk-settings.md",
+          "sizeBytes": 465081,
+          "sha256": "sha256:xoKaniaaWPbsukfqFidvrEORZhMn9EBDKfFwSLYZ4JE"
+        },
+        {
+          "path": "input-001/User-profile-two-step-auth.md",
+          "sizeBytes": 54579,
+          "sha256": "sha256:CrLhSwRIsqGmMB0-Em3GaWgDQ0wAF5zGJDyMFB_tPQ0"
+        },
+        {
+          "path": "input-001/User-profile.md",
+          "sizeBytes": 734991,
+          "sha256": "sha256:gacIj78eaPGo-M-wLa93QVg9fsn4RhJN_MhZtHoZgfw"
+        },
+        {
+          "path": "input-001/change_pass.md",
+          "sizeBytes": 408327,
+          "sha256": "sha256:f0l0ndnt29eo0bUaonU4dJyNfKo_C6NvB9GtvN34H9E"
+        },
+        {
+          "path": "input-001/session.har",
+          "sizeBytes": 3652,
+          "sha256": "sha256:yHzcz89uIwjHXbghl1AQfowX46Q3V1D6JLCXSBsMquo"
+        }
+      ]
+    },
+    "effectiveConfigSha256": "sha256:TFipkFJtkkIEm-XBlEARLSV1ep87FPNUlbjAtOAmjPo",
+    "effectiveOptionsSha256": "sha256:XgLHikThq1EKI9H1naorwVPct1Rmgy59yAGAhHXvsfU",
+    "calibration": {
+      "present": true,
+      "contentSha256": "sha256:fvvcFqDxtkpvgAcwTQdcqBW7PH0zcuAM7HWHQ8KRd08",
+      "semanticSha256": "sha256:viDd_wV9M7sbZt0gfqsOSEM-QZ_026mHVIDq-d_-2xk",
+      "entryCount": 63
+    },
+    "generator": {
+      "buildId": "har-api-tests@0.1.0+A6SERT8M2cDY",
+      "sha256": "sha256:G0XMJro3Lq1ZB-LTVxA_wD2XFDwZ-BVA6SERT8M2cDY"
+    },
+    "fingerprintSha256": "sha256:uh0yQ65prpX1LFWzxEGEF9LPiEflfNTp4ECqObhWos4"
+  }
+}

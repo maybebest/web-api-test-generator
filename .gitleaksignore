@@ -1,0 +1,15 @@
+# Historical synthetic UI masking fixture. This exact 15-character literal is
+# not a valid OpenAI key, but the generic-api-key rule flags the old assignment.
+# Keep the exception fingerprint-specific so new findings in this test still fail.
+95a19359ace6eee7cebcc9c8a05a7835da9b3c80:packages/ui/tests/handlers.test.mjs:generic-api-key:110
+
+# Historical synthetic values used to verify URL, JWT, and source-code redaction.
+95a19359ace6eee7cebcc9c8a05a7835da9b3c80:packages/web/scripts/ai/__tests__/perf-redaction.test.mjs:generic-api-key:62
+18a46ce6899d8aadf0c59a6ca5cf4cb7b5618a5e:packages/api/tests/unit/masking.test.ts:jwt:94
+18a46ce6899d8aadf0c59a6ca5cf4cb7b5618a5e:packages/web/scripts/ai/__tests__/recording-parser-hardening.test.mjs:generic-api-key:122
+18a46ce6899d8aadf0c59a6ca5cf4cb7b5618a5e:packages/web/scripts/ai/__tests__/recording-parser-hardening.test.mjs:generic-api-key:136
+18a46ce6899d8aadf0c59a6ca5cf4cb7b5618a5e:packages/web/scripts/ai/__tests__/review-generated-test.test.mjs:generic-api-key:491
+
+# Staged synthetic values exercise secret rejection and context redaction.
+packages/ui/tests/server.test.mjs:generic-api-key:740
+packages/web/scripts/ai/__tests__/generation-context-pack.test.mjs:aws-access-token:343

@@ -1788,3 +1788,17 @@ export const PLANNING_GET_PLAN = `
     }
   }
 `;
+
+// planning_getCost — the backend-computed per-media cost for a plan (Media plan HAR). This is the
+// price the summary panel renders, so a UI E2E can assert the displayed cost against this without
+// re-implementing any pricing-model arithmetic.
+export const PLANNING_GET_COST = `
+    query planning_getCost($advertiserId: ID!, $planId: ID!) {
+      planning_getCost(advertiserId: $advertiserId, planId: $planId) {
+        cost
+        discount
+        currency
+        mediaId
+        campaignMediaId
+      }
+    }`;

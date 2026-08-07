@@ -11,11 +11,13 @@ import {
   STABILITY_DATA_ISOLATION_VALUES,
   STABILITY_PARALLEL_SAFE_VALUES,
   TEST_TYPE_TO_DIR,
+  findDuplicateMetadataFields,
   findDuplicateSectionHeadings,
   isPlaceholderOnly,
   isPlaceholderValue,
   listSpecFiles,
   loadAiConfig,
+  parseMarkdownTable,
   parseFlowSpec,
   readSpecFile,
   specGenerationMode
@@ -24,6 +26,90 @@ import {
 const AUTH_VALUES = new Set(['none', 'required', 'optional']);
 const TEST_TYPE_VALUES = new Set(Object.keys(TEST_TYPE_TO_DIR));
 const GENERATION_STATUS_VALUES = new Set(['generated', 'pending-generation', 'verified']);
+const NARRATIVE_PLACEHOLDER_SECTIONS = new Set(['User Story', 'Preconditions', 'Out-of-scope', 'Acceptance Criteria', 'Notes']);
+
+function isRendererDraftSentinel(value) {
+  return String(value ?? '').trim() === 'NEEDS_REVIEW';
+}
+
+function isUnresolvedValue(value) {
+  const text = String(value ?? '');
+  return isRendererDraftSentinel(text) || /^needs_review$/i.test(text.trim()) || isPlaceholderValue(text);
+}
+
+function permitsDraftSentinel(value, options) {
+  return options.allowDraft === true && isRendererDraftSentinel(value);
+}
+
+function containsNonSentinelNeedsReview(value) {
+  return [...String(value ?? '').matchAll(/needs_review/ig)].some((match) => match[0] !== 'NEEDS_REVIEW');
+}
+
+function isUnambiguousUnresolvedMarker(value) {
+  // Renderer-owned table cells escape angle brackets exactly once. Decode only
+  // that layer for marker classification; do not turn this into a general HTML
+  // decoder or alter the public Markdown representation.
+  const normalized = String(value ?? '').trim().replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/^["'`]+|["'`]+$/g, '').toLowerCase();
+  return ['todo', 'tbd', 'placeholder', 'needs_review'].includes(normalized)
+    || /^<(?:pending|todo|tbd|unknown|placeholder|needs_review)>$/i.test(normalized);
+}
+
+function validateSemanticValues(parsed, options) {
+  const values = [];
+  const tableSections = ['Metadata', 'Stability Requirements', 'Variants', 'Business Rules', 'Data Cases', 'Test Data', 'Mocks', 'Flow Steps', 'Negative Cases'];
+  for (const section of tableSections) {
+    for (const row of parseMarkdownTable(parsed.sections[section] ?? '').slice(1)) values.push(...row);
+  }
+  for (const section of ['Preconditions', 'Out-of-scope', 'Includes', 'Notes']) {
+    for (const line of String(parsed.sections[section] ?? '').split(/\r?\n/)) {
+      if (/^\s*[-*]\s+/.test(line)) values.push(line.replace(/^\s*[-*]\s+/, '').trim());
+    }
+  }
+  for (const line of String(parsed.sections['User Story'] ?? '').split(/\r?\n/)) {
+    const match = line.match(/^(?:As a|I want to|So that)\s+(.+?)[,.]?\s*$/i);
+    if (match) values.push(match[1]);
+  }
+  for (const line of String(parsed.sections['Acceptance Criteria'] ?? '').split(/\r?\n/)) {
+    const match = line.match(/^\s*-\s*AC-\d{3}:\s*(.+)$/i);
+    if (match) values.push(match[1]);
+  }
+  const visitJson = (value) => {
+    if (typeof value === 'string') values.push(value);
+    else if (Array.isArray(value)) value.forEach(visitJson);
+    else if (value && typeof value === 'object') Object.values(value).forEach(visitJson);
+  };
+  if (!parsed.mocksJson.error) visitJson(parsed.mocksJson.value);
+  if (!parsed.dataCasesJson.error) visitJson(parsed.dataCasesJson.value);
+  return values.flatMap((value) => isUnambiguousUnresolvedMarker(value) && !permitsDraftSentinel(value, options)
+    ? [`Unresolved semantic marker is not allowed: ${String(value).trim()}.`]
+    : []);
+}
+
+function validateCanonicalTable(section, sectionContent, expectedHeader) {
+  const rows = parseMarkdownTable(sectionContent);
+  const [header, ...dataRows] = rows;
+  const issues = [];
+  if (!header || header.length !== expectedHeader.length || header.some((cell, index) => cell !== expectedHeader[index])) {
+    issues.push(`Section "${section}" must contain the canonical table header: ${expectedHeader.join(' | ')}.`);
+    return issues;
+  }
+  if (dataRows.length === 0) {
+    issues.push(`Section "${section}" must contain at least one table data row.`);
+  }
+  for (const [index, row] of dataRows.entries()) {
+    if (row.length !== expectedHeader.length) {
+      issues.push(`Section "${section}" row ${index + 1} must contain exactly ${expectedHeader.length} cells.`);
+    }
+  }
+  return issues;
+}
+
+function tableFieldValue(sectionContent, field) {
+  const normalizedField = field.toLowerCase();
+  const row = parseMarkdownTable(sectionContent ?? '').find(([name]) => String(name).toLowerCase() === normalizedField);
+  return row?.[1];
+}
 
 export function isPendingGenerationSpec(metadata) {
   return (metadata['Generation Status'] ?? 'generated').toLowerCase() === 'pending-generation';
@@ -54,9 +140,16 @@ export function validateSpecFile(specPath, options = {}) {
     );
   }
 
+  const duplicateMetadataFields = findDuplicateMetadataFields(parsed.sections.Metadata ?? '');
+  if (duplicateMetadataFields.length > 0) {
+    issues.push(
+      `Duplicate Metadata field(s) found: ${duplicateMetadataFields.join(', ')}. Each field may appear only once.`
+    );
+  }
+
   if (!parsed.title) {
     issues.push('Missing top-level title in the form "# Flow: <flow name>".');
-  } else if (isPlaceholderValue(parsed.title)) {
+  } else if (isUnresolvedValue(parsed.title) && !permitsDraftSentinel(parsed.title, options)) {
     issues.push('Flow title must not be a placeholder.');
   }
 
@@ -67,60 +160,98 @@ export function validateSpecFile(specPath, options = {}) {
       continue;
     }
 
-    if (isPlaceholderOnly(sectionContent)) {
+    if (NARRATIVE_PLACEHOLDER_SECTIONS.has(section) && (isPlaceholderOnly(sectionContent) || containsNonSentinelNeedsReview(sectionContent))) {
       issues.push(`Section "${section}" is empty or placeholder-only.`);
     }
   }
+
+  for (const [section, header] of [
+    ['Metadata', ['Field', 'Value']],
+    ['Stability Requirements', ['Field', 'Value']],
+    ['Variants', loadAiConfig().variantAxes],
+    ['Business Rules', ['Rule ID', 'Rule', 'Formula', 'Blocking Behavior']],
+    ['Data Cases', ['Case ID', 'Inputs', 'Expected Result', 'Notes']],
+    ['Test Data', ['Name', 'Value', 'Notes']],
+    ['Mocks', ['API/Route', 'Scenario', 'Response']],
+    ['Flow Steps', ['Step', 'AC IDs', 'Action', 'Target', 'Input', 'Expected Result', 'Assertion Hint']],
+    ['Negative Cases', ['Case ID', 'Scenario', 'Expected Result']]
+  ]) {
+    if (parsed.sections[section] !== undefined) {
+      if ((section === 'Business Rules' || section === 'Data Cases') && /^\s*[-*]\s*none\s*$/im.test(parsed.sections[section])) {
+        const tableRows = parseMarkdownTable(parsed.sections[section]);
+        if (tableRows.length === 0) continue;
+        issues.push(`Section "${section}" must use either exactly "- none" or the canonical table, not both.`);
+      }
+      if (section === 'Business Rules' && parsed.businessRules.none) continue;
+      if (section === 'Data Cases' && parsed.dataCases.none) continue;
+      issues.push(...validateCanonicalTable(section, parsed.sections[section], header));
+    }
+  }
+
+  issues.push(...validateSemanticValues(parsed, options));
 
   for (const field of REQUIRED_METADATA_FIELDS) {
     const value = parsed.metadata[field];
     if (!value) {
       issues.push(`Metadata field is missing: ${field}`);
-    } else if (isPlaceholderValue(value)) {
+    } else if (isUnresolvedValue(value) && !permitsDraftSentinel(value, options)) {
       issues.push(`Metadata field "${field}" must not be a placeholder.`);
     }
   }
 
-  if (!options.allowDraft && isDraftSpec(parsed.metadata)) {
-    issues.push('Spec is marked as ai-draft/draft. Human review must promote it before validation can pass.');
-  }
-
   if (!options.allowDraft && /\bNEEDS_REVIEW\b/.test(content)) {
-    issues.push('Spec still contains NEEDS_REVIEW markers. Resolve them before normal validation.');
+    issues.push('Spec still contains NEEDS_REVIEW markers. Resolve them before automated validation.');
   }
 
   const auth = parsed.metadata.Auth?.toLowerCase();
-  if (auth && !AUTH_VALUES.has(auth)) {
+  const authValue = parsed.metadata.Auth;
+  if (auth && !permitsDraftSentinel(authValue, options) && !AUTH_VALUES.has(auth)) {
     issues.push('Metadata field "Auth" must be one of: none, required, optional.');
   }
 
   const testType = parsed.metadata['Test Type']?.toLowerCase();
-  if (testType && !TEST_TYPE_VALUES.has(testType)) {
+  const testTypeValue = parsed.metadata['Test Type'];
+  if (testType && !permitsDraftSentinel(testTypeValue, options) && !TEST_TYPE_VALUES.has(testType)) {
     issues.push('Metadata field "Test Type" must be one of: smoke, regression, accessibility, visual.');
   }
 
   const generationStatus = parsed.metadata['Generation Status']?.toLowerCase();
-  if (generationStatus && !GENERATION_STATUS_VALUES.has(generationStatus)) {
-    issues.push('Metadata field "Generation Status" must be "generated" or "pending-generation".');
+  const generationStatusValue = parsed.metadata['Generation Status'];
+  if (generationStatus && !permitsDraftSentinel(generationStatusValue, options) && !GENERATION_STATUS_VALUES.has(generationStatus)) {
+    issues.push('Metadata field "Generation Status" must be one of: generated, pending-generation, verified.');
   }
 
   const generationMode = specGenerationMode(parsed.metadata);
-  if (generationMode !== undefined && !GENERATION_MODES.has(generationMode)) {
+  const generationModeValue = parsed.metadata['Generation Mode'];
+  if (generationMode !== undefined && !permitsDraftSentinel(generationModeValue, options) && !GENERATION_MODES.has(generationMode)) {
     issues.push('Metadata field "Generation Mode" must be "single" or "suite".');
   }
 
   const targetTestFile = parsed.metadata['Target Test File'];
-  if (targetTestFile && !targetTestFile.endsWith('.spec.ts')) {
-    issues.push('Metadata field "Target Test File" must end with .spec.ts.');
+  const targetIsDraftPlaceholder = permitsDraftSentinel(targetTestFile, options);
+  if (targetTestFile && !targetIsDraftPlaceholder) {
+    const normalizedTarget = String(targetTestFile).replace(/\\/g, '/');
+    if (path.isAbsolute(targetTestFile) || normalizedTarget.startsWith('/')) {
+      issues.push('Metadata field "Target Test File" must be a relative path under tests/.');
+    }
+    if (normalizedTarget.split('/').includes('..')) {
+      issues.push('Metadata field "Target Test File" must not contain path traversal segments.');
+    }
+    if (!normalizedTarget.startsWith('tests/')) {
+      issues.push('Metadata field "Target Test File" must live under tests/.');
+    }
+    if (!normalizedTarget.endsWith('.spec.ts')) {
+      issues.push('Metadata field "Target Test File" must end with .spec.ts.');
+    }
   }
 
   // Auth/test-file naming contract: the chromium-auth project only picks up
   // *.authenticated.spec.ts files, so an auth-required spec without the
   // suffix silently runs unauthenticated, and a non-auth spec with the
   // suffix silently runs in the wrong project. Drafts (--allow-draft) are
-  // tolerated like other placeholder fields — human review must fix the
-  // target name before promotion, and normal validation hard-fails it.
-  if (targetTestFile && !options.allowDraft) {
+  // tolerated like other placeholder fields. Automated validation hard-fails
+  // a routing mismatch before generation.
+  if (targetTestFile && auth && !(targetIsDraftPlaceholder || permitsDraftSentinel(authValue, options))) {
     const usesAuthSuffix = /\.authenticated\.spec\.ts$/.test(targetTestFile);
     if (auth === 'required' && !usesAuthSuffix) {
       issues.push(
@@ -135,7 +266,7 @@ export function validateSpecFile(specPath, options = {}) {
     }
   }
 
-  if (targetTestFile && testType) {
+  if (targetTestFile && testType && !(targetIsDraftPlaceholder || permitsDraftSentinel(testTypeValue, options))) {
     const expectedPrefix = TEST_TYPE_TO_DIR[testType];
     if (expectedPrefix && !targetTestFile.startsWith(expectedPrefix)) {
       issues.push(
@@ -154,8 +285,15 @@ export function validateSpecFile(specPath, options = {}) {
     );
   }
 
+  const acceptanceSection = parsed.sections['Acceptance Criteria'] ?? '';
+  for (const line of acceptanceSection.split('\n').filter((line) => /^\s*-\s+/.test(line))) {
+    if (!/^\s*-\s+AC-\d{3}:\s+\S/.test(line)) {
+      issues.push(`Acceptance Criteria contains a malformed ID or row: ${line.trim()}`);
+    }
+  }
+
   const specVersion = parsed.metadata['Spec Version'];
-  if (specVersion && !/^\d+\.\d+\.\d+$/.test(specVersion)) {
+  if (specVersion && !permitsDraftSentinel(specVersion, options) && !/^\d+\.\d+\.\d+$/.test(specVersion)) {
     issues.push('Metadata field "Spec Version" must be a semver value like 1.0.0.');
   }
 
@@ -173,7 +311,11 @@ export function validateSpecFile(specPath, options = {}) {
     issues.push(...mockIssues);
   }
 
-  issues.push(...validateStability(parsed.stability));
+  issues.push(...validateStability(parsed.stability, options, {
+    parallelSafe: tableFieldValue(parsed.sections['Stability Requirements'], 'Parallel Safe'),
+    dataIsolation: tableFieldValue(parsed.sections['Stability Requirements'], 'Data Isolation'),
+    allowedRetries: tableFieldValue(parsed.sections['Stability Requirements'], 'Allowed Retries')
+  }));
   issues.push(...validateVariants(parsed.variants));
   issues.push(...validateIncludes(parsed.includes, options.knownFlowIds));
   issues.push(...validateBusinessRules(parsed.businessRules, options));
@@ -237,18 +379,12 @@ export function validateSpecFile(specPath, options = {}) {
   };
 }
 
-function isDraftSpec(metadata) {
-  const reviewStatus = metadata['Review Status']?.toLowerCase();
-  const generationSource = metadata['Generation Source']?.toLowerCase();
-  return ['ai-draft', 'draft'].includes(reviewStatus) || generationSource === 'ai-draft';
-}
-
-function validateStability(stability) {
+function validateStability(stability, options = {}, raw = {}) {
   const issues = [];
 
   if (!stability.parallelSafe) {
     issues.push('Stability Requirements must include "Parallel Safe".');
-  } else if (!STABILITY_PARALLEL_SAFE_VALUES.has(stability.parallelSafe)) {
+  } else if (!permitsDraftSentinel(raw.parallelSafe, options) && !STABILITY_PARALLEL_SAFE_VALUES.has(stability.parallelSafe)) {
     issues.push(
       `Stability Requirements field "Parallel Safe" must be yes or no. Found: ${stability.parallelSafe}.`
     );
@@ -256,7 +392,7 @@ function validateStability(stability) {
 
   if (!stability.dataIsolation) {
     issues.push('Stability Requirements must include "Data Isolation".');
-  } else if (!STABILITY_DATA_ISOLATION_VALUES.has(stability.dataIsolation)) {
+  } else if (!permitsDraftSentinel(raw.dataIsolation, options) && !STABILITY_DATA_ISOLATION_VALUES.has(stability.dataIsolation)) {
     issues.push(
       `Stability Requirements field "Data Isolation" must be per-test, shared, or external. Found: ${stability.dataIsolation}.`
     );
@@ -264,9 +400,13 @@ function validateStability(stability) {
 
   if (stability.allowedRetries === undefined) {
     issues.push('Stability Requirements must include "Allowed Retries".');
-  } else if (!/^\d+$/.test(String(stability.allowedRetries))) {
+  } else if (!permitsDraftSentinel(raw.allowedRetries, options) && !/^\d+$/.test(String(stability.allowedRetries))) {
     issues.push(
       `Stability Requirements field "Allowed Retries" must be a non-negative integer. Found: ${stability.allowedRetries}.`
+    );
+  } else if (!permitsDraftSentinel(raw.allowedRetries, options) && Number(stability.allowedRetries) !== 0) {
+    issues.push(
+      `Stability Requirements field "Allowed Retries" must be 0; retries can hide flaky generated tests. Found: ${stability.allowedRetries}.`
     );
   }
 
@@ -329,16 +469,16 @@ function validateBusinessRules(businessRules, options = {}) {
 
     for (const column of ['Rule', 'Formula', 'Blocking Behavior']) {
       const value = row[column];
-      if (!value || (!options.allowDraft && isPlaceholderValue(value))) {
+      if (!value || (isUnresolvedValue(value) && !permitsDraftSentinel(value, options))) {
         issues.push(`Business Rules ${normalized} field "${column}" must be non-placeholder.`);
       }
     }
 
     const ruleText = `${row.Rule ?? ''} ${row.Formula ?? ''} ${row['Blocking Behavior'] ?? ''}`.toLowerCase();
     if (
-      !options.allowDraft &&
+      !permitsDraftSentinel(row.Formula, options) &&
       /minimum|maximum|duration|range|threshold|at least|at most|must be/.test(ruleText) &&
-      isPlaceholderValue(row.Formula)
+      isUnresolvedValue(row.Formula)
     ) {
       issues.push(`Business Rules ${normalized} must include a concrete Formula for validation/calculation rules.`);
     }
@@ -528,6 +668,12 @@ export function validateSpecDirectory(specDir, options = {}) {
   const flowIds = new Map();
   const results = [];
 
+  if (!fs.existsSync(specDir)) {
+    issues.push(`Spec directory not found: ${specDir}.`);
+  } else if (files.length === 0) {
+    issues.push(`No flow specs found in ${specDir}; refusing a zero-spec validation pass.`);
+  }
+
   const knownFlowIds = new Set();
   for (const specPath of files) {
     const flowId = parseFlowSpec(readSpecFile(specPath)).metadata['Flow ID'];
@@ -610,7 +756,7 @@ Validates flow specs against the generated-test contract.
 Without arguments, validates every spec under specs/.
 --strict additionally requires Target Test File to exist on disk for generated
 specs and flags pending-generation specs whose Target Test File already exists.
---allow-draft permits specs marked Review Status=ai-draft for structural checks.`);
+--allow-draft permits unresolved placeholders for structural checks only.`);
 }
 
 function runCli() {

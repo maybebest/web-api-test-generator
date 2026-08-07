@@ -1,4 +1,7 @@
 // @ts-check
+const DEFAULT_COMMAND_TIMEOUT_MS = 15 * 60 * 1000;
+const REQUEST_TIMEOUT_GRACE_MS = 5 * 1000;
+const MAX_REQUEST_TIMEOUT_MS = 2_147_483_647;
 const state = {
   activeTab: 'api',
   apiFiles: [],
@@ -16,16 +19,102 @@ const state = {
   specsSearch: '',
   webGeneratedTestsSearch: '',
   settings: { ai: {} },
-  activeController: null
+  activeController: null,
+  activeCommandId: null,
+  commandTimeoutMs: DEFAULT_COMMAND_TIMEOUT_MS,
+  uploadedSpecs: [],
+  generationRunLink: null,
+  generationLinkAttempt: null
 };
 
-// Safety net slightly longer than the server-side command timeout so a wedged
-// request cannot leave the UI disabled forever.
-const REQUEST_TIMEOUT_MS = 16 * 60 * 1000;
 let specLoadSequence = 0;
+let generationLinkAttemptSequence = 0;
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => Array.from(document.querySelectorAll(selector));
+
+/**
+ * @param {{ runId?: unknown, specPath?: unknown, targetTestFile?: unknown }} [input]
+ */
+export function buildGenerationRunLink(input = {}) {
+  const { runId, specPath, targetTestFile } = input;
+  if (typeof runId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9-]{0,63}$/.test(runId)) {
+    throw new Error('Generation run id is unsafe.');
+  }
+  const subject = generationSubject({ specPath, targetTestFile });
+  return Object.freeze({ runId, ...subject });
+}
+
+/**
+ * @param {{ action?: string, specPath?: string, targetTestFile?: string, mode?: string }} [input]
+ * @param {{ runId: string, specPath: string, targetTestFile: string } | null} [generationRunLink]
+ */
+export function buildSpecCheckPayload(input = {}, generationRunLink = null) {
+  const { action, specPath, targetTestFile, mode } = input;
+  /** @type {{ action?: string, specPath?: string, targetTestFile?: string, mode?: string, runId?: string }} */
+  const payload = { action, specPath, targetTestFile, mode };
+  if (
+    action === 'gate'
+    && generationRunLink
+    && typeof generationRunLink.runId === 'string'
+    && /^[A-Za-z0-9][A-Za-z0-9-]{0,63}$/.test(generationRunLink.runId)
+    && generationRunLink.specPath === specPath
+    && generationRunLink.targetTestFile === targetTestFile
+  ) {
+    payload.runId = generationRunLink.runId;
+  }
+  return payload;
+}
+
+/**
+ * @param {any} browserState
+ * @param {{ specPath?: string, targetTestFile?: string }} [nextSubject]
+ * @param {{ force?: boolean }} [options]
+ */
+export function invalidateGenerationLinkForSubject(browserState, nextSubject = {}, { force = false } = {}) {
+  if (!browserState || typeof browserState !== 'object') return null;
+  const activeSubject = browserState.generationRunLink ?? browserState.generationLinkAttempt;
+  const matches = activeSubject
+    && activeSubject.specPath === nextSubject.specPath
+    && activeSubject.targetTestFile === nextSubject.targetTestFile;
+  if (force || !matches) {
+    browserState.generationRunLink = null;
+    browserState.generationLinkAttempt = null;
+  }
+  return browserState.generationRunLink;
+}
+
+/** @param {any} browserState @param {{ specPath: string, targetTestFile: string }} subject */
+export function beginGenerationLinkAttempt(browserState, subject) {
+  const normalizedSubject = generationSubject(subject);
+  const attempt = Object.freeze({
+    id: ++generationLinkAttemptSequence,
+    ...normalizedSubject
+  });
+  browserState.generationRunLink = null;
+  browserState.generationLinkAttempt = attempt;
+  return attempt;
+}
+
+/** @param {any} browserState @param {any} attempt @param {{ ok?: boolean, runId?: string }} result */
+export function completeGenerationLinkAttempt(browserState, attempt, result) {
+  if (browserState.generationLinkAttempt !== attempt) return false;
+  browserState.generationLinkAttempt = null;
+  browserState.generationRunLink = result?.ok && result?.runId
+    ? buildGenerationRunLink({ runId: result.runId, ...attempt })
+    : null;
+  return true;
+}
+
+/** @param {{ specPath?: unknown, targetTestFile?: unknown }} [input] */
+function generationSubject(input = {}) {
+  const { specPath, targetTestFile } = input;
+  if (typeof specPath !== 'string' || !specPath.trim()) throw new Error('Generation linkage requires a spec path.');
+  if (typeof targetTestFile !== 'string' || !targetTestFile.trim()) {
+    throw new Error('Generation linkage requires a target test file.');
+  }
+  return { specPath: specPath.trim(), targetTestFile: targetTestFile.trim() };
+}
 
 /**
  * House rule: EVERY destructive action (delete/clear) must be confirmed through this dialog —
@@ -54,7 +143,9 @@ function confirmDestructive(message, options = {}) {
   });
 }
 
-init();
+if (typeof document !== 'undefined') {
+  init();
+}
 
 async function init() {
   bindTabs();
@@ -64,13 +155,46 @@ async function init() {
 }
 
 function bindTabs() {
-  $$('.tab').forEach((button) => {
-    button.addEventListener('click', () => {
-      state.activeTab = button.dataset.tab;
-      $$('.tab').forEach((tab) => tab.classList.toggle('is-active', tab === button));
-      $$('.tab-panel').forEach((panel) => panel.classList.toggle('is-active', panel.id === `tab-${state.activeTab}`));
+  const tabs = $$('.tab');
+  tabs.forEach((button, index) => {
+    button.addEventListener('click', () => activateTab(button.dataset.tab));
+    button.addEventListener('keydown', (event) => {
+      let nextIndex;
+      if (event.key === 'ArrowRight') nextIndex = (index + 1) % tabs.length;
+      if (event.key === 'ArrowLeft') nextIndex = (index - 1 + tabs.length) % tabs.length;
+      if (event.key === 'Home') nextIndex = 0;
+      if (event.key === 'End') nextIndex = tabs.length - 1;
+      if (nextIndex === undefined) {
+        return;
+      }
+      event.preventDefault();
+      activateTab(tabs[nextIndex].dataset.tab, { focus: true });
     });
   });
+  activateTab(state.activeTab);
+}
+
+function activateTab(tabName, { focus = false } = {}) {
+  const activeButton = $(`.tab[data-tab="${tabName}"]`);
+  if (!activeButton) {
+    return;
+  }
+
+  state.activeTab = tabName;
+  $$('.tab').forEach((tab) => {
+    const isActive = tab === activeButton;
+    tab.classList.toggle('is-active', isActive);
+    tab.setAttribute('aria-selected', String(isActive));
+    tab.tabIndex = isActive ? 0 : -1;
+  });
+  $$('.tab-panel').forEach((panel) => {
+    const isActive = panel.id === `tab-${tabName}`;
+    panel.classList.toggle('is-active', isActive);
+    panel.hidden = !isActive;
+  });
+  if (focus) {
+    activeButton.focus();
+  }
 }
 
 function bindUploads() {
@@ -116,9 +240,25 @@ function bindActions() {
   $('#spec-gate').addEventListener('click', () => runSpecCheck('gate'));
   $('#spec-drift').addEventListener('click', () => runSpecCheck('drift'));
   $('#spec-select').addEventListener('change', async () => {
+    invalidateGenerationLinkForSubject(state, {
+      specPath: valueOf('#spec-select'),
+      targetTestFile: valueOf('#spec-target')
+    });
     $('#spec-path').value = valueOf('#spec-select');
     await loadSelectedSpecIntoEditor();
     renderSavedSpecs();
+  });
+  $('#spec-path').addEventListener('input', () => {
+    invalidateGenerationLinkForSubject(state, {
+      specPath: valueOf('#spec-path'),
+      targetTestFile: valueOf('#spec-target')
+    });
+  });
+  $('#spec-target').addEventListener('input', () => {
+    invalidateGenerationLinkForSubject(state, {
+      specPath: valueOf('#spec-path'),
+      targetTestFile: valueOf('#spec-target')
+    });
   });
   $('#tm-cases-search').addEventListener('input', () => {
     state.casesSearch = valueOf('#tm-cases-search');
@@ -232,14 +372,15 @@ function bindActions() {
 }
 
 async function runSpecCheck(action) {
+  const payload = buildSpecCheckPayload({
+    action,
+    specPath: valueOf('#spec-path'),
+    targetTestFile: valueOf('#spec-target'),
+    mode: valueOf('#spec-mode')
+  }, state.generationRunLink);
   const result = await postJson(
     '/api/web-spec-check',
-    {
-      action,
-      specPath: valueOf('#spec-path'),
-      targetTestFile: valueOf('#spec-target'),
-      mode: valueOf('#spec-mode')
-    },
+    payload,
     'spec'
   );
   renderCommandResult('spec', result);
@@ -328,6 +469,7 @@ function collectCasePayload() {
     automation: valueOf('#tm-case-automation'),
     testPath: valueOf('#tm-case-test-path'),
     specPath: valueOf('#tm-case-spec-path'),
+    sourceSpecPath: valueOf('#tm-case-source-spec-path'),
     recordingPath: valueOf('#tm-case-recording-path'),
     tags: splitList(valueOf('#tm-case-tags')),
     preconditions: valueOf('#tm-case-preconditions'),
@@ -376,13 +518,17 @@ async function uploadFiles(kind, inputSelector, targetSelector, append) {
 
   const form = new FormData();
   Array.from(input.files).forEach((file) => form.append('files', file));
+  const controller = new AbortController();
+  state.activeController = controller;
+  const timeout = setTimeout(() => controller.abort(), requestTimeoutMs());
   setBusy(true);
   setStatus('running', 'Uploading');
 
   try {
     const response = await fetch(`/api/upload?kind=${encodeURIComponent(kind)}`, {
       method: 'POST',
-      body: form
+      body: form,
+      signal: controller.signal
     });
     const result = await response.json();
     if (!response.ok || !result.ok) {
@@ -390,23 +536,41 @@ async function uploadFiles(kind, inputSelector, targetSelector, append) {
     }
 
     const paths = result.files.map((file) => file.path);
-    const target = $(targetSelector);
-    const separator = target.tagName === 'TEXTAREA' ? '\n' : ', ';
-    target.value = append && target.value.trim() ? `${target.value.trim()}${separator}${paths.join(separator)}` : paths.join(separator);
     if (targetSelector === '#spec-path') {
+      // The spec workflow is single-spec, but multiple uploads are supported:
+      // register them all in the dropdown and load the first into the editor.
+      paths.forEach((specPath) => registerUploadedSpec(specPath));
+      $('#spec-path').value = paths[0];
       renderSpecSelect();
       await loadSelectedSpecIntoEditor();
+      renderLog(
+        'spec',
+        paths.length > 1
+          ? `Uploaded ${paths.length} specs. Loaded ${specFileName(paths[0])}; switch between them with the Saved spec dropdown.`
+          : `Uploaded ${specFileName(paths[0])}.`
+      );
+    } else {
+      const target = $(targetSelector);
+      const separator = target.tagName === 'TEXTAREA' ? '\n' : ', ';
+      target.value =
+        append && target.value.trim() ? `${target.value.trim()}${separator}${paths.join(separator)}` : paths.join(separator);
     }
-    setStatus('ok', 'Uploaded');
+    setStatus('ok', paths.length > 1 ? `Uploaded ${paths.length} files` : 'Uploaded');
   } catch (error) {
-    setStatus('error', 'Upload failed');
-    renderLog(state.activeTab, error.message);
+    const cancelled = controller.signal.aborted;
+    setStatus('error', cancelled ? 'Cancelled' : 'Upload failed');
+    renderLog(state.activeTab, cancelled ? 'Upload cancelled.' : error.message);
   } finally {
+    clearTimeout(timeout);
+    if (state.activeController === controller) {
+      state.activeController = null;
+    }
     setBusy(false);
   }
 }
 
 async function loadSpecTemplate() {
+  invalidateGenerationLinkForSubject(state, {}, { force: true });
   setBusy(true);
   setStatus('running', 'Loading template');
 
@@ -455,6 +619,10 @@ async function loadSelectedSpecIntoEditor() {
     if (target) {
       $('#spec-target').value = target;
     }
+    invalidateGenerationLinkForSubject(state, {
+      specPath,
+      targetTestFile: valueOf('#spec-target')
+    });
     if (mode && ['single', 'suite'].includes(mode)) {
       $('#spec-mode').value = mode;
     }
@@ -474,6 +642,9 @@ async function fitSpecToTemplate() {
     return;
   }
 
+  // A fit creates a different spec draft. Its provider run id describes the
+  // fit operation and must never be linked to generated-test gate quality.
+  invalidateGenerationLinkForSubject(state, {}, { force: true });
   const result = await postJson('/api/web-spec-fit', { content }, 'spec');
   if (!result.ok) {
     return;
@@ -500,6 +671,7 @@ async function saveSpecFile() {
   }
 
   $('#spec-path').value = result.file.path;
+  invalidateGenerationLinkForSubject(state, {}, { force: true });
   renderLog('spec', `Saved spec: ${result.file.label}`);
   await refreshState();
   renderSpecSelect();
@@ -533,6 +705,7 @@ async function deleteSelectedSpec() {
   $('#spec-target').value = '';
   $('#spec-mode').value = '';
   state.specTaskPath = '';
+  invalidateGenerationLinkForSubject(state, {}, { force: true });
   renderLog('spec', `Deleted spec: ${result.file.label}`);
   await refreshState();
 }
@@ -543,13 +716,25 @@ async function postJson(url, payload, logScope) {
   renderLog(logScope, 'Running command...');
 
   const controller = new AbortController();
+  const commandId = globalThis.crypto?.randomUUID?.() || `ui-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   state.activeController = controller;
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  state.activeCommandId = commandId;
+  const notifyCancellation = () => {
+    fetch('/api/cancel', {
+      method: 'POST',
+      headers: { 'X-UI-Command-Id': commandId }
+    }).catch(() => {
+      // The local request may already be closing; aborting the original fetch
+      // is still useful even if the cancellation notification cannot arrive.
+    });
+  };
+  controller.signal.addEventListener('abort', notifyCancellation, { once: true });
+  const timeout = setTimeout(() => controller.abort(), requestTimeoutMs());
 
   try {
     const response = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-UI-Command-Id': commandId },
       body: JSON.stringify(payload),
       signal: controller.signal
     });
@@ -568,8 +753,12 @@ async function postJson(url, payload, logScope) {
     return result;
   } finally {
     clearTimeout(timeout);
+    controller.signal.removeEventListener('abort', notifyCancellation);
     if (state.activeController === controller) {
       state.activeController = null;
+    }
+    if (state.activeCommandId === commandId) {
+      state.activeCommandId = null;
     }
     setBusy(false);
   }
@@ -592,10 +781,15 @@ async function refreshState() {
     return;
   }
 
+  if (Number.isSafeInteger(data.commandTimeoutMs) && data.commandTimeoutMs > 0) {
+    state.commandTimeoutMs = data.commandTimeoutMs;
+  }
+
   fillDatalist('#api-examples', data.examples.api);
   fillDatalist('#spec-examples', data.examples.specs);
   fillDatalist('#recording-examples', data.examples.recordings);
   state.webFlowSpecs = data.examples.webFlowSpecs || [];
+  state.uploadedSpecs = (data.examples.uploadedSpecs || []).map((file) => file.path).filter(Boolean);
   renderSpecSelect();
   renderSavedSpecs();
   state.webSpecTasks = data.examples.webSpecTasks || [];
@@ -613,6 +807,10 @@ async function refreshState() {
   } else if (!$('#active-status').classList.contains('is-ok') && !$('#active-status').classList.contains('is-error')) {
     setStatus('idle', 'Idle');
   }
+}
+
+function requestTimeoutMs() {
+  return Math.min(MAX_REQUEST_TIMEOUT_MS, state.commandTimeoutMs + REQUEST_TIMEOUT_GRACE_MS);
 }
 
 function renderApiResult(result) {
@@ -650,6 +848,12 @@ function renderTaskResult(scope, result) {
   renderFiles(`#${scope}-files`, result.files || [], 'web');
 }
 
+function registerUploadedSpec(specPath) {
+  if (specPath && !state.uploadedSpecs.includes(specPath)) {
+    state.uploadedSpecs.push(specPath);
+  }
+}
+
 function renderSpecSelect() {
   const select = $('#spec-select');
   if (!select) {
@@ -657,20 +861,30 @@ function renderSpecSelect() {
   }
 
   const currentPath = valueOf('#spec-path');
+  const seen = new Set();
   select.innerHTML = '<option value="">Choose saved spec</option>';
-  for (const spec of state.webFlowSpecs) {
-    const option = document.createElement('option');
-    option.value = spec.path;
-    option.textContent = specFileName(spec.path);
-    select.append(option);
-  }
 
-  if (currentPath && !state.webFlowSpecs.some((spec) => spec.path === currentPath)) {
+  const addOption = (value, label) => {
+    if (!value || seen.has(value)) {
+      return;
+    }
+    seen.add(value);
     const option = document.createElement('option');
-    option.value = currentPath;
-    option.textContent = specFileName(currentPath);
+    option.value = value;
+    option.textContent = label;
     select.append(option);
+  };
+
+  for (const spec of state.webFlowSpecs) {
+    addOption(spec.path, specFileName(spec.path));
   }
+  for (const uploadedPath of state.uploadedSpecs) {
+    addOption(uploadedPath, `${specFileName(uploadedPath)} (uploaded)`);
+  }
+  // Keep any externally-set current path selectable even if it is neither saved
+  // nor a tracked upload.
+  addOption(currentPath, specFileName(currentPath));
+
   select.value = currentPath;
 }
 
@@ -733,6 +947,10 @@ async function selectSavedSpec(specPath) {
   $('#spec-path').value = spec.path;
   renderSpecSelect();
   $('#spec-target').value = spec.targetTestFile || suggestedTargetForSpec(spec);
+  invalidateGenerationLinkForSubject(state, {
+    specPath: spec.path,
+    targetTestFile: valueOf('#spec-target')
+  });
   if (spec.generationMode) {
     $('#spec-mode').value = spec.generationMode;
   }
@@ -753,8 +971,15 @@ async function generateSavedSpec(specPath) {
     return;
   }
 
+  const targetTestFile = spec.targetTestFile || suggestedTargetForSpec(spec);
+  const linkAttempt = beginGenerationLinkAttempt(state, {
+    specPath: spec.path,
+    targetTestFile
+  });
   await selectSavedSpec(spec.path);
-  const targetTestFile = spec.targetTestFile || valueOf('#spec-target') || suggestedTargetForSpec(spec);
+  if (state.generationLinkAttempt !== linkAttempt) {
+    return;
+  }
   $('#spec-target').value = targetTestFile;
 
   const result = await postJson(
@@ -765,6 +990,7 @@ async function generateSavedSpec(specPath) {
     },
     'spec'
   );
+  completeGenerationLinkAttempt(state, linkAttempt, result);
   renderCommandResult('spec', result);
   await refreshState();
 }
@@ -821,6 +1047,10 @@ async function generateSpecTask(taskPath) {
   }
 
   selectSpecTask(task.path);
+  const linkAttempt = beginGenerationLinkAttempt(state, {
+    specPath: task.specPath || valueOf('#spec-path'),
+    targetTestFile: task.targetTestFile
+  });
   const result = await postJson(
     '/api/web-spec-ai',
     {
@@ -829,6 +1059,7 @@ async function generateSpecTask(taskPath) {
     },
     'spec'
   );
+  completeGenerationLinkAttempt(state, linkAttempt, result);
   renderCommandResult('spec', result);
   await refreshState();
 }
@@ -875,6 +1106,10 @@ function selectSpecTask(taskPath) {
   if (task.specPath) $('#spec-path').value = task.specPath;
   renderSpecSelect();
   if (task.targetTestFile) $('#spec-target').value = task.targetTestFile;
+  invalidateGenerationLinkForSubject(state, {
+    specPath: task.specPath || valueOf('#spec-path'),
+    targetTestFile: task.targetTestFile || valueOf('#spec-target')
+  });
   if (task.generationMode) $('#spec-mode').value = task.generationMode;
   if (task.specPath) loadSelectedSpecIntoEditor();
   renderSpecTasks();
@@ -939,6 +1174,7 @@ function renderFiles(selector, files, scope) {
 
 function seedCaseFromGeneratedFile(file, scope) {
   switchTab('management');
+  resetCaseForm();
   const packagePrefix = scope === 'api' ? 'packages/api' : 'packages/web';
   const pathForCase = file.label || `${packagePrefix}/${file.path}`;
   $('#tm-case-id').value = '';
@@ -958,6 +1194,7 @@ function seedCaseFromSpec(specPath) {
   }
 
   switchTab('management');
+  resetCaseForm();
   const targetExists = spec.targetTestFile && state.webGeneratedTests.some((file) => file.path === spec.targetTestFile);
   const tags = ['web', 'spec', ...(spec.tags || [])].map((tag) => String(tag).replace(/^@/, '')).filter(Boolean);
   $('#tm-case-id').value = '';
@@ -967,13 +1204,19 @@ function seedCaseFromSpec(specPath) {
   $('#tm-case-status').value = 'ready';
   $('#tm-case-automation').value = targetExists ? 'automated' : 'candidate';
   $('#tm-case-test-path').value = spec.targetTestFile || '';
-  $('#tm-case-spec-path').value = spec.path;
+  // Keep the imported source as provenance only. Saving creates a separate,
+  // server-managed file under specs/test-management and never reuses this path.
+  $('#tm-case-spec-path').value = '';
+  $('#tm-case-source-spec-path').value = spec.path;
   $('#tm-case-recording-path').value = '';
   $('#tm-case-tags').value = [...new Set(tags)].join(', ');
   $('#tm-case-preconditions').value = '';
   $('#tm-case-steps').value = '';
   $('#tm-case-expected').value = '';
-  renderLog('management', `Imported spec into case form: ${specFileName(spec.path)}`);
+  renderLog(
+    'management',
+    `Imported ${specFileName(spec.path)} as source. Saving creates a separate managed case spec and leaves the source unchanged.`
+  );
   $('#tm-case-title').focus();
 }
 
@@ -1204,14 +1447,14 @@ function renderSelectedRun() {
         <strong>${escapeHtml(caseId)} ${escapeHtml(testCase?.title || 'Unknown case')}</strong>
         <small>${escapeHtml(testCase?.testPath || testCase?.area || '')}</small>
       </div>
-      <select>
+      <select aria-label="Result for ${escapeAttribute(caseId)} ${escapeAttribute(testCase?.title || 'Unknown case')}">
         <option value="untested">Untested</option>
         <option value="passed">Passed</option>
         <option value="failed">Failed</option>
         <option value="blocked">Blocked</option>
         <option value="skipped">Skipped</option>
       </select>
-      <input type="text" placeholder="Comment" value="${escapeAttribute(result.comment || '')}" />
+      <input type="text" aria-label="Comment for ${escapeAttribute(caseId)} ${escapeAttribute(testCase?.title || 'Unknown case')}" placeholder="Comment" value="${escapeAttribute(result.comment || '')}" />
       <button class="button" type="button">Save</button>
     `;
     const select = item.querySelector('select');
@@ -1278,6 +1521,10 @@ function applyTaskMetadata(scope, metadata) {
       renderSpecSelect();
     }
     if (metadata.generationMode) $('#spec-mode').value = metadata.generationMode;
+    invalidateGenerationLinkForSubject(state, {
+      specPath: valueOf('#spec-path'),
+      targetTestFile: valueOf('#spec-target')
+    });
   }
 
   if (scope === 'recording') {
@@ -1300,7 +1547,8 @@ function editCase(caseId) {
   $('#tm-case-status').value = testCase.status || 'draft';
   $('#tm-case-automation').value = testCase.automation || 'candidate';
   $('#tm-case-test-path').value = testCase.testPath || '';
-  $('#tm-case-spec-path').value = testCase.specPath || '';
+  $('#tm-case-spec-path').value = testCase.readOnly ? '' : testCase.specPath || '';
+  $('#tm-case-source-spec-path').value = testCase.sourceSpecPath || (testCase.readOnly ? testCase.sourcePath || testCase.specPath : '');
   $('#tm-case-recording-path').value = testCase.recordingPath || '';
   $('#tm-case-tags').value = (testCase.tags || []).join(', ');
   $('#tm-case-preconditions').value = testCase.preconditions || '';
@@ -1432,13 +1680,19 @@ function setBusy(isBusy) {
 }
 
 async function cancelActiveRun() {
-  try {
-    await fetch('/api/cancel', { method: 'POST' });
-  } catch (error) {
-    // Still abort the client-side request below even if the cancel call fails.
-  }
-  if (state.activeController) {
-    state.activeController.abort();
+  const commandId = state.activeCommandId;
+  const controller = state.activeController;
+  if (controller) {
+    controller.abort();
+  } else if (commandId) {
+    try {
+      await fetch('/api/cancel', {
+        method: 'POST',
+        headers: { 'X-UI-Command-Id': commandId }
+      });
+    } catch (error) {
+      // The local server may already be shutting down.
+    }
   }
 }
 

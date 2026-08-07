@@ -1,0 +1,54 @@
+{
+  "title": "Recorded checkout confirmation",
+  "steps": [
+    {
+      "type": "setViewport",
+      "width": 1280,
+      "height": 720,
+      "deviceScaleFactor": 1,
+      "isMobile": false,
+      "hasTouch": false,
+      "isLandscape": false
+    },
+    {
+      "type": "navigate",
+      "url": "http://localhost:3000/recorded-example/checkout",
+      "assertedEvents": [
+        {
+          "type": "navigation",
+          "url": "http://localhost:3000/recorded-example/checkout",
+          "title": "Checkout"
+        }
+      ]
+    },
+    {
+      "type": "waitForElement",
+      "selectors": [["aria/[role=\"heading\"][name=\"Checkout\"]"]],
+      "operator": ">=",
+      "count": 1
+    },
+    {
+      "type": "change",
+      "selectors": [["aria/[role=\"textbox\"][name=\"Email\"]"]],
+      "value": "recording@example.com"
+    },
+    {
+      "type": "change",
+      "selectors": [["aria/[role=\"textbox\"][name=\"Full name\"]"]],
+      "value": "Recording Customer"
+    },
+    {
+      "type": "click",
+      "selectors": [["aria/[role=\"button\"][name=\"Submit recording\"]"]],
+      "button": "left",
+      "offsetX": 82,
+      "offsetY": 18
+    },
+    {
+      "type": "waitForElement",
+      "selectors": [["aria/[role=\"heading\"][name=\"Recording submitted\"]"]],
+      "operator": ">=",
+      "count": 1
+    }
+  ]
+}

@@ -39,19 +39,42 @@ const SESSION_HYDRATION_TIMEOUT = 150_000;
  * (matches the e2e-testing-patterns "use data attributes" guidance).
  */
 export class PlanningPage extends BasePage {
-  async goto(): Promise<void> {
-    // Guarantee the Nectar AI feature flags are present in localStorage on every
-    // navigation (every spec requires them), independent of the captured session.
+  private async installFeatureFlagDefaults(): Promise<void> {
     await this.page.addInitScript(() => {
-      const g = globalThis as unknown as { localStorage: { setItem(key: string, value: string): void } };
+      const g = globalThis as unknown as {
+        localStorage: { getItem(key: string): string | null; setItem(key: string, value: string): void };
+      };
+      let configured: Record<string, boolean> = {};
+      try {
+        const parsed: unknown = JSON.parse(g.localStorage.getItem('feature-flags') ?? '{}');
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          configured = Object.fromEntries(
+            Object.entries(parsed).filter(
+              ([name, enabled]) => /^[A-Z][A-Z0-9_]{0,127}$/.test(name) && typeof enabled === 'boolean'
+            )
+          ) as Record<string, boolean>;
+        }
+      } catch {
+        // Replace malformed state with the known-safe defaults below.
+      }
       g.localStorage.setItem(
         'feature-flags',
-        JSON.stringify({ FEATURE_NECTAR_AI: true, FEATURE_NUP: true, FEATURE_NECTAR_AI_MP: true })
+        JSON.stringify({ FEATURE_NECTAR_AI: true, FEATURE_NUP: true, FEATURE_NECTAR_AI_MP: true, ...configured })
       );
     });
+  }
+
+  async goto(): Promise<void> {
+    // Guarantee the Nectar AI feature flags are present in localStorage on every
+    // navigation (every spec requires them), independent of the captured session. Explicit
+    // dataManager.setFeatureFlags overrides survive while omitted planner flags get safe defaults.
+    await this.installFeatureFlagDefaults();
     await this.page.goto('/planning');
     await this.page.waitForLoadState('domcontentloaded');
-    await this.startAssistantButton().waitFor({ state: 'visible', timeout: READY_TIMEOUT });
+    // The dev landing dashboard can render its cards well past 30s under load (observed
+    // live 2026-07-04: signed-in page without the planner card at 30s), so give the
+    // entry card the assistant-turn budget.
+    await this.startAssistantButton().waitFor({ state: 'visible', timeout: ASSISTANT_REPLY_TIMEOUT });
   }
 
   /**
@@ -62,13 +85,7 @@ export class PlanningPage extends BasePage {
    * (planningAI SET_SKUS) so the asserted summary reflects the seeded state.
    */
   async gotoSession(sessionId: string): Promise<void> {
-    await this.page.addInitScript(() => {
-      const g = globalThis as unknown as { localStorage: { setItem(key: string, value: string): void } };
-      g.localStorage.setItem(
-        'feature-flags',
-        JSON.stringify({ FEATURE_NECTAR_AI: true, FEATURE_NUP: true, FEATURE_NECTAR_AI_MP: true })
-      );
-    });
+    await this.installFeatureFlagDefaults();
     await this.page.goto(`/planning/nectar-ai/${sessionId}`);
     await this.page.waitForLoadState('domcontentloaded');
     await this.summaryPanel().waitFor({ state: 'visible', timeout: SESSION_HYDRATION_TIMEOUT });
@@ -255,6 +272,10 @@ export class PlanningPage extends BasePage {
     return this.page.getByTestId('plan-hero-skus');
   }
 
+  summarySkuCount(editor: 'Measurement' | 'Hero'): Locator {
+    return editor === 'Measurement' ? this.summaryMeasurementCount() : this.summaryHeroCount();
+  }
+
   // The per-channel "Media limit: <max> Hero SKUs. Edit SKUs" over-limit warning. The numeral is
   // interpolated from the channel's configured maxHeroSkus (it must NOT be hardcoded). Matched by
   // its stable prefix; heal to a data-testid if one becomes available.
@@ -270,9 +291,13 @@ export class PlanningPage extends BasePage {
     return this.page.getByRole('button', { name: 'open modal Hero SKUs' });
   }
 
+  summaryEditSkuButton(editor: 'Measurement' | 'Hero'): Locator {
+    return editor === 'Measurement' ? this.summaryEditMeasurementButton() : this.summaryEditHeroButton();
+  }
+
   // --- Edit SKU modal (role=dialog "Edit Measurement/Hero SKUs") -- VERIFIED ---
   editSkuModal(): Locator {
-    return this.page.getByRole('dialog');
+    return this.page.getByRole('dialog', { name: /Measurement|Hero/i });
   }
 
   async openMeasurementEditModal(): Promise<void> {
@@ -285,8 +310,54 @@ export class PlanningPage extends BasePage {
     await this.editSkuModal().waitFor({ state: 'visible', timeout: READY_TIMEOUT });
   }
 
+  async openMeasurementEditModalWithKeyboard(): Promise<void> {
+    await this.summaryEditMeasurementButton().focus();
+    await this.page.keyboard.press('Enter');
+    await this.editSkuModal().waitFor({ state: 'visible', timeout: READY_TIMEOUT });
+  }
+
+  async openHeroEditModalWithKeyboard(): Promise<void> {
+    await this.summaryEditHeroButton().focus();
+    await this.page.keyboard.press('Enter');
+    await this.editSkuModal().waitFor({ state: 'visible', timeout: READY_TIMEOUT });
+  }
+
+  editDialogFocusedElement(): Locator {
+    // locator-policy:exception :focus is the browser-native focus state scoped to the open dialog
+    return this.editSkuModal().locator(':focus');
+  }
+
   modalSelectedCount(): Locator {
-    return this.page.getByTestId('selected-skus-length');
+    return this.editSkuModal().getByTestId('selected-skus-length');
+  }
+
+  modalSelectedSkuRows(): Locator {
+    return this.editSkuModal().getByTestId(/^selectedSku-/);
+  }
+
+  modalFirstRemoveSkuButton(): Locator {
+    // locator-policy:exception the cancel-persistence check may remove any selected row; first keeps the tentative action deterministic
+    return this.editSkuModal().getByTestId(/^remove-selectedSku-/).first();
+  }
+
+  async modalSelectionSnapshot(): Promise<{ count: string; rows: string[] }> {
+    const count = ((await this.modalSelectedCount().textContent()) ?? '').trim();
+    const rows = await this.modalSelectedSkuRows().evaluateAll((elements) =>
+      elements
+        .map((element) => {
+          const testId = element.getAttribute('data-testid') ?? '';
+          const text = element.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+          return `${testId}::${text}`;
+        })
+        .sort()
+    );
+    return { count, rows };
+  }
+
+  async assistantContainsVisibleText(text: string): Promise<boolean> {
+    const matches = await this.assistantChatPanel().getByText(text, { exact: false }).all();
+    const visibility = await Promise.all(matches.map((match) => match.isVisible().catch(() => false)));
+    return visibility.some(Boolean);
   }
 
   // HEALED 2026-07-02 (live audit, restored-session state): the chat history's
@@ -349,6 +420,10 @@ export class PlanningPage extends BasePage {
   assistantChatPanel(): Locator {
     // The assistant conversation; booking-deadline rejection messages render here.
     return this.page.getByTestId('chat-panel');
+  }
+
+  assistantText(text: string | RegExp): Locator {
+    return this.assistantChatPanel().getByText(text, { exact: false });
   }
 
   // The Nectar AI assistant streams replies. Wait for it to return to idle before
@@ -425,6 +500,47 @@ export class PlanningPage extends BasePage {
     return blocks.last();
   }
 
+  // The channel-delete confirmation dialog (role=dialog; the only dialog open at that
+  // moment). Its affirmative button is "Delete" (modalDeleteConfirmButton above); the
+  // negative button is dialog-scoped "Cancel".
+  deleteChannelDialog(): Locator {
+    return this.page.getByRole('dialog');
+  }
+
+  deleteDialogFocusedElement(): Locator {
+    // locator-policy:exception :focus is the browser-native focus state scoped to the open dialog
+    return this.deleteChannelDialog().locator(':focus');
+  }
+
+  modalDeleteCancelButton(): Locator {
+    return this.deleteChannelDialog().getByRole('button', { name: 'Cancel', exact: true });
+  }
+
+  // The named channel row's own delete control, exposed for control-state assertions
+  // (enabled / accessible name) and for opening the dialog without confirming.
+  channelDeleteControlFor(channelName: string): Locator {
+    // locator-policy:exception the targeted channel row's own delete control
+    return this.channelRow(channelName).getByRole('button', { name: /delete channel/i }).first();
+  }
+
+  // Open the delete-confirmation dialog for a named channel WITHOUT confirming, so a
+  // test can assert the dialog wording or exercise Cancel/Escape.
+  async openDeleteChannelDialog(channelName: string): Promise<void> {
+    await this.channelDeleteControlFor(channelName).click();
+    await this.deleteChannelDialog().waitFor({ state: 'visible', timeout: READY_TIMEOUT });
+  }
+
+  async openDeleteChannelDialogWithKeyboard(channelName: string): Promise<void> {
+    await this.channelDeleteControlFor(channelName).focus();
+    await this.page.keyboard.press('Enter');
+    await this.deleteChannelDialog().waitFor({ state: 'visible', timeout: READY_TIMEOUT });
+  }
+
+  // Dismiss whichever dialog is open via the keyboard (native <dialog> Escape path).
+  async dismissDialogWithEscape(): Promise<void> {
+    await this.page.keyboard.press('Escape');
+  }
+
   // Delete a channel by name (scoped to its row) — or the first channel if no name is
   // given — then confirm. The summary Total Budget recomputes to the remaining channels.
   async deleteChannel(channelName?: string): Promise<void> {
@@ -434,6 +550,20 @@ export class PlanningPage extends BasePage {
     // locator-policy:exception the targeted channel row's delete control (or the first)
     await control.first().click();
     await this.modalDeleteConfirmButton().click();
+  }
+
+  /**
+   * Best-effort cleanup for a channel created by a live test. The method is
+   * intentionally idempotent so it is safe to call from an assertion step's
+   * `finally` block when an earlier action only partially completed.
+   */
+  async deleteChannelIfPresent(channelName: string): Promise<void> {
+    const channel = this.summaryChannel(channelName);
+    if (!(await channel.isVisible().catch(() => false))) {
+      return;
+    }
+    await this.deleteChannel(channelName);
+    await channel.waitFor({ state: 'hidden', timeout: CHANNEL_ADD_TIMEOUT });
   }
 
   // --- Channel request (chat -> disambiguation -> add) --------- VERIFIED ---
@@ -520,6 +650,47 @@ export class PlanningPage extends BasePage {
     return this.page.getByText('Your plan has been saved as a draft.');
   }
 
+  // --- Discard draft plan (NUP-20082 Scenarios 2-4) ------------- INFERRED ---
+  // Copy pinned from NUP-20082 (Done, SignedOffByKaty). The action button renders
+  // next to "Save plan as draft" after the plan-confirm turn; the hot buttons and
+  // messages arrive as assistant chat turns. Names are anchored regexes so the
+  // action button can never strict-mode-collide with the "Yes, discard draft plan"
+  // hot button once the prompt is open.
+  discardButton(): Locator {
+    return this.page.getByRole('button', { name: /^discard draft plan$/i });
+  }
+
+  discardPrompt(): Locator {
+    return this.page.getByText('Are you sure you want to discard your draft plan?');
+  }
+
+  discardYesButton(): Locator {
+    return this.page.getByRole('button', { name: /^yes, discard draft plan$/i });
+  }
+
+  discardNoButton(): Locator {
+    return this.page.getByRole('button', { name: /^no, continue with my plan$/i });
+  }
+
+  async openDiscardPrompt(): Promise<void> {
+    await this.discardButton().click();
+    await this.discardPrompt().waitFor({ state: 'visible', timeout: ASSISTANT_REPLY_TIMEOUT });
+  }
+
+  /** Answer the open discard confirmation with the documented hot-button label. */
+  async answerDiscardPrompt(choice: 'Yes, discard draft plan' | 'No, continue with my plan'): Promise<void> {
+    const button = choice === 'Yes, discard draft plan' ? this.discardYesButton() : this.discardNoButton();
+    await button.click();
+  }
+
+  discardedConfirmation(): Locator {
+    // NUP-20082 Scenario 2 copy: "Your plan has been discarded. If you'd like to
+    // start a new conversation, please do so, or head back to the planning module."
+    // Anchored on the salient fragment; the apostrophe in the trailing sentence is
+    // typographically unstable, so it is not part of the match.
+    return this.page.getByText(/plan has been discarded/i);
+  }
+
   // VERIFIED 2026-07-03: rendered alongside the saved-as-draft confirmation; opens the
   // saved-plan review view (where the post-save outputs live).
   reviewSavedPlanButton(): Locator {
@@ -541,6 +712,10 @@ export class PlanningPage extends BasePage {
     // locator-policy:exception no testid wraps the full "Plan name: <name>" row;
     // the label span's parent container is the observed stable structure.
     return this.page.getByText(/^Plan name:/).locator('..');
+  }
+
+  planNameSuffixInput(): Locator {
+    return this.page.getByTestId('plan-name-input');
   }
 
   // --- Post-save outputs -------------------------------------- CONFIRMED ---
