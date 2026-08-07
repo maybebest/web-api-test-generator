@@ -207,6 +207,14 @@ test('collectHealContext rejects malformed scoped-role discovery candidates and 
       pattern: /preferred but not unique/i
     },
     {
+      label: 'non-unique snapshot count',
+      mutate(candidate) {
+        candidate.snapshotMatchCount = 0;
+        candidate.snapshotUnique = false;
+      },
+      pattern: /missing consistent live and snapshot uniqueness evidence/i
+    },
+    {
       label: 'missing warning code',
       mutate(candidate) {
         candidate.warningCodes = [];
