@@ -860,22 +860,22 @@ test('static and local gate profiles strip login and API credentials before modu
   }
 });
 
-test('PsychicBook email is secret while the Basic username is external-only runtime configuration', () => {
+test('standard user email is secret while the Basic username is external-only runtime configuration', () => {
   const source = {
     PATH: '/bin',
     E2E_HTTP_BASIC_USERNAME: 'psychicbook',
-    PSYCHICBOOK_E2E_EMAIL: 'returning-user@example.test'
+    E2E_USER_EMAIL: 'returning-user@example.test'
   };
 
   const externalEnvironment = buildGateEnvironment(source, { profile: 'external-runtime' });
   assert.equal(externalEnvironment.E2E_HTTP_BASIC_USERNAME, 'psychicbook');
-  assert.equal(externalEnvironment.PSYCHICBOOK_E2E_EMAIL, 'returning-user@example.test');
+  assert.equal(externalEnvironment.E2E_USER_EMAIL, 'returning-user@example.test');
   assert.deepEqual(knownSecretEnvValues(source), ['returning-user@example.test']);
 
   for (const profile of ['static', 'local-runtime']) {
     const environment = buildGateEnvironment(source, { profile });
     assert.equal(environment.E2E_HTTP_BASIC_USERNAME, undefined);
-    assert.equal(environment.PSYCHICBOOK_E2E_EMAIL, '');
+    assert.equal(environment.E2E_USER_EMAIL, '');
   }
 });
 

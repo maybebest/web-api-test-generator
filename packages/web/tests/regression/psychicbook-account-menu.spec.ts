@@ -1,6 +1,6 @@
-/* spec: specs/psychicbook-account-menu.md version:1.0.0 sha256:5f39df84d17a13dba7a741bcf71fe70febb74e812310fda05c1d00103704f9d9 */
+/* spec: specs/psychicbook-account-menu.md version:1.0.0 sha256:659b74e381da4f08e9e9ce4bf30a06d45bf910c2bdec17ead2096c1b15a16606 */
 import { test, expect } from '../../fixtures/test';
-import { requirePsychicBookEmail } from '../../data/psychicbook';
+import { requireStandardUserEmail } from '../../data/users';
 import { PsychicBookLoginPage } from '../../pages/PsychicBookLoginPage';
 
 const dataCases = [
@@ -18,7 +18,7 @@ test.describe.serial('PsychicBook account menu after email verification', () => 
       async ({ page }) => {
         test.info().annotations.push({ type: 'covered-ac-ids', description: 'AC-001 AC-002 AC-003 AC-004' });
         const psychicBookPage = new PsychicBookLoginPage(page);
-        const email = requirePsychicBookEmail();
+        const email = requireStandardUserEmail();
 
         await test.step('Arrange AC-001: open the PsychicBook landing page', async () => {
           await psychicBookPage.gotoLanding();

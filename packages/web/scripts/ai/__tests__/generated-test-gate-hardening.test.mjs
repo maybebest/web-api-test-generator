@@ -79,3 +79,76 @@ test('generated-pair execution forwards the requested worker count to Playwright
     fs.rmSync(workspace, { recursive: true, force: true });
   }
 });
+
+test('generated-pair execution permits one explicitly diagnostic baseline run only', () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'generated-gate-diagnostic-'));
+  const seenArguments = [];
+  const stageInput = {
+    packageManager: 'npm',
+    testPath: TARGET,
+    project: 'chromium',
+    jsonReportPath: path.join(workspace, 'playwright.json'),
+    repeatEach: 1
+  };
+
+  assert.throws(() => buildPlaywrightStage(stageInput), /repeat-each must be/);
+  assert.throws(
+    () => buildPlaywrightStage({ ...stageInput, purpose: 'unknown' }),
+    /purpose must be gate, diagnostic, or healer-candidate/
+  );
+
+  try {
+    const result = executeGeneratedPair({
+      specPath: 'specs/x.md',
+      testPath: TARGET,
+      validation: { metadata: {} }
+    }, {
+      purpose: 'diagnostic',
+      workers: 1,
+      repeatEach: 1,
+      runRoot: path.join(workspace, '.ai-runs'),
+      packageManager: 'npm',
+      projectPlanner: () => [{ project: 'chromium', env: {} }],
+      commandRunner(stage) {
+        seenArguments.push(...stage.args);
+        return 1;
+      }
+    });
+
+    assert.equal(result.passed, false);
+    assert.ok(seenArguments.includes('--repeat-each=1'));
+    assert.ok(seenArguments.includes('--workers=1'));
+    assert.equal(seenArguments.includes('--max-failures=1'), false);
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test('generated-pair execution can preserve every repeated verification result', () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'generated-gate-complete-repeats-'));
+  const seenArguments = [];
+  try {
+    const result = executeGeneratedPair({
+      specPath: 'specs/x.md',
+      testPath: TARGET,
+      validation: { metadata: {} }
+    }, {
+      purpose: 'healer-candidate',
+      workers: 1,
+      repeatEach: 2,
+      runRoot: path.join(workspace, '.ai-runs'),
+      packageManager: 'npm',
+      projectPlanner: () => [{ project: 'chromium', env: {} }],
+      commandRunner(stage) {
+        seenArguments.push(...stage.args);
+        return 1;
+      }
+    });
+
+    assert.equal(result.passed, false);
+    assert.ok(seenArguments.includes('--repeat-each=2'));
+    assert.equal(seenArguments.includes('--max-failures=1'), false);
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});

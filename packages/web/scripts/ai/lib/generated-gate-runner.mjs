@@ -439,7 +439,8 @@ export function executeGeneratedPair(pair, options = {}) {
       htmlReportDir,
       testResultsDir,
       repeatEach: options.repeatEach ?? FULL_GATE_REPEAT_EACH,
-      workers: options.workers
+      workers: options.workers,
+      purpose: options.purpose ?? 'gate'
     });
     const profile = project === 'local-chromium' ? 'local-runtime' : 'external-runtime';
     const runnableStage = {

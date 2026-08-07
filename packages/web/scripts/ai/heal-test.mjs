@@ -36,16 +36,18 @@ import { buildGateEnvironment, knownSecretEnvValues } from './lib/gate-environme
 import { resolveHealContract, reviewHealContract } from './lib/test-heal-contract.mjs';
 import { collectHealContext } from './lib/test-heal-context.mjs';
 import { triageRuntimeFailure } from './lib/test-heal-triage.mjs';
-import { hasKnownSecretShape, redactSecretMaterial } from './lib/secret-safety.mjs';
+import { containsSecretLikeValue, redactSecretMaterial } from './lib/secret-safety.mjs';
 import {
   MAX_AUTOHEAL_MAX_ATTEMPTS,
   MAX_HEAL_EVIDENCE_ITEMS,
   MAX_HEAL_SOURCE_BYTES,
+  analyzeHealSource,
   autoHealEnabled,
   autoHealMaxAttempts,
   autoHealVerifyRuns,
   extractRuntimeFailureEvidence,
   healTestSource,
+  normalizeHealPolicyIssueCodes,
   redactKnownSecretValues,
   verifyHealedSourcePolicy
 } from './lib/test-heal.mjs';
@@ -238,6 +240,7 @@ export function executeStandaloneTarget({
   testPath,
   project,
   repeatEach,
+  purpose = 'gate',
   env,
   webRoot = process.cwd(),
   runRoot,
@@ -258,7 +261,8 @@ export function executeStandaloneTarget({
     jsonReportPath,
     htmlReportDir,
     testResultsDir,
-    repeatEach
+    repeatEach,
+    purpose
   });
   const profile = project === 'local-chromium' ? 'local-runtime' : 'external-runtime';
   assertStandaloneRunDirectoryIdentity(runDirIdentity);
@@ -679,11 +683,19 @@ function sanitizedDiagnosticText(value, secretValues) {
 }
 
 function auditAttemptTrail(attemptTrail) {
-  return attemptTrail.slice(-MAX_AUTOHEAL_MAX_ATTEMPTS).map((entry) => ({
-    attempt: entry.attempt,
-    outcome: entry.outcome,
-    ...(entry.checks ? { checks: { ...entry.checks } } : {})
-  }));
+  return attemptTrail.slice(-MAX_AUTOHEAL_MAX_ATTEMPTS).map((entry) => {
+    const policyWarning = entry.checks?.policy === 'warning'
+      || (Array.isArray(entry.policyIssueCodes) && entry.policyIssueCodes.length > 0);
+    const policyIssueCodes = normalizeHealPolicyIssueCodes(entry.policyIssueCodes, {
+      requireAtLeastOne: policyWarning
+    });
+    return {
+      attempt: entry.attempt,
+      outcome: entry.outcome,
+      ...(entry.checks ? { checks: { ...entry.checks } } : {}),
+      ...(policyIssueCodes.length > 0 ? { policyIssueCodes } : {})
+    };
+  });
 }
 
 function sanitizedEvidenceList(value, secretValues) {
@@ -711,6 +723,11 @@ function sanitizePublicResult(result) {
   if (Object.hasOwn(result, 'detail')) {
     sanitized.detail = publicDiagnostic(result.status);
   }
+  if (Object.hasOwn(result, 'policyIssueCodes')) {
+    sanitized.policyIssueCodes = normalizeHealPolicyIssueCodes(result.policyIssueCodes, {
+      requireAtLeastOne: true
+    });
+  }
   if (Array.isArray(result.attemptTrail)) {
     sanitized.attemptTrail = auditAttemptTrail(result.attemptTrail);
   }
@@ -722,6 +739,36 @@ function sanitizePublicResult(result) {
   return sanitized;
 }
 
+function containsCandidateSecretLiteral(source) {
+  const text = String(source ?? '').replace(
+    /^(\/\*\s+(?:spec|recording):[^\r\n]*\bsha256:)[a-f0-9]{64}(\s+\*\/)/i,
+    '$1<traceability-sha256>$2'
+  );
+  const containsSecretFragment = (value) => {
+    const fragments = value.match(/[A-Za-z0-9._~+/-]{20,}/g) ?? [];
+    return fragments.some((fragment) => {
+      for (let index = 0; index <= fragment.length - 20; index += 1) {
+        if (containsSecretLikeValue(fragment.slice(index))) return true;
+      }
+      return false;
+    });
+  };
+  if (containsSecretFragment(text)) return true;
+  const scanner = ts.createScanner(ts.ScriptTarget.Latest, false, ts.LanguageVariant.Standard, text);
+  for (let token = scanner.scan(); token !== ts.SyntaxKind.EndOfFileToken; token = scanner.scan()) {
+    if (token !== ts.SyntaxKind.StringLiteral
+      && token !== ts.SyntaxKind.NoSubstitutionTemplateLiteral
+      && token !== ts.SyntaxKind.RegularExpressionLiteral) continue;
+    const tokenText = scanner.getTokenText();
+    const literal = token === ts.SyntaxKind.RegularExpressionLiteral
+      ? tokenText.slice(1, tokenText.lastIndexOf('/'))
+      : tokenText.slice(1, -1);
+    if (containsSecretLikeValue(literal)) return true;
+    if (containsSecretFragment(literal)) return true;
+  }
+  return false;
+}
+
 function sourceSafetyIssue(source, secretValues, label) {
   const normalizedSource = String(source ?? '');
   // Keep preflight checks deterministic. Generic candidate semantics belong to
@@ -730,10 +777,46 @@ function sourceSafetyIssue(source, secretValues, label) {
   if (redactKnownSecretValues(normalizedSource, secretValues) !== normalizedSource) {
     return `${label} contains a known secret value and cannot be healed or archived.`;
   }
-  if (hasKnownSecretShape(normalizedSource)) {
+  if (containsSecretLikeValue(normalizedSource)) {
     return `${label} contains secret-like material and cannot be healed or archived.`;
   }
   return null;
+}
+
+function candidateSourceSafetyIssue(source, secretValues) {
+  const normalizedSource = String(source ?? '');
+  const commonIssue = sourceSafetyIssue(normalizedSource, secretValues, 'Heal candidate source');
+  if (commonIssue) return commonIssue;
+  if (analyzeHealSource(normalizedSource).containsSecrets || containsCandidateSecretLiteral(normalizedSource)) {
+    return 'Heal candidate source contains secret-like material and cannot be healed or archived.';
+  }
+  return null;
+}
+
+function acceptedCandidateResult({
+  status,
+  attempt,
+  candidateSha256,
+  candidatePath,
+  diffPath,
+  policyIssueCodes,
+  backupPath
+}) {
+  return {
+    status,
+    attemptsUsed: attempt,
+    candidateSha256,
+    candidatePath,
+    diffPath,
+    ...(backupPath ? { backupPath } : {}),
+    ...(policyIssueCodes.length > 0 ? { policyIssueCodes } : {})
+  };
+}
+
+function preserveTerminalLineEnding(originalSource, candidateSource) {
+  const originalEnding = String(originalSource).match(/(?:\r\n|\r|\n)$/)?.[0] ?? '';
+  const candidateWithoutEnding = String(candidateSource).replace(/(?:\r\n|\r|\n)$/, '');
+  return `${candidateWithoutEnding}${originalEnding}`;
 }
 
 function rejectedAttemptAudit(attempt, outcome) {
@@ -787,7 +870,46 @@ function candidateDiff({ archiveOriginalPath, candidateAbsolute, webRoot }) {
 }
 
 export function isSuccessfulHealStatus(status) {
-  return status === 'already-green' || status === 'proposal-ready' || status === 'healed';
+  return status === 'already-green'
+    || status === 'proposal-ready'
+    || status === 'healed';
+}
+
+export function renderHealResults(results) {
+  const events = [];
+  const write = (stream, line) => events.push({ stream, line });
+  let allGreen = true;
+
+  for (const result of results) {
+    const policyIssueCodes = normalizeHealPolicyIssueCodes(result.policyIssueCodes);
+    const hasPolicyWarnings = policyIssueCodes.length > 0;
+    const suffix = result.attemptsUsed > 0 ? ` after ${result.attemptsUsed} attempt(s)` : '';
+    if (result.status === 'healed' && hasPolicyWarnings) {
+      write('stderr', `HEALED WITH POLICY WARNINGS ${result.target}${suffix}. Backup: ${result.backupPath}`);
+    } else if (result.status === 'healed') {
+      write('stdout', `HEALED ${result.target}${suffix}. Backup: ${result.backupPath}`);
+    } else if (result.status === 'proposal-ready' && hasPolicyWarnings) {
+      write('stdout', `PROPOSAL READY WITH POLICY WARNINGS ${result.target}${suffix} (target unchanged). Diff: ${result.diffPath}. Archive: ${result.archiveDir}`);
+    } else if (result.status === 'proposal-ready') {
+      write('stdout', `PROPOSAL READY ${result.target}${suffix} (target unchanged). Diff: ${result.diffPath}. Archive: ${result.archiveDir}`);
+    } else if (result.status === 'already-green') {
+      write('stdout', `ALREADY GREEN ${result.target} (no changes made).`);
+    } else {
+      write('stderr', `NOT HEALED ${result.target} (${result.status})${suffix}.`);
+      for (const issue of result.issues ?? []) write('stderr', `- ${issue}`);
+      if (result.archiveDir) write('stderr', `  Evidence: ${result.archiveDir}`);
+    }
+    if (hasPolicyWarnings) {
+      write('stderr', `- Policy warnings: ${policyIssueCodes.join(', ')}`);
+    }
+    if (!isSuccessfulHealStatus(result.status)
+      || (result.status === 'healed' && hasPolicyWarnings)) allGreen = false;
+  }
+
+  return {
+    exitCode: allGreen ? 0 : 1,
+    events
+  };
 }
 
 // Removes stale heal candidates for this target left behind by a hard crash,
@@ -890,20 +1012,34 @@ export async function healSingleTest({
   const resolvedProject = project ?? inferStandaloneProject(target);
   // executeGeneratedPair returns the execution shape directly:
   // { passed, attempted, stage, issues, artifacts, runDir }.
-  const runVerification = (pathToRun) => (contract.kind === 'spec'
+  const runVerification = (pathToRun, runs = repeatEach) => (contract.kind === 'spec'
     ? executePair(
         { specPath: contract.specPath, testPath: pathToRun, validation: contract.validation },
-        { repeatEach, workers: 1, env, runRoot }
+        {
+          repeatEach: runs,
+          workers: 1,
+          purpose: runs === 1 ? 'diagnostic' : 'healer-candidate',
+          env,
+          runRoot
+        }
       )
-    : executeStandalone({ testPath: pathToRun, project: resolvedProject, repeatEach, env, webRoot, runRoot }));
+    : executeStandalone({
+        testPath: pathToRun,
+        project: resolvedProject,
+        repeatEach: runs,
+        purpose: runs === 1 ? 'diagnostic' : 'healer-candidate',
+        env,
+        webRoot,
+        runRoot
+      }));
 
   const contractDescription = contract.kind === 'spec'
     ? `spec-bound via ${contract.specPath}`
     : contract.kind === 'recording'
       ? `recording-bound via ${contract.recordingPath}; standalone project ${resolvedProject}`
       : `handwritten; standalone project ${resolvedProject}`;
-  log(`[heal] ${target}: baseline verification (${repeatEach} consecutive runs, retries=0, ${contractDescription}).`);
-  let execution = runVerification(target);
+  log(`[heal] ${target}: baseline verification (1 diagnostic run, retries=0, ${contractDescription}).`);
+  let execution = runVerification(target, 1);
   if (execution.passed) {
     cleanupFailedRunDir(execution, runRoot);
     return sanitizePublicResult({ status: 'already-green', target, attemptsUsed: 0 });
@@ -998,11 +1134,13 @@ export async function healSingleTest({
     for (let attempt = 1; attempt <= attemptsBudget; attempt += 1) {
       log(`[heal] ${target}: attempt ${attempt}/${attemptsBudget}.`);
       const checks = {};
+      let policyIssueCodes = [];
       const recordAttempt = (outcome) => {
         attemptTrail.push({
           attempt,
           outcome,
-          ...(Object.keys(checks).length > 0 ? { checks: { ...checks } } : {})
+          ...(Object.keys(checks).length > 0 ? { checks: { ...checks } } : {}),
+          ...(policyIssueCodes.length > 0 ? { policyIssueCodes: [...policyIssueCodes] } : {})
         });
       };
       let healed;
@@ -1022,7 +1160,13 @@ export async function healSingleTest({
         recordAttempt('brain-error', error.message);
         return finish({ status: 'brain-error', attemptsUsed: attempt, issues: [error.message] });
       }
-      const candidateSafetyIssue = sourceSafetyIssue(healed?.code, secretValues, 'Heal candidate source');
+      if (typeof healed?.code === 'string') {
+        healed = {
+          ...healed,
+          code: preserveTerminalLineEnding(originalSource, healed.code)
+        };
+      }
+      const candidateSafetyIssue = candidateSourceSafetyIssue(healed?.code, secretValues);
       if (candidateSafetyIssue) {
         checks.policy = 'rejected';
         recordAttempt('brain-error', candidateSafetyIssue);
@@ -1041,13 +1185,12 @@ export async function healSingleTest({
       // later attempt cannot ratchet the rules by comparing against an earlier
       // (already accepted-for-iteration) candidate.
       const policy = verifyHealedSourcePolicy({ previousSource: originalSource, healedSource: healed.code });
-      checks.policy = policy.passed ? 'passed' : 'rejected';
+      policyIssueCodes = policy.passed
+        ? []
+        : normalizeHealPolicyIssueCodes(policy.issueCodes, { requireAtLeastOne: true });
+      checks.policy = policy.passed ? 'passed' : 'warning';
       if (!policy.passed) {
-        archiveRejectedAttempt(attempt, 'rejected-policy');
-        recordAttempt('policy-rejected', policy.issues.join(' '));
-        log(`[heal] ${target}: attempt ${attempt} rejected by deterministic policy guard.`);
-        notes = sanitizedEvidenceList(policy.issues, secretValues);
-        continue;
+        log(`[heal] ${target}: attempt ${attempt} continues with policy warnings: ${policyIssueCodes.join(', ')}.`);
       }
 
       const candidateAbsolute = healCandidatePath(absoluteTarget, `${runId}-a${attempt}`);
@@ -1155,13 +1298,14 @@ export async function healSingleTest({
 
           if (!apply) {
             recordAttempt('proposal-ready');
-            return finish({
+            return finish(acceptedCandidateResult({
               status: 'proposal-ready',
-              attemptsUsed: attempt,
+              attempt,
               candidateSha256: candidateSha,
               candidatePath: candidateArchivePath,
-              diffPath
-            });
+              diffPath,
+              policyIssueCodes
+            }));
           }
 
           if (!allowDirty && targetDirty(target, webRoot)) {
@@ -1260,14 +1404,15 @@ export async function healSingleTest({
           closeBoundRegularFile(candidateBinding);
           activeCandidate = null;
           recordAttempt('healed');
-          const healedResult = {
+          const healedResult = acceptedCandidateResult({
             status: 'healed',
-            attemptsUsed: attempt,
+            attempt,
             candidateSha256: candidateSha,
             candidatePath: candidateArchivePath,
             diffPath,
-            backupPath: archiveOriginalPath
-          };
+            backupPath: archiveOriginalPath,
+            policyIssueCodes
+          });
           try {
             return finish(healedResult);
           } catch (error) {
@@ -1344,17 +1489,20 @@ export function helpText() {
     [--max-attempts N] [--verify-runs N] [--dom-snapshot <.ai-runs/dom-discovery/...>]
     [--apply [--allow-dirty]]
 
-Runs each target test first (baseline). A test that already passes the required consecutive
-runs is reported as already-green and never modified. For a runtime failure the healer asks the
-heal brain (stage 'heal', see AI_HEAL_* env) for a repaired file, rejects candidates that violate
-the AST-level anti-masking policy (no removed/downgraded/conditional assertions, no skip family,
-no sleeps or XPath) or fail typechecking/linting, and verifies survivors with exact consecutive repetitions
+Runs each target test first (baseline). A test that passes the single diagnostic baseline run
+is reported as already-green and never modified. For a runtime failure the healer asks the
+heal brain (stage 'heal', see AI_HEAL_* env) for a repaired file.
+AST-level anti-masking policy violations are recorded as warnings.
+Typecheck, lint, contract review, and runtime verification remain hard gates.
+Candidates that pass those gates are verified with exact consecutive repetitions
 (all verification lanes use --workers=1 and --retries=0; flaky = fail).
 Only locator-drift and synchronization runtime failures are repairable. Product, auth, network,
 data, assertion-mismatch, and unclassified failures are reported as not-repairable. A baseline-green
 target returns already-green without a proposal. For a repairable failing target that produces a
 fully verified single-test candidate, default mode archives proposal-ready and leaves the target
-unchanged. Environment, non-repairable, and manual-change-required paths return their own statuses
+unchanged. Policy warnings are reported separately from the accepted proposal or applied status.
+An applied result with policy warnings exits non-zero.
+Environment, non-repairable, and manual-change-required paths return their own statuses
 and might not create a candidate proposal. Page Object or Component source is context-only and
 returns manual-change-required; it is never auto-promoted. Only --apply can atomically promote a
 fully verified target (clean unless --allow-dirty is explicit); integrity and concurrency checks
@@ -1363,7 +1511,7 @@ always remain. Every attempt and the original file are archived under .ai-runs/h
 Settings:
   AI_AUTOHEAL_ENABLED       must be true to generate a repair proposal (default false)
   AI_AUTOHEAL_MAX_ATTEMPTS  heal attempts per test, 1..${MAX_AUTOHEAL_MAX_ATTEMPTS} (default 3); --max-attempts overrides.
-                            Policy/typecheck/lint/review rejections consume attempts too.
+                            Policy warnings and typecheck/lint/review rejections consume attempts too.
   AI_AUTOHEAL_VERIFY_RUNS   consecutive green runs required, 2 or 3 (default 2); --verify-runs overrides
   --dom-snapshot            optional verified selector-discovery artifact below .ai-runs/dom-discovery
   --apply                   promote a fully verified single-file candidate
@@ -1454,23 +1602,12 @@ async function runCli() {
     }
   }
 
-  let allGreen = true;
-  for (const result of results) {
-    const suffix = result.attemptsUsed > 0 ? ` after ${result.attemptsUsed} attempt(s)` : '';
-    if (result.status === 'healed') {
-      console.log(`HEALED ${result.target}${suffix}. Backup: ${result.backupPath}`);
-    } else if (result.status === 'proposal-ready') {
-      console.log(`PROPOSAL READY ${result.target}${suffix} (target unchanged). Diff: ${result.diffPath}. Archive: ${result.archiveDir}`);
-    } else if (result.status === 'already-green') {
-      console.log(`ALREADY GREEN ${result.target} (no changes made).`);
-    } else {
-      console.error(`NOT HEALED ${result.target} (${result.status})${suffix}.`);
-      for (const issue of result.issues ?? []) console.error(`- ${issue}`);
-      if (result.archiveDir) console.error(`  Evidence: ${result.archiveDir}`);
-    }
-    if (!isSuccessfulHealStatus(result.status)) allGreen = false;
+  const rendered = renderHealResults(results);
+  for (const event of rendered.events) {
+    if (event.stream === 'stdout') console.log(event.line);
+    else console.error(event.line);
   }
-  process.exitCode = allGreen ? 0 : 1;
+  process.exitCode = rendered.exitCode;
 }
 
 const currentFile = fileURLToPath(import.meta.url);

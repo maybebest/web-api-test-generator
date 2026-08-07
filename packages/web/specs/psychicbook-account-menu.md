@@ -27,7 +27,7 @@ So that I can access the account-settings control in the authenticated top menu.
 
 - `PLAYWRIGHT_TEST_BASE_URL` identifies the reviewed non-production PsychicBook environment.
 - `E2E_HTTP_BASIC_USERNAME` and `E2E_HTTP_BASIC_PASSWORD` supply browser-level authentication challenge configuration at runtime when the environment requires it.
-- `PSYCHICBOOK_E2E_EMAIL` identifies a returning non-production user that can complete the email-verification journey without first-time onboarding.
+- `E2E_USER_EMAIL` identifies a returning non-production user that can complete the email-verification journey without first-time onboarding.
 - The deterministic verification code `1234` is accepted for that returning user.
 
 ## Out-of-scope
@@ -57,14 +57,14 @@ So that I can access the account-settings control in the authenticated top menu.
 
 | Rule ID | Rule | Formula | Blocking Behavior |
 |---|---|---|
-| RULE-001 | Authentication uses runtime-provided browser configuration and identity values with the deterministic verification code. | `PLAYWRIGHT_TEST_BASE_URL` + optional HTTP Basic credentials + `PSYCHICBOOK_E2E_EMAIL` + `1234` | Missing runtime configuration blocks the external flow. |
+| RULE-001 | Authentication uses runtime-provided browser configuration and identity values with the deterministic verification code. | `PLAYWRIGHT_TEST_BASE_URL` + optional HTTP Basic credentials + `E2E_USER_EMAIL` + `1234` | Missing runtime configuration blocks the external flow. |
 | RULE-002 | A returning user who completes email verification exposes the account-settings control in the authenticated top menu. | verified returning user => visible account-settings control | Absence of the control fails the final business assertion. |
 
 ## Data Cases
 
 | Case ID | Inputs | Expected Result | Notes |
 |---|---|---|---|
-| DC-001 | base URL, HTTP Basic credentials when required, `PSYCHICBOOK_E2E_EMAIL`, and verification code `1234` | The authenticated top menu exposes the account-settings control | Positive returning-user account-menu path |
+| DC-001 | base URL, HTTP Basic credentials when required, `E2E_USER_EMAIL`, and verification code `1234` | The authenticated top menu exposes the account-settings control | Positive returning-user account-menu path |
 
 ## Data Cases as JSON
 
@@ -76,7 +76,7 @@ So that I can access the account-settings control in the authenticated top menu.
       "baseUrlEnv": "PLAYWRIGHT_TEST_BASE_URL",
       "httpBasicUsernameEnv": "E2E_HTTP_BASIC_USERNAME",
       "httpBasicPasswordEnv": "E2E_HTTP_BASIC_PASSWORD",
-      "emailEnv": "PSYCHICBOOK_E2E_EMAIL",
+      "emailEnv": "E2E_USER_EMAIL",
       "verificationCode": "1234"
     },
     "expected": {
@@ -95,7 +95,7 @@ So that I can access the account-settings control in the authenticated top menu.
 | baseUrl | PLAYWRIGHT_TEST_BASE_URL | Non-production PsychicBook base URL |
 | httpBasicUsername | E2E_HTTP_BASIC_USERNAME | Runtime HTTP Basic username when required |
 | httpBasicPassword | E2E_HTTP_BASIC_PASSWORD | Runtime HTTP Basic password when required |
-| email | PSYCHICBOOK_E2E_EMAIL | Runtime returning-user identity |
+| email | E2E_USER_EMAIL | Runtime returning-user identity |
 | verificationCode | 1234 | Deterministic verification value |
 
 ## Mocks
@@ -116,7 +116,7 @@ So that I can access the account-settings control in the authenticated top menu.
 |---:|---|---|---|---|---|---|
 | 1 | AC-001 | Open the external landing page | `/` | PLAYWRIGHT_TEST_BASE_URL with framework browser challenge configuration | The PsychicBook landing page is reached | Start the journey without committing browser challenge values |
 | 2 | AC-002 | Activate Get Started | Get Started control | none | The email-entry screen opens | Use a semantic Get Started locator |
-| 3 | AC-002 | Enter the returning-user email | Email field | PSYCHICBOOK_E2E_EMAIL | The email field receives the runtime value | Use a semantic email-field locator |
+| 3 | AC-002 | Enter the returning-user email | Email field | E2E_USER_EMAIL | The email field receives the runtime value | Use a semantic email-field locator |
 | 4 | AC-002 | Continue from email entry | Continue control | none | The verification-code alternative is available | Use a semantic Continue locator |
 | 5 | AC-003 | Choose verification-code entry | Have a verification code instead control | none | The verification-code entry controls are available | Use a semantic alternative-entry locator |
 | 6 | AC-003 | Enter the verification code | Verification-code inputs | 1234 | The deterministic verification value is accepted for submission | Keep anonymous digit-input handling inside the Page Object if required |
@@ -132,7 +132,7 @@ So that I can access the account-settings control in the authenticated top menu.
 ## Acceptance Criteria
 
 - AC-001: The PsychicBook landing page opens through the environment-provided browser-level authentication challenge.
-- AC-002: Get Started opens email entry and Continue accepts `PSYCHICBOOK_E2E_EMAIL`.
+- AC-002: Get Started opens email entry and Continue accepts `E2E_USER_EMAIL`.
 - AC-003: The user switches to verification-code entry and submits `1234`.
 - AC-004: The authenticated top menu exposes a visible account-settings control.
 
@@ -149,7 +149,7 @@ So that I can access the account-settings control in the authenticated top menu.
 - Must generate only the one primary single-mode test for this request and must not generate an optional `NEG-001` test.
 - Must use a PsychicBook Page Object or Component Object for all locators and user actions.
 - Must declare the exact metadata tags through the Playwright `{ tag: [...] }` option.
-- Must read `PSYCHICBOOK_E2E_EMAIL` only at runtime; the framework consumes the base URL and browser challenge configuration, and the Page Object accepts the deterministic code string `1234`.
+- Must obtain the returning-user identity through `requireStandardUserEmail()`; the framework consumes the base URL and browser challenge configuration, and the Page Object accepts the deterministic code string `1234`.
 - Must not commit real credentials, an email address, or authentication state.
 - Must place `expect(...)` only in the final assertion step.
 - Must title that final step `Assert AC-004: account-settings control is visible` and assert only the visible account-settings top-menu control.

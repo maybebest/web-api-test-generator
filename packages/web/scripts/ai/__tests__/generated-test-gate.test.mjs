@@ -81,7 +81,6 @@ function exactExecutionReportFixture() {
     stats: { expected: 4, unexpected: 0, flaky: 0, skipped: 0 }
   };
 }
-
 test('JSON report verdict passes when the target file has passing tests only', () => {
   const verdict = verifyPlaywrightJsonReport(reportFixture(['expected', 'expected']), TARGET);
 
