@@ -16,7 +16,10 @@ const ENVIRONMENT_PATTERNS = [
 ];
 const LOCATOR_RULES = [
   ['LOCATOR_STRICT_MODE_VIOLATION', /strict mode violation/i],
-  ['LOCATOR_NOT_FOUND', /(?:locator|(?:getByRole|getByTestId|getByLabel|getByText)\().*(?:resolved to 0 elements|not found)/i],
+  [
+    'LOCATOR_NOT_FOUND',
+    /(?:\bLocator:\s*[^\r\n]+[\s\S]{0,1600}?\bError:\s*element\(s\) not found\b|(?:locator|(?:getByRole|getByTestId|getByLabel|getByText)\()[\s\S]{0,1600}?(?:resolved to 0 elements|not found))/i
+  ],
   ['LOCATOR_DETACHED', /element (?:is not attached|was detached)/i]
 ];
 const SYNC_RULES = [
@@ -31,9 +34,6 @@ export function triageRuntimeFailure({ evidence = [], stage } = {}) {
   if (stage === 'runtime-environment') {
     return verdict('environment', false, ['GATE_ENVIRONMENT_FAILURE'], evidenceFingerprint);
   }
-  if (PRODUCT_PATTERNS.some((pattern) => pattern.test(joined))) {
-    return verdict('product-or-contract', false, ['ASSERTION_OR_RESPONSE_MISMATCH'], evidenceFingerprint);
-  }
   if (ENVIRONMENT_PATTERNS.some((pattern) => pattern.test(joined))) {
     return verdict('environment', false, ['AUTH_NETWORK_OR_BROWSER_FAILURE'], evidenceFingerprint);
   }
@@ -42,6 +42,9 @@ export function triageRuntimeFailure({ evidence = [], stage } = {}) {
   }
   for (const [reason, pattern] of LOCATOR_RULES) {
     if (pattern.test(joined)) return verdict('locator-drift', true, [reason], evidenceFingerprint);
+  }
+  if (PRODUCT_PATTERNS.some((pattern) => pattern.test(joined))) {
+    return verdict('product-or-contract', false, ['ASSERTION_OR_RESPONSE_MISMATCH'], evidenceFingerprint);
   }
   for (const [reason, pattern] of SYNC_RULES) {
     if (pattern.test(joined)) return verdict('synchronization', true, [reason], evidenceFingerprint);

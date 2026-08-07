@@ -862,6 +862,45 @@ test('non-repairable failures never invoke the provider', async () => {
   assert.equal(evidence.triage.classification, 'product-or-contract');
 });
 
+test('multiline visibility locator-not-found evidence reaches the provider', async () => {
+  const { webRoot, target } = makeHealWorkspace();
+  const healedSource = CLEAN_SOURCE.replace(
+    "getByRole('button', { name: 'Save' })",
+    "getByTestId('save-button')"
+  );
+  const { run } = executionSequence([FAILED_EXECUTION, PASSED_EXECUTION]);
+  let providerCalls = 0;
+  const result = await healSingleTest({
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true' },
+    webRoot,
+    apply: false,
+    log: () => {},
+    resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+    reviewContract: () => ({ passed: true, issues: [] }),
+    typecheck: PASSING_TYPECHECK,
+    lint: PASSING_LINT,
+    targetDirty: () => false,
+    executeStandalone: run,
+    collectEvidence: () => [
+      `expect(locator).toBeVisible() failed
+
+Locator: getByRole('button', { name: 'Save' })
+Expected: visible
+Error: element(s) not found`
+    ],
+    heal: async () => {
+      providerCalls += 1;
+      return { code: healedSource };
+    }
+  });
+  assert.equal(result.status, 'proposal-ready');
+  assert.equal(providerCalls, 1);
+  const evidence = JSON.parse(fs.readFileSync(path.join(result.archiveDir, 'evidence.json'), 'utf8'));
+  assert.equal(evidence.triage.classification, 'locator-drift');
+  assert.deepEqual(evidence.evidence, ['LOCATOR_NOT_FOUND']);
+});
+
 test('empty failure evidence remains unclassified and never invokes the provider', async () => {
   const { webRoot, target } = makeHealWorkspace();
   let calls = 0;
