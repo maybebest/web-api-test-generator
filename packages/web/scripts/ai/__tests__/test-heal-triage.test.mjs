@@ -33,3 +33,29 @@ test('environment stages fail closed before textual triage', () => {
   assert.equal(verdict.classification, 'environment');
   assert.equal(verdict.repairable, false);
 });
+
+test('triage permits a multiline Playwright visibility locator-not-found failure', () => {
+  const verdict = triageRuntimeFailure({
+    stage: 'runtime-test',
+    evidence: [
+      `expect(locator).toBeVisible() failed
+
+Locator: getByRole('banner').getByRole('button', { name: 'T', exact: true })
+Expected: visible
+Error: element(s) not found`
+    ]
+  });
+  assert.equal(verdict.classification, 'locator-drift');
+  assert.equal(verdict.repairable, true);
+  assert.deepEqual(verdict.reasonCodes, ['LOCATOR_NOT_FOUND']);
+});
+
+test('triage keeps assertion-value mismatches non-repairable', () => {
+  const verdict = triageRuntimeFailure({
+    stage: 'runtime-test',
+    evidence: ['Expected string: "Saved"', 'Received string: "Save failed"']
+  });
+  assert.equal(verdict.classification, 'product-or-contract');
+  assert.equal(verdict.repairable, false);
+  assert.deepEqual(verdict.reasonCodes, ['ASSERTION_OR_RESPONSE_MISMATCH']);
+});
