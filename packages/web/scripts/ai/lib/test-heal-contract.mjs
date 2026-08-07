@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { isPendingGenerationSpec, validateSpecDirectory } from '../validate-flow-spec.mjs';
+import { canonicalContractTestPath } from './test-suite-root.mjs';
 
 const RECORDING_HEADER = /\/\*\s*recording:\s+([^\s]+)\s+title:(.*?)\s+sha256:([a-f0-9]{64})\s*\*\//i;
 const RECORDING_MARKER = /\/\*\s*recording\s*:/gi;
@@ -106,7 +107,8 @@ function parseStrictSpecMarker(source) {
 }
 
 export function resolveHealContract(options) {
-  const testPath = assertPortableRepoPath(options.testPath, 'Test path');
+  const actualTestPath = assertPortableRepoPath(options.testPath, 'Test path');
+  const contractTestPath = canonicalContractTestPath(actualTestPath);
   const source = String(options.source ?? '');
   const recordingMarkers = [...source.matchAll(RECORDING_MARKER)];
   const specMarker = parseStrictSpecMarker(source);
@@ -116,11 +118,11 @@ export function resolveHealContract(options) {
   }
   const recording = source.match(RECORDING_HEADER);
   if (recordingMarkers.length > 0 && !recording) throw new Error('Heal target declares a malformed recording header.');
-  const specBinding = resolveExplicitOrDiscoveredSpec({ ...options, testPath });
+  const specBinding = resolveExplicitOrDiscoveredSpec({ ...options, testPath: contractTestPath });
   if (recording && specBinding) throw new Error('Heal target declares both recording and spec contracts.');
   if (recording) {
     const recordingPath = assertPortableRepoPath(recording[1], 'Recording path');
-    return Object.freeze({ kind: 'recording', testPath, recordingPath });
+    return Object.freeze({ kind: 'recording', testPath: actualTestPath, recordingPath });
   }
   if (specMarker && !specBinding) {
     throw new Error(`Heal target spec header ${specMarker.specPath} has no validated spec binding.`);
@@ -133,9 +135,9 @@ export function resolveHealContract(options) {
       `Heal target spec header ${specMarker.specPath} does not match validated spec binding ${specBinding.specPath}.`
     );
   }
-  if (specBinding) return Object.freeze({ kind: 'spec', testPath, ...specBinding });
-  assertHandwrittenTargetAllowed(testPath, options.webRoot);
-  return Object.freeze({ kind: 'handwritten', testPath });
+  if (specBinding) return Object.freeze({ kind: 'spec', testPath: actualTestPath, ...specBinding });
+  assertHandwrittenTargetAllowed(contractTestPath, options.webRoot);
+  return Object.freeze({ kind: 'handwritten', testPath: actualTestPath });
 }
 
 export function reviewHealContract({ contract, candidatePath, generatedReviewer, recordedReviewer }) {
