@@ -629,6 +629,7 @@ test('healSingleTest keeps dev targets and owns their verification root', async 
     },
     webRoot,
     log: () => {},
+    discoverSpec: () => null,
     executeStandalone: (options) => {
       calls.push(options);
       return PASSED_EXECUTION;
