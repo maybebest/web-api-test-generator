@@ -35,6 +35,7 @@ import {
 import { buildGateEnvironment, knownSecretEnvValues } from './lib/gate-environment.mjs';
 import { resolveHealContract, reviewHealContract } from './lib/test-heal-contract.mjs';
 import { collectHealContext } from './lib/test-heal-context.mjs';
+import { verifyScopedRoleEvidence } from './lib/test-heal-scoped-role.mjs';
 import { triageRuntimeFailure } from './lib/test-heal-triage.mjs';
 import { containsSecretLikeValue, redactSecretMaterial } from './lib/secret-safety.mjs';
 import {
@@ -830,11 +831,15 @@ function preserveTerminalLineEnding(originalSource, candidateSource) {
   return `${candidateWithoutEnding}${originalEnding}`;
 }
 
-function rejectedAttemptAudit(attempt, outcome) {
+function rejectedAttemptAudit(attempt, outcome, reasonCodes = []) {
+  const boundedReasonCodes = reasonCodes.includes('UNVERIFIED_SCOPED_ROLE_LOCATOR')
+    ? ['UNVERIFIED_SCOPED_ROLE_LOCATOR']
+    : [];
   return `${JSON.stringify({
     schema: 'test-heal-rejected-attempt/v1',
     attempt,
-    outcome
+    outcome,
+    ...(boundedReasonCodes.length ? { reasonCodes: boundedReasonCodes } : {})
   }, null, 2)}\n`;
 }
 
@@ -1127,9 +1132,9 @@ export async function healSingleTest({
     secretValues
   });
   let notes = [];
-  const archiveRejectedAttempt = (attempt, outcome) => archive.write(
+  const archiveRejectedAttempt = (attempt, outcome, reasonCodes = []) => archive.write(
     `attempt-${attempt}.${outcome}.json`,
-    rejectedAttemptAudit(attempt, outcome)
+    rejectedAttemptAudit(attempt, outcome, reasonCodes)
   );
 
   // A crash must not leave an unreviewed candidate inside tests/ where normal
@@ -1201,10 +1206,28 @@ export async function healSingleTest({
       // The ORIGINAL source is the immutable baseline for every attempt, so a
       // later attempt cannot ratchet the rules by comparing against an earlier
       // (already accepted-for-iteration) candidate.
+      const locatorEvidence = verifyScopedRoleEvidence({
+        previousSource: originalSource,
+        healedSource: healed.code,
+        repositoryContext
+      });
+      checks.locatorEvidence = locatorEvidence.passed ? 'passed' : 'rejected';
+      if (!locatorEvidence.passed) {
+        archiveRejectedAttempt(attempt, 'rejected-locator-evidence', locatorEvidence.reasonCodes);
+        recordAttempt('locator-evidence-rejected');
+        log(`[heal] ${target}: attempt ${attempt} rejected by scoped locator evidence.`);
+        notes = sanitizedEvidenceList(locatorEvidence.reasonCodes, secretValues);
+        continue;
+      }
+
       const policy = verifyHealedSourcePolicy({ previousSource: originalSource, healedSource: healed.code });
-      policyIssueCodes = policy.passed
+      const semanticPolicyIssueCodes = policy.passed
         ? []
         : normalizeHealPolicyIssueCodes(policy.issueCodes, { requireAtLeastOne: true });
+      policyIssueCodes = normalizeHealPolicyIssueCodes([
+        ...locatorEvidence.warningCodes,
+        ...semanticPolicyIssueCodes
+      ]);
       checks.policy = policy.passed ? 'passed' : 'warning';
       if (!policy.passed) {
         log(`[heal] ${target}: attempt ${attempt} continues with policy warnings: ${policyIssueCodes.join(', ')}.`);

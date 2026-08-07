@@ -28,7 +28,12 @@ candidate proposal. Page Object or Component source is context-only, returns
 is also present. `--apply` promotes a fully verified target, clean unless `--allow-dirty` is
 explicit; integrity and concurrency checks always remain. A supplied `--dom-snapshot` must be a
 verified selector-discovery artifact below `.ai-runs/dom-discovery/`; only its bounded context is
-supplied to the healer.
+supplied to the healer. A newly introduced role-only scoped locator requires an exact
+live-audited `scopedRole` candidate from that evidence. The hard locator-evidence gate rejects an
+unaudited chain before candidate files or runtime. An audited unnamed target is warning-soft, as
+are ordinary semantic policy findings: a fully verified candidate may still be applied while the
+warning remains visible and produces the documented nonzero apply exit. The healer does not
+capture DOM evidence automatically.
 
 Only `locator-drift` and `synchronization` runtime failures are repairable. Product, auth,
 network, data, assertion-mismatch, and unclassified failures require human action and are

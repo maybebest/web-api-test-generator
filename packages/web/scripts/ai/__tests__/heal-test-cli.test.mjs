@@ -17,7 +17,7 @@ test('policy warnings remain metadata on accepted lifecycle statuses', () => {
     target: 'tests/warning-apply.spec.ts',
     attemptsUsed: 1,
     backupPath: '.ai-runs/heal/apply/original.ts',
-    policyIssueCodes: ['WAIT_FOR_TIMEOUT_INTRODUCED']
+    policyIssueCodes: ['SCOPED_ROLE_TARGET_UNNAMED']
   };
 
   const proposal = renderHealResults([warningProposal]);
@@ -29,9 +29,10 @@ test('policy warnings remain metadata on accepted lifecycle statuses', () => {
     '- Policy warnings: ASSERTION_COUNT_REDUCED'
   ]);
   assert.equal(applied.exitCode, 1);
+  assert.match(applied.events.map((event) => event.line).join('\n'), /SCOPED_ROLE_TARGET_UNNAMED/);
   assert.deepEqual(applied.events.map((event) => event.line), [
     'HEALED WITH POLICY WARNINGS tests/warning-apply.spec.ts after 1 attempt(s). Backup: .ai-runs/heal/apply/original.ts',
-    '- Policy warnings: WAIT_FOR_TIMEOUT_INTRODUCED'
+    '- Policy warnings: SCOPED_ROLE_TARGET_UNNAMED'
   ]);
 });
 
