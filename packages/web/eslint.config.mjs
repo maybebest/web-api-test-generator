@@ -40,7 +40,7 @@ export default tseslint.config(
   },
   {
     ...playwright.configs['flat/recommended'],
-    files: ['tests/**/*.ts'],
+    files: ['tests/**/*.ts', 'tests-dev/**/*.ts'],
     settings: {
       playwright: {
         assertFunctionNames: ['assertCaseOutcome']
