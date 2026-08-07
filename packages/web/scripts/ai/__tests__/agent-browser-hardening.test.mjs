@@ -16,10 +16,12 @@ import {
   auditLocatorCandidatesOnPage,
   locatorAuditTimeoutMs
 } from '../lib/playwright-locator-audit.mjs';
+import { createScopedRoleCandidate } from '../lib/scoped-role-locator.mjs';
 import { annotateSnapshotCandidateMatchCounts, createDiscoveryElement } from '../lib/selector-policy.mjs';
 import {
   findLatestDomDiscoveryArtifactForReview,
-  reviewDomDiscoveryArtifact
+  reviewDomDiscoveryArtifact,
+  reviewDomDiscoveryArtifactObject
 } from '../review-dom-discovery.mjs';
 
 test('configured discovery auth state is a regular file and --state precedes the open command', async (t) => {
@@ -168,6 +170,35 @@ test('live Playwright locator audit rebuilds typed candidates and records real c
   assert.equal(locatorAuditTimeoutMs(500_000, {}), 120_000);
 });
 
+test('scoped role live audit and reviewer require one exact match', async () => {
+  const base = createScopedRoleCandidate({ scopeRole: 'banner', targetRole: 'button' });
+  const snapshot = [{
+    elementId: 'el-account', role: 'button', accessibleName: null, label: null,
+    placeholder: null, text: null, href: null, testId: null, attributes: {},
+    snapshotOccurrences: 1,
+    candidateLocators: [{
+      ...base, preferred: true, matchCount: 1, unique: true,
+      matchEvidence: 'accessibility-snapshot'
+    }]
+  }];
+  const live = await auditLocatorCandidatesOnPage(scopedFakePage(1), snapshot);
+  assert.equal(live[0].candidateLocators[0].snapshotMatchCount, 1);
+  assert.equal(live[0].candidateLocators[0].matchCount, 1);
+  assert.equal(live[0].candidateLocators[0].matchEvidence, 'playwright-live');
+
+  for (const [count, expectedPassed] of [[0, false], [1, true], [2, false]]) {
+    const audited = await auditLocatorCandidatesOnPage(scopedFakePage(count), snapshot);
+    const reviewed = reviewDomDiscoveryArtifactObject(scopedArtifact(audited));
+    assert.equal(reviewed.passed, expectedPassed, reviewed.issues.join('\n'));
+  }
+
+  const mismatchedLocator = structuredClone(live);
+  mismatchedLocator[0].candidateLocators[0].locator += '.first()';
+  const rejected = reviewDomDiscoveryArtifactObject(scopedArtifact(mismatchedLocator));
+  assert.equal(rejected.passed, false);
+  assert.match(rejected.issues.join('\n'), /not a canonical scoped-role candidate/);
+});
+
 test('DOM discovery review fails a live non-unique preferred locator and accepts unique evidence', async () => {
   const temporaryRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'dom-discovery-uniqueness-'));
   const artifactPath = path.join(temporaryRoot, 'selector-candidates.json');
@@ -256,5 +287,27 @@ function fakePage(counts, calls = []) {
     getByLabel: (value) => locator(`label:${value}`),
     getByPlaceholder: (value) => locator(`placeholder:${value}`),
     getByText: (value) => locator(`text:${value}`)
+  };
+}
+
+function scopedFakePage(count) {
+  return {
+    getByRole: () => ({
+      getByRole: () => ({ count: async () => count })
+    })
+  };
+}
+
+function scopedArtifact(elements) {
+  return {
+    specPath: 'specs/_template.md',
+    source: 'agent-browser',
+    selectorOwnership: 'framework',
+    locatorAudit: {
+      method: 'playwright-locator-count',
+      snapshotDiagnostics: 'accessibility-snapshot-candidate-equivalence',
+      requiredMatchCount: 1
+    },
+    elements
   };
 }

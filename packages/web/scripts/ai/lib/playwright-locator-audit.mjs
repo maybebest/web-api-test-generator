@@ -3,6 +3,8 @@ import path from 'node:path';
 
 import { chromium } from '@playwright/test';
 
+import { scopedRoleLocatorForPage } from './scoped-role-locator.mjs';
+
 const DEFAULT_AUDIT_TIMEOUT_MS = 45_000;
 const MAX_AUDIT_TIMEOUT_MS = 120_000;
 const MAX_AUDITED_CANDIDATES = 500;
@@ -113,6 +115,8 @@ export async function auditLocatorCandidatesOnPage(page, elements) {
 
 export function locatorForCandidate(page, element, candidate) {
   switch (candidate.type) {
+    case 'scopedRole':
+      return scopedRoleLocatorForPage(page, candidate);
     case 'testId':
       return page.getByTestId(requiredCandidateValue(element.testId, candidate.type));
     case 'role':

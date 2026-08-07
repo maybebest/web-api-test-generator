@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 import { specSha256 } from './lib/spec-parser.mjs';
 import { hasForbiddenAgentRef, hasForbiddenLocatorPattern } from './lib/selector-policy.mjs';
+import { normalizeScopedRoleCandidate } from './lib/scoped-role-locator.mjs';
 import { readBoundedDirectoryEntries, readVerifiedFile, verifiedDirectory } from './lib/verified-file-read.mjs';
 
 const MAX_DOM_ARTIFACT_BYTES = 4 * 1024 * 1024;
@@ -119,6 +120,23 @@ export function reviewDomDiscoveryArtifactObject(artifact, {
         }
         if (hasForbiddenLocatorPattern(locator)) {
           issues.push(`${context} candidate contains a forbidden locator pattern: ${locator}`);
+        }
+        if (candidate.type === 'scopedRole') {
+          try {
+            normalizeScopedRoleCandidate(candidate);
+          } catch (error) {
+            issues.push(`${candidateContext} is not a canonical scoped-role candidate: ${error.message}`);
+            continue;
+          }
+          if (candidate.matchEvidence !== 'playwright-live') {
+            issues.push(`${candidateContext} must declare matchEvidence: "playwright-live".`);
+          }
+          if (candidate.snapshotMatchCount !== 1) {
+            issues.push(`${candidateContext} scoped-role candidate must have snapshotMatchCount=1.`);
+          }
+          if (candidate.matchCount !== 1) {
+            issues.push(`${candidateContext} scoped-role candidate must have matchCount=1.`);
+          }
         }
         if (!Number.isInteger(candidate.matchCount) || candidate.matchCount < 0) {
           issues.push(`${candidateContext} is missing a valid snapshot matchCount.`);
