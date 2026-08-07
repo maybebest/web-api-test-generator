@@ -1,12 +1,15 @@
 import { defineConfig, devices } from '@playwright/test';
 import dotenv from 'dotenv';
 import { validateAuthenticatedTarget } from './scripts/ai/lib/authenticated-target.mjs';
+import { resolveConfiguredTestDir } from './scripts/ai/lib/test-suite-root.mjs';
 
 export { validateAuthenticatedTarget } from './scripts/ai/lib/authenticated-target.mjs';
 
 if (process.env.AI_GATE_SANITIZED_ENV !== 'true') {
   dotenv.config({ quiet: true });
 }
+
+const configuredTestDir = resolveConfiguredTestDir(process.env);
 
 export const AUTHENTICATED_ARTIFACT_POLICY = {
   trace: 'off',
@@ -55,10 +58,11 @@ const allureEnabled = process.env.ALLURE_ENABLED !== 'false';
 // project ignores them so they can never run unauthenticated (or silently
 // match zero tests in chromium-auth).
 const authenticatedSpecPattern = /.*\.authenticated\.spec\.ts/;
-const localFixtureSpecPattern = /tests[\\/](?:smoke|accessibility|visual|recorded)[\\/]/;
+const localFixtureSpecPattern =
+  /(?:tests|tests-dev)[\\/](?:smoke|accessibility|visual|recorded)[\\/]/;
 
 export default defineConfig({
-  testDir: './tests',
+  testDir: configuredTestDir,
   fullyParallel: true,
   forbidOnly: isCI,
   retries: 0,
