@@ -588,6 +588,35 @@ test('realistic traceability sha256 headers are not mistaken for secret material
   assert.equal(executionCalls, 1);
 });
 
+test('a healed candidate may preserve a realistic traceability sha256 header', async () => {
+  const { webRoot, target, targetPath } = makeHealWorkspace();
+  const traceabilityHash = '1eb2468715d547fd92573232b3f1f0872fc1fef7767bdfbacce43ebb7e4b08ff';
+  const originalSource = `/* spec: specs/flow.md version:1.0.0 sha256:${traceabilityHash} */\n${CLEAN_SOURCE}`;
+  const healedSource = originalSource.replace(
+    "getByRole('button', { name: 'Save' })",
+    "getByTestId('save-button')"
+  );
+  fs.writeFileSync(targetPath, originalSource);
+  const { run } = executionSequence([FAILED_EXECUTION, PASSED_EXECUTION]);
+
+  const result = await healSingleTest({
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true' },
+    webRoot,
+    log: () => {},
+    resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+    reviewContract: () => ({ passed: true, issues: [] }),
+    typecheck: PASSING_TYPECHECK,
+    lint: PASSING_LINT,
+    executeStandalone: run,
+    collectEvidence: () => ['locator.click: Timeout 30000ms exceeded while waiting for getByRole("button")'],
+    heal: async () => ({ code: healedSource })
+  });
+
+  assert.equal(result.status, 'proposal-ready');
+  assert.equal(fs.readFileSync(targetPath, 'utf8'), originalSource);
+});
+
 test('ordinary high-entropy-looking TypeScript syntax is not treated as secret material', async () => {
   const { webRoot, target, targetPath } = makeHealWorkspace();
   const syntaxHeavySource = CLEAN_SOURCE.replace(
@@ -888,6 +917,35 @@ test('verified healing is proposal-only by default', async () => {
   }
 });
 
+test('verified proposal preserves the target final newline', async () => {
+  const { webRoot, target } = makeHealWorkspace();
+  const healedSourceWithoutFinalNewline = CLEAN_SOURCE.replace(
+    "getByRole('button', { name: 'Save' })",
+    "getByTestId('save-button')"
+  ).trimEnd();
+  const { run } = executionSequence([FAILED_EXECUTION, PASSED_EXECUTION]);
+
+  const result = await healSingleTest({
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true' },
+    webRoot,
+    log: () => {},
+    resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+    reviewContract: () => ({ passed: true, issues: [] }),
+    typecheck: PASSING_TYPECHECK,
+    lint: PASSING_LINT,
+    executeStandalone: run,
+    collectEvidence: () => ['locator.click: Timeout 30000ms exceeded while waiting for getByRole("button")'],
+    heal: async () => ({ code: healedSourceWithoutFinalNewline })
+  });
+
+  assert.equal(result.status, 'proposal-ready');
+  const candidate = fs.readFileSync(path.join(result.archiveDir, 'candidate.ts'), 'utf8');
+  const diff = fs.readFileSync(path.join(result.archiveDir, 'candidate.diff'), 'utf8');
+  assert.equal(candidate.endsWith('\n'), true);
+  assert.doesNotMatch(diff, /No newline at end of file/);
+});
+
 test('known low-entropy secrets in candidate source are never archived or sent to a later provider call', async () => {
   const { webRoot, target, targetPath } = makeHealWorkspace();
   const secretCandidate = `${CLEAN_SOURCE}\n// temporary credential: pin7\n`;
@@ -947,7 +1005,7 @@ test('malformed candidate with a contiguous-prefix Base64 secret retains no reje
     assert.equal(fs.readFileSync(path.join(result.archiveDir, fileName), 'utf8').includes(shapedSecret), false);
     assert.equal(fs.readFileSync(path.join(result.archiveDir, fileName), 'utf8').includes(secretBearingToken), false);
   }
-  assert.equal(result.status, 'exhausted');
+  assert.equal(result.status, 'brain-error');
   assert.equal(calls.length, 1);
   assert.equal(fs.readFileSync(targetPath, 'utf8'), CLEAN_SOURCE);
   assert.equal(JSON.stringify(result).includes(shapedSecret), false);
@@ -971,7 +1029,7 @@ test('malformed candidate with a generic secret-like regex retains no rejected s
     executeStandalone: run,
     heal: async () => ({ code: malformedCandidate })
   });
-  assert.equal(result.status, 'exhausted');
+  assert.equal(result.status, 'brain-error');
   assert.equal(fs.readFileSync(targetPath, 'utf8'), CLEAN_SOURCE);
   for (const fileName of fs.readdirSync(result.archiveDir)) {
     assert.equal(/^attempt-.*\.ts$/.test(fileName), false);
@@ -1011,7 +1069,7 @@ test('malformed candidate URLs are rejected without retaining candidate source',
       executeStandalone: run,
       heal: async () => ({ code: malformedCandidate })
     });
-    assert.equal(result.status, 'exhausted');
+    assert.equal(result.status, 'brain-error');
     for (const fileName of fs.readdirSync(result.archiveDir)) {
       const auditContents = fs.readFileSync(path.join(result.archiveDir, fileName), 'utf8');
       assert.equal(/^attempt-.*\.ts$/.test(fileName), false);
@@ -1392,7 +1450,8 @@ test('contiguous-prefix Base64 diagnostics never cross public audit or provider 
   const secretBearingDiagnostic = `locator.click: Timeout 30000ms exceeded for ${'a'.repeat(64)}${shapedSecret}`;
   const { run } = executionSequence([
     FAILED_EXECUTION,
-    { ...FAILED_EXECUTION, issues: [secretBearingDiagnostic] }
+    { ...FAILED_EXECUTION, issues: [secretBearingDiagnostic] },
+    FAILED_EXECUTION
   ]);
   const providerInputs = [];
   const result = await healSingleTest({
@@ -1476,12 +1535,17 @@ test('CLI help and exit-status policy distinguish proposals from failures', asyn
 });
 
 test('CLI help documents the safe healing contract', () => {
+  const help = helpText();
   for (const required of [
     '--apply', '--allow-dirty', '--dom-snapshot', 'proposal-ready',
     'locator-drift', 'synchronization', 'recorded reviewer',
     'all verification lanes', '--workers=1', 'exact consecutive repetitions',
     'already-green', 'manual-change-required', 'context-only'
-  ]) assert.match(helpText(), new RegExp(required.replaceAll('-', '\\-'), 'i'));
+  ]) assert.match(help, new RegExp(required.replaceAll('-', '\\-'), 'i'));
+  assert.match(help, /An applied result with policy warnings exits non-zero\./i);
+  assert.doesNotMatch(help, /rejects candidates that violate\s+the AST-level anti-masking policy/i);
+  assert.match(help, /AST-level anti-masking policy violations are recorded as warnings/i);
+  assert.match(help, /typecheck, lint, contract review, and runtime verification remain hard gates/i);
 });
 
 test('healSingleTest heals on a later attempt, promotes atomically, and archives evidence', async () => {
@@ -1545,29 +1609,160 @@ test('healSingleTest heals on a later attempt, promotes atomically, and archives
   assert.equal(summary.attemptsUsed, 2);
 });
 
-test('healSingleTest consumes attempts on policy-rejected candidates and leaves the original untouched', async () => {
+test('healSingleTest verifies and archives a proposal after a policy warning', async () => {
   const { webRoot, target, targetPath } = makeHealWorkspace();
-  const { run } = executionSequence([FAILED_EXECUTION]);
-  const skipSource = CLEAN_SOURCE.replace("test('flow works'", "test.skip('flow works'");
-  const notesSeen = [];
+  const warningSource = CLEAN_SOURCE.replace(
+    "  await expect(page.getByTestId('status')).toHaveText('Saved');\n",
+    ''
+  );
+  const { run, calls } = executionSequence([FAILED_EXECUTION, PASSED_EXECUTION]);
   const result = await healSingleTest({
     testPath: target,
     env: { AI_AUTOHEAL_ENABLED: 'true' },
     webRoot,
-    maxAttempts: 2,
+    maxAttempts: 1,
     log: () => {},
-    discoverSpec: () => null,
+    resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+    reviewContract: () => ({ passed: true, issues: [] }),
     typecheck: PASSING_TYPECHECK,
+    lint: PASSING_LINT,
     executeStandalone: run,
-    heal: async (input) => {
-      notesSeen.push(input.notes);
-      return { code: skipSource };
-    }
+    heal: async () => ({ code: warningSource })
   });
-  assert.equal(result.status, 'exhausted');
-  assert.equal(result.attemptsUsed, 2);
+  assert.equal(result.status, 'proposal-ready');
+  assert.equal(result.attemptsUsed, 1);
+  assert.deepEqual(result.policyIssueCodes, [
+    'ASSERTION_ARGUMENT_CHANGED',
+    'EXECUTABLE_SEMANTICS_CHANGED',
+    'ASSERTION_COUNT_REDUCED',
+    'ASSERTION_MATCHER_REDUCED'
+  ]);
+  assert.equal(calls.length, 2);
   assert.equal(fs.readFileSync(targetPath, 'utf8'), CLEAN_SOURCE);
-  assert.match(notesSeen[1].join(' '), /test\.skip/);
+  assert.equal(fs.readFileSync(result.candidatePath, 'utf8'), warningSource);
+  assert.equal(fs.existsSync(result.diffPath), true);
+
+  const summary = fs.readFileSync(path.join(result.archiveDir, 'heal-summary.json'), 'utf8');
+  const rawPolicy = verifyHealedSourcePolicy({
+    previousSource: CLEAN_SOURCE,
+    healedSource: warningSource
+  });
+  assert.equal(rawPolicy.passed, false);
+  assert.ok(rawPolicy.issues.length > 0);
+  assert.deepEqual(JSON.parse(summary).attemptTrail[0].policyIssueCodes, result.policyIssueCodes);
+  assert.deepEqual(result.attemptTrail[0], {
+    attempt: 1,
+    outcome: 'proposal-ready',
+    checks: {
+      policy: 'warning',
+      typecheck: 'passed',
+      lint: 'passed',
+      review: 'passed',
+      runtime: 'passed',
+      candidateIntegrity: 'passed',
+      diff: 'passed'
+    },
+    policyIssueCodes: result.policyIssueCodes
+  });
+  assert.equal(fs.existsSync(path.join(result.archiveDir, 'attempt-1.policy-warning.json')), false);
+  for (const rawIssue of rawPolicy.issues) {
+    assert.equal(summary.includes(rawIssue), false);
+  }
+  assert.doesNotMatch(summary, /must not|flow works|expect\(|getByTestId/);
+});
+
+test('healSingleTest applies a verified candidate with policy warnings', async () => {
+  const { webRoot, target, targetPath } = makeHealWorkspace();
+  const warningSource = CLEAN_SOURCE.replace(
+    "  await expect(page.getByTestId('status')).toHaveText('Saved');\n",
+    ''
+  );
+  const { run, calls } = executionSequence([FAILED_EXECUTION, PASSED_EXECUTION]);
+  const result = await healSingleTest({
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true' },
+    webRoot,
+    maxAttempts: 1,
+    apply: true,
+    log: () => {},
+    resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+    reviewContract: () => ({ passed: true, issues: [] }),
+    typecheck: PASSING_TYPECHECK,
+    lint: PASSING_LINT,
+    targetDirty: () => false,
+    executeStandalone: run,
+    heal: async () => ({ code: warningSource })
+  });
+
+  assert.equal(result.status, 'healed');
+  assert.equal(calls.length, 2);
+  assert.equal(fs.readFileSync(targetPath, 'utf8'), warningSource);
+  assert.equal(fs.readFileSync(result.backupPath, 'utf8'), CLEAN_SOURCE);
+  assert.equal(fs.readFileSync(result.candidatePath, 'utf8'), warningSource);
+  assert.equal(fs.existsSync(result.diffPath), true);
+  assert.ok(result.policyIssueCodes.includes('ASSERTION_COUNT_REDUCED'));
+  assert.equal(result.attemptTrail[0].outcome, 'healed');
+  assert.equal(result.attemptTrail[0].checks.policy, 'warning');
+});
+
+test('policy warnings never bypass later hard gates', async () => {
+  const warningSource = CLEAN_SOURCE.replace(
+    "  await expect(page.getByTestId('status')).toHaveText('Saved');\n",
+    ''
+  );
+  const cases = [
+    {
+      label: 'typecheck',
+      executions: [FAILED_EXECUTION],
+      expectedOutcome: 'typecheck-rejected',
+      overrides: { typecheck: () => ({ passed: false, issues: ['typecheck rejected'] }) }
+    },
+    {
+      label: 'lint',
+      executions: [FAILED_EXECUTION],
+      expectedOutcome: 'lint-rejected',
+      overrides: { lint: () => ({ passed: false, issues: ['lint rejected'] }) }
+    },
+    {
+      label: 'review',
+      executions: [FAILED_EXECUTION],
+      expectedOutcome: 'static-review-rejected',
+      overrides: { reviewContract: () => ({ passed: false, issues: ['review rejected'] }) }
+    },
+    {
+      label: 'runtime',
+      executions: [FAILED_EXECUTION, FAILED_EXECUTION],
+      expectedOutcome: 'still-failing',
+      overrides: {}
+    }
+  ];
+
+  for (const gateCase of cases) {
+    const { webRoot, target, targetPath } = makeHealWorkspace();
+    const { run } = executionSequence(gateCase.executions);
+    const result = await healSingleTest({
+      testPath: target,
+      env: { AI_AUTOHEAL_ENABLED: 'true' },
+      webRoot,
+      maxAttempts: 1,
+      log: () => {},
+      resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+      reviewContract: () => ({ passed: true, issues: [] }),
+      typecheck: PASSING_TYPECHECK,
+      lint: PASSING_LINT,
+      executeStandalone: run,
+      heal: async () => ({ code: warningSource }),
+      ...gateCase.overrides
+    });
+
+    assert.equal(result.status, 'exhausted', gateCase.label);
+    assert.equal(fs.readFileSync(targetPath, 'utf8'), CLEAN_SOURCE, gateCase.label);
+    assert.equal(fs.existsSync(path.join(result.archiveDir, 'candidate.ts')), false, gateCase.label);
+    assert.equal(fs.existsSync(path.join(result.archiveDir, 'candidate.diff')), false, gateCase.label);
+    assert.equal(result.attemptTrail[0].outcome, gateCase.expectedOutcome, gateCase.label);
+    assert.equal(result.attemptTrail[0].checks.policy, 'warning', gateCase.label);
+    assert.ok(result.attemptTrail[0].policyIssueCodes.includes('ASSERTION_COUNT_REDUCED'), gateCase.label);
+  }
 });
 
 test('healSingleTest preserves a concurrent manual edit instead of overwriting it', async () => {
@@ -1847,12 +2042,13 @@ test('standalone verification revalidates run-root identity after creating its c
   assert.equal(commandCalls, 0, 'browser command must not run after the run root is replaced');
 });
 
-test('healSingleTest runs spec-bound static review before spending a verification run', async () => {
+test('healSingleTest uses one baseline run and reserves repeated verification for the candidate', async () => {
   const { webRoot, target, targetPath } = makeHealWorkspace();
   fs.writeFileSync(targetPath, SPEC_SOURCE);
   const healedSource = SPEC_SOURCE.replace("getByRole('button', { name: 'Save' })", "getByTestId('save-button')");
   const { run, calls } = executionSequence([FAILED_EXECUTION, PASSED_EXECUTION]);
   const reviews = [];
+  const repeatCounts = [];
   const result = await healSingleTest({
     testPath: target,
     env: { AI_AUTOHEAL_ENABLED: 'true' },
@@ -1865,8 +2061,9 @@ test('healSingleTest runs spec-bound static review before spending a verificatio
     lint: PASSING_LINT,
     executePair: (pair, options) => {
       assert.equal(pair.specPath, 'specs/flow.md');
-      assert.equal(options.repeatEach, 2);
+      repeatCounts.push(options.repeatEach);
       assert.equal(options.workers, 1);
+      assert.equal(options.purpose, repeatCounts.length === 1 ? 'diagnostic' : 'healer-candidate');
       return run(pair);
     },
     reviewer: (input) => {
@@ -1880,6 +2077,7 @@ test('healSingleTest runs spec-bound static review before spending a verificatio
   assert.equal(reviews.length, 1);
   assert.match(reviews[0].testPath, /\.candidate\.spec\.ts$/);
   assert.equal(calls.length, 2);
+  assert.deepEqual(repeatCounts, [1, 2]);
 });
 
 test('healSingleTest routes recorded candidates through the recorded reviewer before runtime verification', async () => {
@@ -1919,7 +2117,7 @@ test('healSingleTest routes recorded candidates through the recorded reviewer be
   assert.equal(calls.length, 2);
 });
 
-test('healSingleTest rejects a removed recorded header before candidate runtime verification', async () => {
+test('policy warnings do not bypass lint for a removed recorded header', async () => {
   const webRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'heal-recorded-header-'));
   const testDir = path.join(webRoot, 'tests', 'recorded');
   fs.mkdirSync(testDir, { recursive: true });
@@ -1942,7 +2140,8 @@ test('healSingleTest rejects a removed recorded header before candidate runtime 
   });
 
   assert.equal(result.status, 'exhausted');
-  assert.deepEqual(result.attemptTrail.map((entry) => entry.outcome), ['policy-rejected']);
+  assert.deepEqual(result.attemptTrail.map((entry) => entry.outcome), ['lint-rejected']);
+  assert.equal(result.attemptTrail[0].checks.policy, 'warning');
   assert.equal(calls.length, 1);
   assert.equal(fs.readFileSync(targetPath, 'utf8'), recordedSource);
 });
@@ -2103,7 +2302,7 @@ test('healSingleTest ratchets policy against the ORIGINAL source across attempts
     "await expect(page.getByTestId('status')).toHaveText('Saved');",
     "await expect(page.getByRole('listitem').first()).toHaveText('Saved');"
   );
-  const { run } = executionSequence([FAILED_EXECUTION, FAILED_EXECUTION]);
+  const { run } = executionSequence([FAILED_EXECUTION, FAILED_EXECUTION, FAILED_EXECUTION]);
   const result = await healSingleTest({
     testPath: target,
     env: { AI_AUTOHEAL_ENABLED: 'true' },
@@ -2119,8 +2318,9 @@ test('healSingleTest ratchets policy against the ORIGINAL source across attempts
   assert.equal(result.status, 'exhausted');
   assert.deepEqual(
     result.attemptTrail.map((entry) => entry.outcome),
-    ['still-failing', 'policy-rejected']
+    ['still-failing', 'still-failing']
   );
+  assert.ok(result.attemptTrail[1].policyIssueCodes.includes('POSITIONAL_LOCATOR_EXCEPTION_MISSING'));
 });
 
 test('healSingleTest sweeps stale crash-orphaned candidates before running', async () => {

@@ -357,9 +357,16 @@ export function buildPlaywrightStage({
   htmlReportDir,
   testResultsDir,
   repeatEach = FULL_GATE_REPEAT_EACH,
-  workers
+  workers,
+  purpose = 'gate'
 }) {
-  if (!GENERATED_GATE_REPEAT_VALUES.has(repeatEach)) {
+  if (!['gate', 'diagnostic', 'healer-candidate'].includes(purpose)) {
+    throw new Error('Playwright execution purpose must be gate, diagnostic, or healer-candidate.');
+  }
+  if (purpose === 'diagnostic' && repeatEach !== 1) {
+    throw new Error('Diagnostic Playwright execution requires repeat-each=1.');
+  }
+  if (purpose !== 'diagnostic' && !GENERATED_GATE_REPEAT_VALUES.has(repeatEach)) {
     throw new Error(
       `repeat-each must be ${PROMOTION_GATE_REPEAT_EACH} (promotion) or ${FULL_GATE_REPEAT_EACH} (full).`
     );
@@ -377,7 +384,9 @@ export function buildPlaywrightStage({
     `--repeat-each=${repeatEach}`
   ];
   if (workers !== undefined) playwrightArgs.push(`--workers=${workers}`);
-  if (normalizedTestPaths.length === 1) playwrightArgs.push('--max-failures=1');
+  if (normalizedTestPaths.length === 1 && purpose === 'gate') {
+    playwrightArgs.push('--max-failures=1');
+  }
   if (testResultsDir) {
     playwrightArgs.push(`--output=${path.resolve(testResultsDir)}`);
   }

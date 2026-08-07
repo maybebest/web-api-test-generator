@@ -13,3 +13,4 @@
 # Staged synthetic values exercise secret rejection and context redaction.
 packages/ui/tests/server.test.mjs:generic-api-key:740
 packages/web/scripts/ai/__tests__/generation-context-pack.test.mjs:aws-access-token:343
+packages/web/scripts/ai/__tests__/test-heal-policy.test.mjs:stripe-access-token:48
