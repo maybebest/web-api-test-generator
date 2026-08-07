@@ -276,8 +276,8 @@ function projectSelectorDiscoveryArtifact(artifactValue, secretValues) {
       }
       if (!Number.isInteger(candidate.matchCount) || candidate.matchCount < 0
         || candidate.unique !== (candidate.matchCount === 1)
-        || !Number.isInteger(candidate.snapshotMatchCount) || candidate.snapshotMatchCount < 0
-        || candidate.snapshotUnique !== (candidate.snapshotMatchCount === 1)
+        || !Number.isInteger(candidate.snapshotMatchCount) || candidate.snapshotMatchCount !== 1
+        || candidate.snapshotUnique !== true
         || candidate.matchEvidence !== 'playwright-live') {
         throw new Error(`${candidateLabel} is missing consistent live and snapshot uniqueness evidence.`);
       }
