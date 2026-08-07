@@ -980,13 +980,17 @@ export async function healSingleTest({
   // Canonicalize to a repo-relative POSIX target first: spec discovery compares
   // against repo-relative metadata and project inference anchors on tests/, so
   // an absolute --test path must not silently change behavior.
-  const absoluteTarget = path.resolve(webRoot, String(testPath ?? ''));
+  const requestedTarget = String(testPath ?? '');
+  const requestedTestSuiteRoot = path.isAbsolute(requestedTarget)
+    ? undefined
+    : testSuiteRootForPath(requestedTarget);
+  const absoluteTarget = path.resolve(webRoot, requestedTarget);
   const relativeTarget = normalizePortablePath(path.relative(webRoot, absoluteTarget));
   if (!relativeTarget || relativeTarget.startsWith('..')) {
     throw new Error(`Heal target must live inside ${webRoot}: ${testPath}`);
   }
   const target = normalizePlaywrightTarget(relativeTarget);
-  const testSuiteRoot = testSuiteRootForPath(target);
+  const testSuiteRoot = requestedTestSuiteRoot ?? testSuiteRootForPath(target);
   assertHealableTarget(absoluteTarget, webRoot, testSuiteRoot);
   const verificationEnv = withTestSuiteRoot(env, target);
   sweepStaleHealCandidates(absoluteTarget, log);
