@@ -13,12 +13,21 @@ function staticString(node) {
     : undefined;
 }
 
+function unwrapCallee(node) {
+  while (ts.isParenthesizedExpression(node) || ts.isAsExpression(node)
+    || ts.isTypeAssertionExpression(node) || ts.isNonNullExpression(node)
+    || ts.isSatisfiesExpression(node)) node = node.expression;
+  return node;
+}
+
 function roleCall(node) {
   if (!ts.isCallExpression(node)) return undefined;
-  const access = node.expression;
+  const expression = node.expression;
+  const access = unwrapCallee(expression);
   let receiver;
   if (ts.isPropertyAccessExpression(access) && access.name.text === 'getByRole') {
     receiver = access.expression;
+    if (access !== expression) return { invalid: true, receiver, strict: true };
   } else if (ts.isElementAccessExpression(access)) {
     const key = staticString(access.argumentExpression);
     if (key !== undefined && key !== 'getByRole') return undefined;
