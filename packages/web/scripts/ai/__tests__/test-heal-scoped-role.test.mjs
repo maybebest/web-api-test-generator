@@ -54,6 +54,48 @@ test('a direct page role-only locator does not require scoped evidence', () => {
 
 for (const { label, healedSource } of [
   {
+    label: 'a parenthesized property callee',
+    healedSource: `const control = (frame.getByRole)('button');`
+  },
+  {
+    label: 'an as-asserted property callee',
+    healedSource: `const control = (frame.getByRole as typeof frame.getByRole)('button');`
+  },
+  {
+    label: 'a type-asserted property callee',
+    healedSource: `const control = (<typeof frame.getByRole>frame.getByRole)('button');`
+  },
+  {
+    label: 'a non-null property callee',
+    healedSource: `const control = (frame.getByRole!)('button');`
+  },
+  {
+    label: 'a satisfies-wrapped property callee',
+    healedSource: `const control = (frame.getByRole satisfies typeof frame.getByRole)('button');`
+  },
+  {
+    label: 'a wrapped exact-page property callee',
+    healedSource: `const control = (page.getByRole)('button');`
+  },
+  {
+    label: 'a wrapped literal computed getByRole callee',
+    healedSource: `const control = (roleLocator['getByRole'])('link');`
+  },
+  {
+    label: 'a wrapped dynamic computed callee',
+    healedSource: `const control = (roleLocator[key])('link');`
+  }
+]) {
+  test(`new scoped locator rejects ${label}`, () => {
+    assert.deepEqual(
+      verifyScopedRoleEvidence({ previousSource: baseline, healedSource }),
+      { passed: false, reasonCodes: ['UNVERIFIED_SCOPED_ROLE_LOCATOR'], warningCodes: [] }
+    );
+  });
+}
+
+for (const { label, healedSource } of [
+  {
     label: 'a frame root',
     healedSource: `const control = frame.getByRole('banner').getByRole('button');`
   },
@@ -182,6 +224,26 @@ test('a static computed non-getByRole method is not a scoped-role call', () => {
   assert.deepEqual(
     verifyScopedRoleEvidence({ previousSource: baseline, healedSource }),
     { passed: true, reasonCodes: [], warningCodes: [] }
+  );
+});
+
+test('a wrapped static computed non-getByRole method is not a scoped-role call', () => {
+  const healedSource = `const roleLocator = page.getByRole('button'); await (roleLocator['click'])();`;
+  assert.deepEqual(
+    verifyScopedRoleEvidence({ previousSource: baseline, healedSource }),
+    { passed: true, reasonCodes: [], warningCodes: [] }
+  );
+});
+
+test('an unchanged legacy wrapped callee does not block an unrelated heal', () => {
+  const source = `const control = (frame.getByRole as typeof frame.getByRole)('button');`;
+  assert.deepEqual(
+    verifyScopedRoleEvidence({ previousSource: source, healedSource: `${source}\nconst unrelated = true;` }),
+    { passed: true, reasonCodes: [], warningCodes: [] }
+  );
+  assert.deepEqual(
+    verifyScopedRoleEvidence({ previousSource: source, healedSource: `const control = (frame.getByRole)('button');` }),
+    { passed: false, reasonCodes: ['UNVERIFIED_SCOPED_ROLE_LOCATOR'], warningCodes: [] }
   );
 });
 
