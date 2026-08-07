@@ -59,3 +59,30 @@ test('triage keeps assertion-value mismatches non-repairable', () => {
   assert.equal(verdict.repairable, false);
   assert.deepEqual(verdict.reasonCodes, ['ASSERTION_OR_RESPONSE_MISMATCH']);
 });
+
+test('triage keeps locator-shaped assertion values non-repairable', () => {
+  const verdict = triageRuntimeFailure({
+    stage: 'runtime-test',
+    evidence: [
+      "Assertion failed for getByText('status')",
+      'Expected string: "Saved"',
+      'Received string: "Record not found"'
+    ]
+  });
+  assert.equal(verdict.classification, 'product-or-contract');
+  assert.equal(verdict.repairable, false);
+  assert.deepEqual(verdict.reasonCodes, ['ASSERTION_OR_RESPONSE_MISMATCH']);
+});
+
+test('triage keeps locator-shaped response-body messages non-repairable', () => {
+  const verdict = triageRuntimeFailure({
+    stage: 'runtime-test',
+    evidence: [
+      "Request triggered by getByRole('button', { name: 'Save' })",
+      'Response body: {"message":"not found"}'
+    ]
+  });
+  assert.equal(verdict.classification, 'product-or-contract');
+  assert.equal(verdict.repairable, false);
+  assert.deepEqual(verdict.reasonCodes, ['ASSERTION_OR_RESPONSE_MISMATCH']);
+});
