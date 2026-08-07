@@ -26,6 +26,18 @@ function runRequiredEmail(env) {
   });
 }
 
+test('suite-root selection reaches static and runtime subprocesses', () => {
+  const source = { PLAYWRIGHT_TEST_SUITE_ROOT: 'tests-dev' };
+  assert.equal(
+    buildGateEnvironment(source, { profile: 'static' }).PLAYWRIGHT_TEST_SUITE_ROOT,
+    'tests-dev'
+  );
+  assert.equal(
+    buildGateEnvironment(source, { profile: 'external-runtime' }).PLAYWRIGHT_TEST_SUITE_ROOT,
+    'tests-dev'
+  );
+});
+
 test('generic user email reaches external gates but not static subprocesses', () => {
   const source = {
     PATH: '/usr/bin',
