@@ -89,6 +89,7 @@ You are working on an AI-assisted Playwright AQA framework.
 - Only `--apply` may promote a fully verified target, clean unless `--allow-dirty` is explicit; integrity and concurrency checks always remain. `--allow-dirty` requires `--apply`.
 - Repair only `locator-drift` and `synchronization` runtime failures. Product, auth, network, data, assertion-mismatch, and unclassified failures are not repairable.
 - Pass `--dom-snapshot` only a verified selector-discovery artifact under `.ai-runs/dom-discovery/`; the framework supplies a fixed, non-configurable 64 KiB context.
+- A newly introduced role-only scoped locator requires the exact `scopedRole` candidate from live-audited `--dom-snapshot` evidence. An unaudited chain is rejected by a hard evidence gate before candidate files or runtime; an audited unnamed target is applied warning-soft. Ordinary semantic policy findings also remain warning-soft. Automatic DOM capture is out of scope.
 - Recorded targets must pass the recorded reviewer before runtime verification. Page Object/Component source is context-only, returns `manual-change-required`, and is never auto-promoted. For intentional functionality changes, update the Markdown spec/version/AC/data cases before changing test expectations.
 
 ## AI Brain for Generation
