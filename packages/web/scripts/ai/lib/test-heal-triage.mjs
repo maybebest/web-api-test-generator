@@ -18,7 +18,7 @@ const LOCATOR_RULES = [
   ['LOCATOR_STRICT_MODE_VIOLATION', /strict mode violation/i],
   [
     'LOCATOR_NOT_FOUND',
-    /(?:\bLocator:\s*[^\r\n]+[\s\S]{0,1600}?\bError:\s*element\(s\) not found\b|(?:locator|(?:getByRole|getByTestId|getByLabel|getByText)\()[\s\S]{0,1600}?(?:resolved to 0 elements|not found))/i
+    /(?:\bLocator:\s*[^\r\n]+[\s\S]{0,1600}?\bError:\s*element\(s\) not found\b|(?:locator|(?:getByRole|getByTestId|getByLabel|getByText)\()[\s\S]{0,1600}?resolved to 0 elements)/i
   ],
   ['LOCATOR_DETACHED', /element (?:is not attached|was detached)/i]
 ];
