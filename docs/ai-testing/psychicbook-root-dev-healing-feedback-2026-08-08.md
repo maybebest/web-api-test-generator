@@ -102,3 +102,16 @@ seconds. Both cases completed deletion checks and after-hook cleanup.
 Playwright's last-run result is `passed` with no failed test IDs. There was no
 failure to heal, so the healer was not invoked, no provider call or attempt
 occurred, and no test file changed.
+
+## Complete API project
+
+The required final one-worker, zero-retry `api` project run collected all 8
+tests and exited 1 with 6 passing and 2 failing in 56.5 seconds. The two
+failures were the same expert identity boundaries already classified above:
+agent authorization returned HTTP 400 through `api/facades/AgentFacade.ts`,
+and the administrator UUID lookup returned HTTP 400 through
+`api/facades/ExpertFacade.ts`. Both registration cases passed in this complete
+run (e-mail in 6.6 seconds and phone in 9.4 seconds), as did the other four
+user tests. Playwright's last-run result names exactly the two expert test IDs
+as failed. No locator-drift or synchronization failure appeared, no healer or
+provider call was made, and no test file changed.
