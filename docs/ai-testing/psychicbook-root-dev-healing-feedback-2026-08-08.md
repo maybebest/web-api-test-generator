@@ -37,6 +37,7 @@ Totals: 8 API tests in 6 files; 19 UI tests in 9 files.
 | `tests-dev/api/users/delete-user.spec.ts` | api | 1/1 passed in 8.8s | already-green | 0 | 0 | none | no separate run; exact baseline passed | ALREADY GREEN |
 | `tests-dev/api/users/register-user.spec.ts` | api | 1/2 passed; 1 failed in 1.3m | product/data: e-mail code submission returned HTTP 400 on a duplicate device database constraint; phone flow passed | 0 | 0 | none | not run; failure is outside the repairable boundary | NON-TEST BLOCKER |
 | `tests-dev/api/users/update-user.spec.ts` | api | 1/1 passed in 44.4s | already-green | 0 | 0 | none | no separate run; exact baseline passed | ALREADY GREEN |
+| `tests-dev/api/users/user-lifecycle.spec.ts` | api | 2/2 passed in 3.9s | already-green | 0 | 0 | none | no separate run; exact baseline passed | ALREADY GREEN |
 
 ### `tests-dev/api/experts/expert-booking.spec.ts`
 
@@ -92,5 +93,12 @@ cleanup. Playwright's last-run result is `passed` with no failed test IDs.
 There was no failure to heal, so the healer was not invoked, no provider call
 or attempt occurred, and no test file changed.
 
-No Task 6 baseline or result has been recorded here yet for
-`tests-dev/api/users/user-lifecycle.spec.ts`.
+### `tests-dev/api/users/user-lifecycle.spec.ts`
+
+The exact one-worker, zero-retry baseline exited 0 with 2/2 passing in 3.9
+seconds. The e-mail lifecycle passed in 1.7 seconds and the phone lifecycle,
+including its expected invalid-update domain-code assertion, passed in 1.9
+seconds. Both cases completed deletion checks and after-hook cleanup.
+Playwright's last-run result is `passed` with no failed test IDs. There was no
+failure to heal, so the healer was not invoked, no provider call or attempt
+occurred, and no test file changed.
