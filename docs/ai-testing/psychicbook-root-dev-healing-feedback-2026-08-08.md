@@ -39,6 +39,7 @@ Totals: 8 API tests in 6 files; 19 UI tests in 9 files.
 | `tests-dev/api/users/update-user.spec.ts` | api | 1/1 passed in 44.4s | already-green | 0 | 0 | none | no separate run; exact baseline passed | ALREADY GREEN |
 | `tests-dev/api/users/user-lifecycle.spec.ts` | api | 2/2 passed in 3.9s | already-green | 0 | 0 | none | no separate run; exact baseline passed | ALREADY GREEN |
 | `tests-dev/ui/articles/articles-tab.spec.ts` | ui | 0/1 passed; 1 failed in 16.5s | product/data: both article APIs returned HTTP 200 with zero records, leaving the list empty | 0 | 0 | none | not run; failure is outside the repairable boundary | NON-TEST BLOCKER |
+| `tests-dev/ui/booking/book-with-article-author.spec.ts` | ui | 0/1 passed; 1 failed in 9.7s | authentication/shared-owner: agent authorization returned HTTP 400 in `api/facades/AgentFacade.ts` before the spec body | 0 | 0 | none | not run; failure is outside the repairable boundary | NON-TEST BLOCKER |
 
 ### `tests-dev/api/experts/expert-booking.spec.ts`
 
@@ -133,3 +134,19 @@ dev product/data blocker, not locator drift or synchronization owned by the
 test. The healer was therefore not invoked, no provider call or attempt
 occurred, and no test file changed. Playwright also emitted the non-actionable
 runtime warning that `NO_COLOR` was ignored because `FORCE_COLOR` was set.
+
+### `tests-dev/ui/booking/book-with-article-author.spec.ts`
+
+The exact one-worker, zero-retry baseline exited 1 with 0/1 passing in 9.7
+seconds. User creation, profile completion, card attachment, browser login, and
+cleanup completed, but the shared `onlineAgents` fixture failed before the
+spec body while logging in the first agent in its pool. The retained stack is
+owned by `api/facades/AgentFacade.ts:37` through `fixtures/api-test.ts:142`.
+Redacted-safe trace inspection shows `POST /profile/agent/authorization`
+returned HTTP 400 with domain status `3022` and the detail `Login or password
+is not correct`; the screenshot shows the already signed-in user page and does
+not contradict that API boundary. This is an authentication/shared-owner
+blocker, not test-owned locator drift or synchronization. The healer was not
+invoked, no provider call or attempt occurred, and no test file changed.
+Playwright again emitted the non-actionable `NO_COLOR`/`FORCE_COLOR` runtime
+warning.
