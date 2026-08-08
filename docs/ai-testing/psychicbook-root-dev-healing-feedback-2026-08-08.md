@@ -42,6 +42,7 @@ Totals: 8 API tests in 6 files; 19 UI tests in 9 files.
 | `tests-dev/ui/booking/book-with-article-author.spec.ts` | ui | 0/1 passed; 1 failed in 9.7s | authentication/shared-owner: agent authorization returned HTTP 400 in `api/facades/AgentFacade.ts` before the spec body | 0 | 0 | none | not run; failure is outside the repairable boundary | NON-TEST BLOCKER |
 | `tests-dev/ui/chat/user-agent-chat.spec.ts` | ui | 0/1 passed; 1 failed in 10.0s | authentication/shared-owner: agent authorization returned HTTP 400 in `api/facades/AgentFacade.ts` before the spec body | 0 | 0 | none | not run; failure is outside the repairable boundary | NON-TEST BLOCKER |
 | `tests-dev/ui/coupons/discount-lifecycle.spec.ts` | ui | 0/1 passed; 1 failed in 9.7s | authentication/shared-owner: agent authorization returned HTTP 400 in `api/facades/AgentFacade.ts` before the spec body | 0 | 0 | none | not run; failure is outside the repairable boundary | NON-TEST BLOCKER |
+| `tests-dev/ui/horoscope/daily-horoscope.spec.ts` | ui | 0/1 passed; 1 failed in 17.1s | authentication/shared-owner: agent authorization returned HTTP 400 in `api/facades/AgentFacade.ts` before the spec body | 0 | 0 | none | not run; failure is outside the repairable boundary | NON-TEST BLOCKER |
 
 ### `tests-dev/api/experts/expert-booking.spec.ts`
 
@@ -182,3 +183,18 @@ signed-in user page loading. This is an authentication/shared-owner blocker,
 not test-owned locator drift or synchronization. The healer was not invoked,
 no provider call or attempt occurred, and no test file changed. The only
 runtime warning was the non-actionable `NO_COLOR`/`FORCE_COLOR` notice.
+
+### `tests-dev/ui/horoscope/daily-horoscope.spec.ts`
+
+The exact one-worker, zero-retry baseline exited 1 with 0/1 passing in 17.1
+seconds. User setup, card attachment, browser login, and cleanup completed, but
+the run stopped before the first horoscope step because the shared
+`onlineAgents` fixture could not log in its first pool agent. The stack is at
+`api/facades/AgentFacade.ts:37` through `fixtures/api-test.ts:142`.
+Redacted-safe trace inspection records `POST /profile/agent/authorization` as
+HTTP 400 with domain status `3022` and the detail `Login or password is not
+correct`; the screenshot shows the signed-in user page still loading. This is
+an authentication/shared-owner blocker, not test-owned locator drift or
+synchronization. The healer was not invoked, no provider call or attempt
+occurred, and no test file changed. The only runtime warning was the same
+non-actionable `NO_COLOR`/`FORCE_COLOR` notice.
