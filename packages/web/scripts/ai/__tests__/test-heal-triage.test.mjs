@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { triageRuntimeFailure } from '../lib/test-heal-triage.mjs';
+import { triageRuntimeFailure } from '../healer/test-heal-triage.mjs';
 
 test('triage permits a strict locator failure', () => {
   const verdict = triageRuntimeFailure({

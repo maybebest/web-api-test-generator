@@ -20,7 +20,7 @@ import {
   healTestSource,
   redactKnownSecretValues,
   verifyHealedSourcePolicy
-} from '../lib/test-heal.mjs';
+} from '../healer/test-heal.mjs';
 import {
   executeStandaloneTarget,
   healCandidatePath,

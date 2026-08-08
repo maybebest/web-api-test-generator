@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 
 import ts from 'typescript';
 
-import { renderScopedRoleLocator } from './scoped-role-locator.mjs';
+import { renderScopedRoleLocator } from '../lib/scoped-role-locator.mjs';
 
 const UNVERIFIED = 'UNVERIFIED_SCOPED_ROLE_LOCATOR';
 const UNNAMED = 'SCOPED_ROLE_TARGET_UNNAMED';

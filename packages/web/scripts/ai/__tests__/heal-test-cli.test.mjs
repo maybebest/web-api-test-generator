@@ -1,7 +1,32 @@
 import assert from 'node:assert/strict';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 
 import { helpText, isSuccessfulHealStatus, renderHealResults } from '../heal-test.mjs';
+
+test('legacy healer entry point re-exports the implementation API', async () => {
+  const legacy = await import('../heal-test.mjs');
+  const implementation = await import('../healer/heal-test.mjs');
+
+  assert.deepEqual(Object.keys(legacy).sort(), Object.keys(implementation).sort());
+  for (const exportName of Object.keys(implementation)) {
+    assert.equal(legacy[exportName], implementation[exportName]);
+  }
+});
+
+test('healer implementation remains directly executable', () => {
+  const webRoot = path.resolve(import.meta.dirname, '..', '..', '..');
+  const scriptPath = path.resolve(import.meta.dirname, '..', 'healer', 'heal-test.mjs');
+  const result = spawnSync(process.execPath, [scriptPath, '--help'], {
+    cwd: webRoot,
+    encoding: 'utf8'
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Usage:/);
+  assert.equal(result.stderr, '');
+});
 
 test('policy warnings remain metadata on accepted lifecycle statuses', () => {
   const warningProposal = {

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { isPendingGenerationSpec, validateSpecDirectory } from '../validate-flow-spec.mjs';
-import { canonicalContractTestPath } from './test-suite-root.mjs';
+import { canonicalContractTestPath } from '../lib/test-suite-root.mjs';
 
 const RECORDING_HEADER = /\/\*\s*recording:\s+([^\s]+)\s+title:(.*?)\s+sha256:([a-f0-9]{64})\s*\*\//i;
 const RECORDING_MARKER = /\/\*\s*recording\s*:/gi;
