@@ -51,6 +51,7 @@ import {
   autoHealEnabled,
   autoHealMaxAttempts,
   autoHealVerifyRuns,
+  buildHealRejectionDigest,
   extractRuntimeFailureEvidence,
   healTestSource,
   normalizeHealPolicyIssueCodes,
@@ -1112,21 +1113,64 @@ export async function healSingleTest({
     : contract.kind === 'recording'
       ? `recording-bound via ${contract.recordingPath}; standalone project ${resolvedProject}`
       : `handwritten; standalone project ${resolvedProject}`;
+  // Per-stage wall-clock accounting (baseline run, triage, each provider
+  // attempt, each verify run) persisted into heal-summary.json so the cost of
+  // a heal run stays auditable without re-running it.
+  const stageTimings = [];
+  const timeStage = (label, work) => {
+    const startedAtMs = Date.now();
+    try {
+      return work();
+    } finally {
+      stageTimings.push({ ...label, durationMs: Date.now() - startedAtMs });
+    }
+  };
   log(`[heal] ${target}: baseline verification (1 diagnostic run, retries=0, ${contractDescription}).`);
-  let execution = runVerification(target, 1);
+  let execution = timeStage({ stage: 'baseline' }, () => runVerification(target, 1));
   if (execution.passed) {
     cleanupFailedRunDir(execution, runRoot);
     return sanitizePublicResult({ status: 'already-green', target, attemptsUsed: 0 });
   }
   if (execution.stage === 'runtime-environment') {
     cleanupFailedRunDir(execution, runRoot);
-    return sanitizePublicResult({
+    // An environment abort must still leave archived evidence: the audit found
+    // aborts that wrote nothing at all, leaving no status, classification, or
+    // timing trail. Only sanitized structural fields are written here.
+    const environmentTriage = timeStage({ stage: 'triage' }, () => triageRuntimeFailure({
+      evidence: [],
+      stage: execution.stage
+    }));
+    const environmentResult = {
       status: 'environment-failure',
       target,
       attemptsUsed: 0,
       issues: execution.issues,
       detail: 'Baseline run failed for environment reasons; healing would mask an infrastructure problem.'
-    });
+    };
+    try {
+      const archive = archiveFactory(webRoot, runId);
+      archive.write('heal-summary.json', `${JSON.stringify({
+        schema: 'test-heal-run/v1',
+        runId,
+        target,
+        contractKind: contract.kind,
+        status: 'environment-failure',
+        attemptsUsed: 0,
+        verifyRuns: repeatEach,
+        originalSha256: originalSha,
+        triage: environmentTriage,
+        issues: sanitizedEvidenceList(execution.issues, secretValues),
+        providerAttempts: [],
+        mode: { apply, allowDirty },
+        attemptTrail: [],
+        timings: stageTimings
+      }, null, 2)}\n`);
+      return sanitizePublicResult({ ...environmentResult, archiveDir: archive.directory });
+    } catch (error) {
+      // Mirror the healed-path audit degradation: a failed archive write must
+      // degrade to auditIssues, never turn an environment abort into a crash.
+      return sanitizePublicResult({ ...environmentResult, auditIssues: [error.message] });
+    }
   }
 
   let evidence;
@@ -1137,7 +1181,7 @@ export async function healSingleTest({
   }
   const archive = archiveFactory(webRoot, runId);
   const archiveOriginalPath = archive.write('original.ts', originalBytes);
-  let triage = triageRuntimeFailure({ evidence, stage: execution.stage });
+  let triage = timeStage({ stage: 'triage' }, () => triageRuntimeFailure({ evidence, stage: execution.stage }));
   const attemptTrail = [];
   const providerAttempts = [];
   let promptSchema;
@@ -1156,7 +1200,8 @@ export async function healSingleTest({
       ...(promptSchema ? { promptSchema } : {}),
       providerAttempts,
       mode: { apply, allowDirty },
-      attemptTrail: auditAttemptTrail(attemptTrail)
+      attemptTrail: auditAttemptTrail(attemptTrail),
+      timings: stageTimings
     }, null, 2)}\n`);
     return sanitizePublicResult({
       ...result,
@@ -1218,6 +1263,7 @@ export async function healSingleTest({
         });
       };
       let healed;
+      const providerStartedAtMs = Date.now();
       try {
         healed = await heal({
           testPath: target,
@@ -1230,7 +1276,13 @@ export async function healSingleTest({
           env,
           signal
         });
+        stageTimings.push({ stage: 'provider', attempt, durationMs: Date.now() - providerStartedAtMs });
       } catch (error) {
+        stageTimings.push({ stage: 'provider', attempt, durationMs: Date.now() - providerStartedAtMs });
+        // A thrown brain (for example a provider CLI failure) must still leave
+        // a providerAttempts record; the audit found brain-error attempt
+        // trails with providerAttempts=[] and therefore no usage evidence.
+        providerAttempts.push({ attempt, kind: 'brain-error', usage: null });
         recordAttempt('brain-error', error.message);
         return finish({ status: 'brain-error', attemptsUsed: attempt, issues: [error.message] });
       }
@@ -1240,14 +1292,18 @@ export async function healSingleTest({
           code: preserveTerminalLineEnding(originalSource, healed.code)
         };
       }
+      // The provider call already happened, so its audit record (sanitized
+      // kind/model plus bounded numeric usage) is recorded even when the
+      // candidate below is rejected for safety reasons.
+      const providerAudit = structuredProviderAudit(healed, attempt, secretValues);
+      if (providerAudit) providerAttempts.push(providerAudit);
       const candidateSafetyIssue = candidateSourceSafetyIssue(healed?.code, secretValues);
       if (candidateSafetyIssue) {
         checks.policy = 'rejected';
+        if (!providerAudit) providerAttempts.push({ attempt, kind: 'brain-error', usage: null });
         recordAttempt('brain-error', candidateSafetyIssue);
         return finish({ status: 'brain-error', attemptsUsed: attempt, issues: [candidateSafetyIssue] });
       }
-      const providerAudit = structuredProviderAudit(healed, attempt, secretValues);
-      if (providerAudit) providerAttempts.push(providerAudit);
       if (typeof healed.promptSchema === 'string' && healed.promptSchema.trim()) {
         const candidatePromptSchema = healed.promptSchema.trim();
         promptSchema = /^[a-z][a-z0-9-]{0,63}\/v\d+$/.test(candidatePromptSchema)
@@ -1268,7 +1324,11 @@ export async function healSingleTest({
         archiveRejectedAttempt(attempt, 'rejected-locator-evidence', locatorEvidence.reasonCodes);
         recordAttempt('locator-evidence-rejected');
         log(`[heal] ${target}: attempt ${attempt} rejected by scoped locator evidence.`);
-        notes = sanitizedEvidenceList(locatorEvidence.reasonCodes, secretValues);
+        notes = buildHealRejectionDigest({
+          attempt,
+          gate: 'scoped locator evidence',
+          findings: sanitizedEvidenceList(locatorEvidence.reasonCodes, secretValues)
+        });
         continue;
       }
 
@@ -1301,7 +1361,11 @@ export async function healSingleTest({
           archiveRejectedAttempt(attempt, 'rejected-typecheck');
           recordAttempt('typecheck-rejected', types.issues.join(' '));
           log(`[heal] ${target}: attempt ${attempt} rejected by typecheck.`);
-          notes = sanitizedEvidenceList(types.issues, secretValues);
+          notes = buildHealRejectionDigest({
+            attempt,
+            gate: 'typecheck',
+            findings: sanitizedEvidenceList(types.issues, secretValues)
+          });
           continue;
         }
 
@@ -1311,7 +1375,11 @@ export async function healSingleTest({
           archiveRejectedAttempt(attempt, 'rejected-lint');
           recordAttempt('lint-rejected', lintResult.issues.join(' '));
           log(`[heal] ${target}: attempt ${attempt} rejected by lint.`);
-          notes = sanitizedEvidenceList(lintResult.issues, secretValues);
+          notes = buildHealRejectionDigest({
+            attempt,
+            gate: 'lint',
+            findings: sanitizedEvidenceList(lintResult.issues, secretValues)
+          });
           continue;
         }
 
@@ -1326,11 +1394,15 @@ export async function healSingleTest({
           archiveRejectedAttempt(attempt, 'rejected-review');
           recordAttempt('static-review-rejected', review.issues.join(' '));
           log(`[heal] ${target}: attempt ${attempt} rejected by static review.`);
-          notes = sanitizedEvidenceList(review.issues, secretValues);
+          notes = buildHealRejectionDigest({
+            attempt,
+            gate: 'static review',
+            findings: sanitizedEvidenceList(review.issues, secretValues)
+          });
           continue;
         }
 
-        execution = runVerification(candidateRelative);
+        execution = timeStage({ stage: 'verify', attempt }, () => runVerification(candidateRelative));
         if (execution.passed) cleanupFailedRunDir(execution, runRoot);
         checks.runtime = execution.passed
           ? 'passed'
@@ -1361,7 +1433,11 @@ export async function healSingleTest({
           if (!diff.passed) {
             archiveRejectedAttempt(attempt, `rejected-${diff.outcome}`);
             recordAttempt(diff.outcome, diff.issues.join(' '));
-            notes = sanitizedEvidenceList(diff.issues, secretValues);
+            notes = buildHealRejectionDigest({
+              attempt,
+              gate: 'candidate diff',
+              findings: sanitizedEvidenceList(diff.issues, secretValues)
+            });
             continue;
           }
           if (!candidateStillMatches()) {
@@ -1528,7 +1604,7 @@ export async function healSingleTest({
           Array.isArray(freshEvidence) && freshEvidence.length > 0 ? freshEvidence : (execution.issues ?? []),
           secretValues
         );
-        triage = triageRuntimeFailure({ evidence, stage: execution.stage });
+        triage = timeStage({ stage: 'triage', attempt }, () => triageRuntimeFailure({ evidence, stage: execution.stage }));
         archive.replace('evidence.json', evidenceAudit());
 
         if (execution.stage === 'runtime-environment') {
@@ -1555,7 +1631,13 @@ export async function healSingleTest({
 
         archiveRejectedAttempt(attempt, 'still-failing');
         recordAttempt('still-failing', (execution.issues ?? []).slice(0, 2).join(' '));
-        notes = [`Attempt ${attempt} candidate still failed runtime verification.`];
+        // The fresh (already sanitized) evidence rides along so the next
+        // prompt states WHY the candidate still failed, not just that it did.
+        notes = buildHealRejectionDigest({
+          attempt,
+          gate: 'runtime verification',
+          findings: [`Attempt ${attempt} candidate still failed runtime verification.`, ...evidence]
+        });
       } finally {
         removeActiveCandidate();
         activeCandidate = null;

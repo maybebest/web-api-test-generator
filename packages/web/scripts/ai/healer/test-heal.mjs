@@ -1266,6 +1266,30 @@ export function verifyHealedSourcePolicy({ previousSource, healedSource }) {
   return { passed: issues.length === 0, issues, issueCodes };
 }
 
+// A rejected attempt must materially change the next prompt: the audit found
+// byte-identical retry prompts burning the same input tokens twice. The digest
+// carries the rejecting gate's findings verbatim (callers pass them already
+// sanitized; sanitizedEvidence re-runs shape redaction defensively) plus an
+// explicit instruction that the next candidate must differ. Bounded so the
+// header, findings, and instruction together never exceed MAX_HEAL_NOTES.
+export function buildHealRejectionDigest({ attempt, gate, findings = [] }) {
+  if (!Number.isSafeInteger(attempt) || attempt < 1) {
+    throw new RangeError('Heal rejection digest attempt must be a positive integer.');
+  }
+  const normalizedGate = String(gate ?? '').trim() || 'a verification gate';
+  // Sanitize and filter BEFORE bounding so blank or fully-redacted findings
+  // never consume slots that real findings need.
+  const boundedFindings = (Array.isArray(findings) ? findings : [])
+    .map((finding) => sanitizedEvidence(finding).trim())
+    .filter(Boolean)
+    .slice(0, MAX_HEAL_NOTES - 2);
+  return [
+    `Attempt ${attempt} candidate was rejected by ${normalizedGate}:`,
+    ...boundedFindings,
+    'The previous candidate was rejected for the findings above; the next candidate must be materially different and address each finding.'
+  ];
+}
+
 export function buildTestHealPrompt({
   testPath,
   source,

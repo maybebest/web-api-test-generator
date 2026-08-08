@@ -14,6 +14,24 @@ const ENVIRONMENT_PATTERNS = [
   /ECONN(?:RESET|REFUSED)|ENOTFOUND|network.*failed/i,
   /browser.*(?:missing|closed)|configuration error/i
 ];
+// A bare 400 is normally a product-or-contract signal, but an HTTP 400 status
+// carrying an authentication context in the SAME evidence item is broken
+// credentials or an expired session (environment), not a test defect. The 400
+// must look like an HTTP status ("Received: 400", "status 400", "HTTP 400",
+// "400 Bad Request") so prices, test ids, and URL segments never match, and
+// the auth words are word-anchored so "author"/"authors" never match. Both
+// patterns must match one item; matching across the joined evidence would let
+// an unrelated "login" line reclassify a genuine contract 400.
+const HTTP_400_STATUS_PATTERN = new RegExp(
+  [
+    '\\breceived\\s*:?\\s*400\\b',
+    '\\bstatus(?:\\s+code)?\\s*(?:was|=|:)?\\s*400\\b',
+    '\\bhttp\\s*400\\b',
+    '\\b400\\s+bad\\s+request\\b'
+  ].join('|'),
+  'i'
+);
+const AUTH_CONTEXT_PATTERN = /\bauthoriz\w*|\bauthenticat\w*|\blogin\b|\bsign[ -]?in\b|\bauth\b|\boauth\b/i;
 const LOCATOR_RULES = [
   ['LOCATOR_STRICT_MODE_VIOLATION', /strict mode violation/i],
   [
@@ -42,6 +60,20 @@ export function triageRuntimeFailure({ evidence = [], stage } = {}) {
   }
   for (const [reason, pattern] of LOCATOR_RULES) {
     if (pattern.test(joined)) return verdict('locator-drift', true, [reason], evidenceFingerprint);
+  }
+  // The auth-400 rule runs AFTER the locator and synchronization rules so
+  // repairable locator/sync evidence keeps its classification even when it
+  // mentions an auth context and a 400, but BEFORE PRODUCT_PATTERNS:
+  // "Received: 400" would otherwise classify an auth-context 400 as
+  // product-or-contract first.
+  const authContext400 = normalized.some(
+    (item) => HTTP_400_STATUS_PATTERN.test(item) && AUTH_CONTEXT_PATTERN.test(item)
+  );
+  if (authContext400) {
+    for (const [reason, pattern] of SYNC_RULES) {
+      if (pattern.test(joined)) return verdict('synchronization', true, [reason], evidenceFingerprint);
+    }
+    return verdict('environment', false, ['AUTH_NETWORK_OR_BROWSER_FAILURE'], evidenceFingerprint);
   }
   if (PRODUCT_PATTERNS.some((pattern) => pattern.test(joined))) {
     return verdict('product-or-contract', false, ['ASSERTION_OR_RESPONSE_MISMATCH'], evidenceFingerprint);

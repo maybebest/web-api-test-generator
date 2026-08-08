@@ -25,7 +25,8 @@ F2 healer triage env label (test-heal-triage.mjs):
 F3 healer observability (heal-test.mjs):
   - per-stage durationMs (baseline, triage, each provider attempt, verify) persisted in heal-summary.json;
   - brain-error attempts recorded in providerAttempts with error kind and null usage;
-  - environment-failure aborts write a heal-summary.json archive (status not-healed, class, timings).
+  - environment-failure aborts write a heal-summary.json archive (status environment-failure, class,
+    timings, plus the sanitized runtime issues in an `issues` field).
 F4 adaptive heal retry (test-heal.mjs prompt assembly):
   Attempt N+1 prompt includes a structured digest of attempt N's rejection: policy findings /
   gate errors verbatim (sanitized via existing redaction), plus an explicit instruction that the

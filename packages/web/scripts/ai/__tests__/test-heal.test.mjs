@@ -10,11 +10,13 @@ import {
   DEFAULT_AUTOHEAL_VERIFY_RUNS,
   MAX_AUTOHEAL_MAX_ATTEMPTS,
   MAX_HEAL_EVIDENCE_ITEMS,
+  MAX_HEAL_NOTES,
   analyzeHealSource,
   autoHealEnabled,
   autoHealMaxAttempts,
   autoHealSourceByteLimit,
   autoHealVerifyRuns,
+  buildHealRejectionDigest,
   buildTestHealPrompt,
   extractRuntimeFailureEvidence,
   healTestSource,
@@ -2848,6 +2850,166 @@ test('healSingleTest ratchets policy against the ORIGINAL source across attempts
     ['still-failing', 'still-failing']
   );
   assert.ok(result.attemptTrail[1].policyIssueCodes.includes('POSITIONAL_LOCATOR_EXCEPTION_MISSING'));
+});
+
+test('heal summary persists per-stage durations for baseline, triage, provider, and verify', async () => {
+  const { webRoot, target } = makeHealWorkspace();
+  const healedSource = CLEAN_SOURCE.replace("getByRole('button', { name: 'Save' })", "getByTestId('save-button')");
+  const { run } = executionSequence([FAILED_EXECUTION, PASSED_EXECUTION]);
+  const result = await healSingleTest({
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true' },
+    webRoot,
+    log: () => {},
+    resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+    reviewContract: () => ({ passed: true, issues: [] }),
+    typecheck: PASSING_TYPECHECK,
+    lint: PASSING_LINT,
+    targetDirty: () => false,
+    executeStandalone: run,
+    heal: async () => ({ code: healedSource })
+  });
+  assert.equal(result.status, 'proposal-ready');
+  const summary = JSON.parse(fs.readFileSync(path.join(result.archiveDir, 'heal-summary.json'), 'utf8'));
+  assert.deepEqual(summary.timings.map((entry) => entry.stage), ['baseline', 'triage', 'provider', 'verify']);
+  for (const entry of summary.timings) {
+    assert.equal(Number.isSafeInteger(entry.durationMs) && entry.durationMs >= 0, true, JSON.stringify(entry));
+  }
+  assert.equal(summary.timings.find((entry) => entry.stage === 'provider').attempt, 1);
+  assert.equal(summary.timings.find((entry) => entry.stage === 'verify').attempt, 1);
+});
+
+test('a thrown heal brain is recorded in providerAttempts with an error kind and null usage', async () => {
+  const { webRoot, target } = makeHealWorkspace();
+  const { run } = executionSequence([FAILED_EXECUTION]);
+  const result = await healSingleTest({
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true' },
+    webRoot,
+    maxAttempts: 1,
+    log: () => {},
+    resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+    reviewContract: () => ({ passed: true, issues: [] }),
+    typecheck: PASSING_TYPECHECK,
+    lint: PASSING_LINT,
+    executeStandalone: run,
+    heal: async () => {
+      throw new Error('cli-failed: provider over quota');
+    }
+  });
+  assert.equal(result.status, 'brain-error');
+  const summary = JSON.parse(fs.readFileSync(path.join(result.archiveDir, 'heal-summary.json'), 'utf8'));
+  assert.deepEqual(summary.providerAttempts, [{ attempt: 1, kind: 'brain-error', usage: null }]);
+  assert.deepEqual(summary.timings.map((entry) => entry.stage), ['baseline', 'triage', 'provider']);
+});
+
+test('a baseline environment abort still archives a heal summary with class and timings', async () => {
+  const { webRoot, target } = makeHealWorkspace();
+  const { run } = executionSequence([ENV_EXECUTION]);
+  const result = await healSingleTest({
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true' },
+    webRoot,
+    log: () => {},
+    discoverSpec: () => null,
+    typecheck: PASSING_TYPECHECK,
+    executeStandalone: run,
+    heal: async () => {
+      assert.fail('an environment abort must never invoke the provider');
+    }
+  });
+  assert.equal(result.status, 'environment-failure');
+  assert.ok(result.archiveDir, 'environment aborts must return their archive directory');
+  const summary = JSON.parse(fs.readFileSync(path.join(result.archiveDir, 'heal-summary.json'), 'utf8'));
+  assert.equal(summary.schema, 'test-heal-run/v1');
+  assert.equal(summary.status, 'environment-failure');
+  assert.equal(summary.attemptsUsed, 0);
+  assert.equal(summary.triage.classification, 'environment');
+  assert.deepEqual(summary.issues, ['Playwright did not produce a readable JSON report.']);
+  assert.deepEqual(summary.providerAttempts, []);
+  assert.deepEqual(summary.timings.map((entry) => entry.stage), ['baseline', 'triage']);
+  for (const entry of summary.timings) {
+    assert.equal(Number.isSafeInteger(entry.durationMs) && entry.durationMs >= 0, true, JSON.stringify(entry));
+  }
+});
+
+test('an environment abort whose archive cannot be created still returns the environment failure', async () => {
+  const { webRoot, target } = makeHealWorkspace();
+  const { run } = executionSequence([ENV_EXECUTION]);
+  const result = await healSingleTest({
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true' },
+    webRoot,
+    log: () => {},
+    discoverSpec: () => null,
+    typecheck: PASSING_TYPECHECK,
+    executeStandalone: run,
+    archiveFactory: () => {
+      throw new Error('audit archive unavailable');
+    },
+    heal: async () => {
+      assert.fail('an environment abort must never invoke the provider');
+    }
+  });
+  assert.equal(result.status, 'environment-failure');
+  assert.equal(result.attemptsUsed, 0);
+  assert.equal(Object.hasOwn(result, 'archiveDir'), false);
+  assert.deepEqual(result.auditIssues, ['HEAL_AUDIT_FAILURE: Audit details were omitted.']);
+});
+
+test('a retry prompt embeds a digest of the previous rejection and differs from the first prompt', async () => {
+  const { webRoot, target } = makeHealWorkspace();
+  const healedSource = CLEAN_SOURCE.replace("getByRole('button', { name: 'Save' })", "getByTestId('save-button')");
+  const { run } = executionSequence([FAILED_EXECUTION, PASSED_EXECUTION]);
+  const prompts = [];
+  let typecheckCalls = 0;
+  const result = await healSingleTest({
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true' },
+    webRoot,
+    maxAttempts: 2,
+    log: () => {},
+    resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+    reviewContract: () => ({ passed: true, issues: [] }),
+    typecheck: () => {
+      typecheckCalls += 1;
+      return typecheckCalls === 1
+        ? { passed: false, issues: ["TS2304 at 4:9: Cannot find name 'pageX'."] }
+        : { passed: true, issues: [] };
+    },
+    lint: PASSING_LINT,
+    targetDirty: () => false,
+    executeStandalone: run,
+    collectEvidence: () => ['locator.click: Timeout 30000ms exceeded while waiting for getByRole("button")'],
+    heal: async (input) => {
+      // Reconstruct the exact provider prompt the healer inputs would produce.
+      prompts.push(buildTestHealPrompt(input));
+      return { code: healedSource };
+    }
+  });
+  assert.equal(result.status, 'proposal-ready');
+  assert.equal(prompts.length, 2);
+  assert.notEqual(prompts[1], prompts[0]);
+  const firstNotes = JSON.parse(prompts[0]).reviewerNotes;
+  const retryNotes = JSON.parse(prompts[1]).reviewerNotes;
+  assert.deepEqual(firstNotes, []);
+  const digest = retryNotes.join('\n');
+  assert.match(digest, /Attempt 1 candidate was rejected by typecheck/);
+  assert.match(digest, /Cannot find name 'pageX'/);
+  assert.match(digest, /materially different/);
+  assert.doesNotMatch(prompts[0], /materially different/);
+});
+
+test('the rejection digest sanitizes and filters findings before bounding them', () => {
+  const realFindings = Array.from({ length: MAX_HEAL_NOTES - 2 }, (_, index) => `finding-${index + 1}`);
+  const digest = buildHealRejectionDigest({
+    attempt: 2,
+    gate: 'policy review',
+    findings: ['', '   ', ...realFindings]
+  });
+  // Blank findings must never consume bounded slots ahead of real ones.
+  assert.equal(digest.length, MAX_HEAL_NOTES);
+  assert.deepEqual(digest.slice(1, -1), realFindings);
 });
 
 test('healSingleTest sweeps stale crash-orphaned candidates before running', async () => {
