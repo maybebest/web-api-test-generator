@@ -79,7 +79,10 @@ Generate a suite only when the spec declares `Generation Mode | suite` or a suit
 ## Safe Test Healing Contract
 
 `scripts/ai/heal-test.mjs` repairs verified `locator-drift` or `synchronization` runtime failures
-only. It runs a baseline, applies deterministic candidate policy/typecheck/lint/reviewer checks,
+only. Healer-exclusive implementation modules live together under
+`scripts/ai/healer/`; the top-level `scripts/ai/heal-test.mjs` file is the
+backward-compatible command entry point.
+It runs a baseline, applies deterministic candidate policy/typecheck/lint/reviewer checks,
 then requires `AI_AUTOHEAL_VERIFY_RUNS` exact consecutive green runs; every verification lane uses
 one worker and retries disabled. A baseline-green target returns `already-green` without a proposal.
 For a repairable failing target that produces a fully verified single-test candidate, the safe
