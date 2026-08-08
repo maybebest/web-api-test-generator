@@ -572,13 +572,26 @@ test('default candidate lint compares target and candidate with each package man
 
 test('differential lint accepts unchanged inherited findings on a current root-style target', () => {
   const webRoot = path.resolve(import.meta.dirname, '../../../../..');
+  let reports;
   const result = lintCandidate({
     targetPath: 'tests/ui/navigation/site-navigation.spec.ts',
     candidatePath: 'tests-dev/ui/navigation/site-navigation.spec.ts',
     webRoot,
-    packageManager: 'npm'
+    packageManager: 'npm',
+    commandRunner: (command, args, options) => {
+      const execution = spawnSync(command, args, options);
+      reports = JSON.parse(execution.stdout);
+      return execution;
+    }
   });
 
+  assert.equal(reports.length, 2);
+  assert.ok(
+    reports.every((report) => report.messages.some((message) => (
+      message.ruleId === '@typescript-eslint/no-unused-vars'
+    ))),
+    'the real target and mirror must both exercise inherited root lint debt'
+  );
   assert.deepEqual(result, { passed: true, issues: [] });
 });
 
