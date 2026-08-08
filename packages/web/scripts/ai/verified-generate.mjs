@@ -38,7 +38,13 @@ import {
   acceptedGenerationQualityFingerprint,
   generationQualityFingerprint
 } from './lib/generation-quality.mjs';
-import { checkGenerationReadiness } from './lib/generation-preflight.mjs';
+import {
+  ENVIRONMENT_PREFLIGHT_FAILURE_REASON,
+  ENVIRONMENT_PREFLIGHT_STAGE,
+  checkEnvironmentPreflight,
+  environmentPreflightEnabled
+} from './lib/environment-preflight.mjs';
+import { EXTERNAL_BROWSER_PROJECTS, checkGenerationReadiness } from './lib/generation-preflight.mjs';
 import { normalizeRecordingFile } from './lib/recording-parser.mjs';
 import { specSha256 } from './lib/spec-parser.mjs';
 import { validateSpecFile } from './validate-flow-spec.mjs';
@@ -487,6 +493,7 @@ export async function runVerifiedGeneration({
   candidateId = randomUUID,
   generate = generateTestSource,
   browserExecutableExists,
+  environmentPreflight = checkEnvironmentPreflight,
   repair = repairGeneratedSource,
   gate = defaultGate,
   promoteCache = promoteGenerationCache,
@@ -496,6 +503,9 @@ export async function runVerifiedGeneration({
   const resolvedEnvironment = resolveEnv(env);
   const repairEnabled = generationRepairEnabled(resolvedEnvironment.env);
   if (repairEnabled) repairSourceByteLimit(resolvedEnvironment.env);
+  // Parsed before any run directory exists so a malformed flag fails closed
+  // without leaving a partial telemetry record, matching AI_REPAIR_ENABLED.
+  const environmentPreflightOn = environmentPreflightEnabled(resolvedEnvironment.env);
   const gateEnvironment = buildGateEnvironment(resolvedEnvironment.env);
   const outPath = resolveOutputPath(out, webRoot);
   assertSafeTarget(outPath, webRoot);
@@ -673,6 +683,67 @@ export async function runVerifiedGeneration({
       safeRecordRunEvent({
         type: 'stage', stage: currentStage, status: 'completed', durationMs: Date.now() - preflightStartedAt
       });
+
+      // Deterministic environment preflight: a sanitized gate environment
+      // matching the runtime profile the fast-gate will pick for this plan
+      // (local-runtime for a local-fixture-only plan, external-runtime
+      // otherwise) must load the Playwright config, and an externally
+      // targeted project plan must reach a live origin, before a single
+      // provider token can be spent.
+      currentStage = ENVIRONMENT_PREFLIGHT_STAGE;
+      if (!environmentPreflightOn) {
+        safeRecordRunEvent({ type: 'stage-skipped', stage: currentStage, status: 'completed' });
+      } else {
+        const environmentStartedAt = Date.now();
+        safeRecordRunEvent({ type: 'stage', stage: currentStage, status: 'started' });
+        const readinessProjects = Array.isArray(readiness.projects) ? readiness.projects : [];
+        // Mirrors the per-project profile choice in generated-test-gate.mjs:
+        // only external-browser projects carry auth/API runtime secrets.
+        const usesExternalBrowserProject = readinessProjects.some(
+          (entry) => EXTERNAL_BROWSER_PROJECTS.has(entry?.project)
+        );
+        const preflightEnvironment = buildGateEnvironment(resolvedEnvironment.env, {
+          profile: usesExternalBrowserProject ? 'external-runtime' : 'local-runtime'
+        });
+        let environmentReadiness;
+        try {
+          environmentReadiness = await environmentPreflight({
+            projects: readinessProjects,
+            env: preflightEnvironment,
+            webRoot
+          });
+        } catch (error) {
+          environmentReadiness = {
+            passed: false,
+            diagnostics: [`Environment preflight could not run: ${error.message}`]
+          };
+        }
+        if (environmentReadiness?.passed !== true) {
+          const diagnostics = Array.isArray(environmentReadiness?.diagnostics)
+            && environmentReadiness.diagnostics.length > 0
+            ? environmentReadiness.diagnostics
+            : ['Environment preflight failed.'];
+          safeRecordRunEvent({
+            type: 'stage',
+            stage: currentStage,
+            status: 'rejected',
+            durationMs: Date.now() - environmentStartedAt,
+            failureStage: currentStage,
+            failureReason: ENVIRONMENT_PREFLIGHT_FAILURE_REASON,
+            diagnostics
+          });
+          throw new VerifiedGenerationError(
+            `Environment preflight failed: ${diagnostics.join(' ')}`,
+            {
+              failureStage: ENVIRONMENT_PREFLIGHT_STAGE,
+              failureReason: ENVIRONMENT_PREFLIGHT_FAILURE_REASON
+            }
+          );
+        }
+        safeRecordRunEvent({
+          type: 'stage', stage: currentStage, status: 'completed', durationMs: Date.now() - environmentStartedAt
+        });
+      }
     }
 
     currentStage = 'test-generation';

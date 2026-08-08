@@ -842,3 +842,24 @@ test('unallowlisted and prototype-like event stages remain unknown without leaki
     /ARBITRARY_STAGE|providerBody|__proto__|constructor|PRIVATE_PROVIDER_BODY/
   );
 });
+
+test('environment-preflight failures stay visible in the failure-stage buckets with their reason', (t) => {
+  const directory = tempDirectory(t);
+  writeGenerationRun(directory, 'environment-preflight-run', {
+    manifest: {
+      status: 'failed',
+      failureStage: 'environment-preflight',
+      failureReason: 'environment-preflight'
+    },
+    attempts: []
+  });
+
+  const collected = readGenerationUsage(directory);
+  const summary = summarizeGenerationUsage(collected);
+
+  const run = collected.runs.find((entry) => entry.runId === 'environment-preflight-run');
+  assert.equal(run.failureStage, 'environment-preflight');
+  assert.equal(run.failureReason, 'environment-preflight');
+  assert.deepEqual(summary.failureStages, { 'environment-preflight': 1 });
+  assert.equal(summary.attempts, 0, 'a preflight-failed run must record zero provider attempts');
+});

@@ -25,6 +25,7 @@ export const REQUIRED_PIPELINE_INPUTS = Object.freeze([
   'scripts/ai/generated-test-gate.mjs',
   'scripts/ai/lib/ai-client.mjs',
   'scripts/ai/lib/authenticated-target.mjs',
+  'scripts/ai/lib/environment-preflight.mjs',
   'scripts/ai/lib/gate-environment.mjs',
   'scripts/ai/lib/generated-capability-policy.mjs',
   'scripts/ai/lib/generated-gate-fingerprint.mjs',

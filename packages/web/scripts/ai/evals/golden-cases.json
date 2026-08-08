@@ -10,6 +10,7 @@
     "scripts/ai/generated-test-gate.mjs",
     "scripts/ai/lib/ai-client.mjs",
     "scripts/ai/lib/authenticated-target.mjs",
+    "scripts/ai/lib/environment-preflight.mjs",
     "scripts/ai/lib/gate-environment.mjs",
     "scripts/ai/lib/generated-capability-policy.mjs",
     "scripts/ai/lib/generated-gate-fingerprint.mjs",
@@ -35,7 +36,7 @@
     "scripts/ai/validate-flow-spec.mjs",
     "scripts/ai/verified-generate.mjs"
   ],
-  "pipelineFingerprintSha256": "47022edfb28764efb101bc227755c656780f49bbecfc0ee7126e57a531612837",
+  "pipelineFingerprintSha256": "cd0e8017e53f7420bb16f16642b24f2f8a821a6370ea7378285c6475bace08c0",
   "cases": [
     {
       "id": "single-checkout",

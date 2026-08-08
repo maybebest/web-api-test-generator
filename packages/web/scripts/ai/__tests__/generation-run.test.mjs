@@ -815,7 +815,7 @@ test('verified generation records provider, gate, promotion, and final quality u
     specPath: 'specs/accepted.md',
     out: 'tests/regression/accepted.spec.ts',
     webRoot,
-    env: { PLAYWRIGHT_TEST_BASE_URL: fixtureBaseUrl },
+    env: { PLAYWRIGHT_TEST_BASE_URL: fixtureBaseUrl, AI_ENV_PREFLIGHT: 'false' },
     browserExecutableExists: () => true,
     candidateId: () => 'accepted-run',
     generate: async ({ onAttempt }) => {
@@ -928,7 +928,7 @@ test('verified generation finalizes a rejected run without persisting the gate e
       specPath: 'specs/rejected.md',
       out: 'tests/regression/rejected.spec.ts',
       webRoot,
-      env: { PLAYWRIGHT_TEST_BASE_URL: fixtureBaseUrl },
+      env: { PLAYWRIGHT_TEST_BASE_URL: fixtureBaseUrl, AI_ENV_PREFLIGHT: 'false' },
       browserExecutableExists: () => true,
       candidateId: () => 'rejected-run',
       generate: async () => ({
@@ -970,7 +970,7 @@ test('verified generation records a single-flight join as a saved request, not a
     specPath: 'specs/joined.md',
     out: 'tests/regression/joined.spec.ts',
     webRoot,
-    env: { PLAYWRIGHT_TEST_BASE_URL: fixtureBaseUrl },
+    env: { PLAYWRIGHT_TEST_BASE_URL: fixtureBaseUrl, AI_ENV_PREFLIGHT: 'false' },
     browserExecutableExists: () => true,
     candidateId: () => 'joined-run',
     generate: async () => ({
@@ -1025,7 +1025,7 @@ test('a failed single-flight join remains a non-attempt when the leader fails', 
       specPath: 'specs/failed-join.md',
       out: 'tests/regression/failed-join.spec.ts',
       webRoot,
-      env: { PLAYWRIGHT_TEST_BASE_URL: fixtureBaseUrl },
+      env: { PLAYWRIGHT_TEST_BASE_URL: fixtureBaseUrl, AI_ENV_PREFLIGHT: 'false' },
       browserExecutableExists: () => true,
       candidateId: () => 'failed-join-run',
       generate: async () => { throw joinedError; }
@@ -1059,7 +1059,7 @@ test('verified generation reconstructs every unknown retry attempt when its gene
       specPath: 'specs/retry.md',
       out: 'tests/regression/retry.spec.ts',
       webRoot,
-      env: { PLAYWRIGHT_TEST_BASE_URL: fixtureBaseUrl },
+      env: { PLAYWRIGHT_TEST_BASE_URL: fixtureBaseUrl, AI_ENV_PREFLIGHT: 'false' },
       browserExecutableExists: () => true,
       candidateId: () => 'retry-run',
       generate: async () => { throw providerError; }
@@ -1087,7 +1087,7 @@ test('candidate-integrity rejection is attributed to promotion safety rather tha
     specPath: 'specs/integrity.md',
     out: 'tests/regression/integrity.spec.ts',
     webRoot,
-    env: { PLAYWRIGHT_TEST_BASE_URL: fixtureBaseUrl },
+    env: { PLAYWRIGHT_TEST_BASE_URL: fixtureBaseUrl, AI_ENV_PREFLIGHT: 'false' },
     browserExecutableExists: () => true,
     candidateId: () => 'integrity-run',
     generate: async () => ({ code: 'const candidate = true;\n', result: {} }),

@@ -14,12 +14,14 @@ const REPORTABLE_STATUSES = new Set([
 const REPORTABLE_RETRY_STATUSES = new Set(['retrying', 'retryable', 'exhausted', 'not-retried']);
 const REPORTABLE_FAILURE_STAGES = new Set([
   'provider', 'candidate-integrity', 'promotion-conflict', 'input-assembly', 'preflight',
+  'environment-preflight',
   'test-generation', 'recording-generation', 'fast-gate', 'repair', 'promotion', 'input-validation', 'global-static',
   'static-review', 'runtime-environment', 'runtime-test', 'full-gate', 'spec-fit'
 ]);
 const REPORTABLE_FAILURE_REASONS = new Set([
   'cli-failed', 'malformed-output', 'malformed-response', 'network-error',
   'single-flight-leader-failed', 'retry-usage-unknown', 'generation-readiness-failed',
+  'environment-preflight',
   'gate-rejected', 'candidate-integrity', 'promotion-conflict', 'truncated', 'refused',
   'generation-failed', 'input-assembly-failed', 'preflight-failed', 'test-generation-failed',
   'recording-generation-failed',
