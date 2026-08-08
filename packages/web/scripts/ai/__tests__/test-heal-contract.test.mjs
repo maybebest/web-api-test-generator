@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { resolveHealContract, reviewHealContract } from '../lib/test-heal-contract.mjs';
+import { resolveHealContract, reviewHealContract } from '../healer/test-heal-contract.mjs';
 
 function makeWebRoot() {
   const webRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'heal-contract-'));

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { verifyScopedRoleEvidence } from '../lib/test-heal-scoped-role.mjs';
+import { verifyScopedRoleEvidence } from '../healer/test-heal-scoped-role.mjs';
 
 const baseline = `const control = page.getByRole('button', { name: 'Account settings' });`;
 const unnamed = `const control = page.getByRole('banner').getByRole('button');`;

@@ -1,14 +1,14 @@
 import ts from 'typescript';
 
-import { extractCodeBlock, runBrain } from './ai-client.mjs';
-import { GENERATED_GATE_REPEAT_VALUES } from './generated-gate-policy.mjs';
-import { OUTPUT_KINDS } from './output-contracts.mjs';
+import { extractCodeBlock, runBrain } from '../lib/ai-client.mjs';
+import { GENERATED_GATE_REPEAT_VALUES } from '../lib/generated-gate-policy.mjs';
+import { OUTPUT_KINDS } from '../lib/output-contracts.mjs';
 import {
   containsSecretLikeValue,
   hasKnownSecretShape,
   redactSecretMaterial
-} from './secret-safety.mjs';
-import { knownSecretEnvValues } from './gate-environment.mjs';
+} from '../lib/secret-safety.mjs';
+import { knownSecretEnvValues } from '../lib/gate-environment.mjs';
 import { normalizeHealRepositoryContext } from './test-heal-context.mjs';
 
 export const TEST_HEAL_SCHEMA = 'playwright-test-heal/v1';

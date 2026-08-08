@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import * as testHeal from '../lib/test-heal.mjs';
+import * as testHeal from '../healer/test-heal.mjs';
 
 const { MAX_HEAL_SOURCE_BYTES, verifyHealedSourcePolicy } = testHeal;
 

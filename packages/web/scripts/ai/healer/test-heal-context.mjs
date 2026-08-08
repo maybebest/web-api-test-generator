@@ -2,11 +2,11 @@ import path from 'node:path';
 
 import ts from 'typescript';
 
-import { knownSecretEnvValues } from './gate-environment.mjs';
-import { hasForbiddenAgentRef, hasForbiddenLocatorPattern } from './selector-policy.mjs';
-import { containsSecretLikeValue, redactSecretMaterial } from './secret-safety.mjs';
-import { normalizeScopedRoleCandidate } from './scoped-role-locator.mjs';
-import { readVerifiedFile } from './verified-file-read.mjs';
+import { knownSecretEnvValues } from '../lib/gate-environment.mjs';
+import { hasForbiddenAgentRef, hasForbiddenLocatorPattern } from '../lib/selector-policy.mjs';
+import { containsSecretLikeValue, redactSecretMaterial } from '../lib/secret-safety.mjs';
+import { normalizeScopedRoleCandidate } from '../lib/scoped-role-locator.mjs';
+import { readVerifiedFile } from '../lib/verified-file-read.mjs';
 
 const MAX_IMPORTED_FILES = 4;
 const MAX_IMPORTED_FILE_BYTES = 32 * 1024;

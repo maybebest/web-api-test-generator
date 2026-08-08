@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { collectHealContext } from '../lib/test-heal-context.mjs';
+import { collectHealContext } from '../healer/test-heal-context.mjs';
 import { createScopedRoleCandidate } from '../lib/scoped-role-locator.mjs';
 import { reviewDomDiscoveryArtifactObject } from '../review-dom-discovery.mjs';
 
