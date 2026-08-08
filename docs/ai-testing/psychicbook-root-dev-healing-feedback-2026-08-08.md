@@ -241,6 +241,35 @@ synchronization. The healer was not invoked, no provider call or attempt
 occurred, and no test file changed. The only runtime warning was the
 non-actionable `NO_COLOR`/`FORCE_COLOR` notice.
 
+## Complete UI project
+
+The required final one-worker, zero-retry `ui` project run collected all 19
+tests and exited 1 with 11 passing and 8 failing in 9.4 minutes. The two match
+tests, the Horoscope-menu and footer-navigation tests, and all seven profile
+tests passed. In particular, the Terms case that hit the duplicate-device
+backend error in its isolated file run completed its real assertions in this
+project run, confirming that the earlier failure was intermittent dev data
+state rather than a test synchronization defect.
+
+Seven failures reproduced already documented non-test boundaries: the two
+article scenarios again had no article cards, and the five booking/chat/session
+flows again stopped on HTTP 400 agent authorization in the shared fixture. One
+additional navigation failure appeared only in the complete run. Its retained
+screenshot and accessibility snapshot show the product's `Application error:
+a client-side exception has occurred` page instead of a header. Redacted-safe
+trace inspection shows the `/articles/` document returned HTTP 200 but four
+required `/_next/static/chunks/...` requests returned HTTP 503, so the later
+wait for the `Psychics` button was only the final symptom. This is a live
+product/network availability failure, not locator drift or synchronization
+owned by the test.
+
+No complete-run failure entered the repairable boundary, so the healer was not
+invoked, provider calls and attempts remained zero, no diff was proposed or
+applied, and all nine UI specs remained unchanged. Playwright repeatedly
+emitted the non-actionable warning that `NO_COLOR` was ignored because
+`FORCE_COLOR` was set; there were no healer policy warnings because there were
+no eligible healer cycles.
+
 ### `tests-dev/ui/coupons/discount-lifecycle.spec.ts`
 
 The exact one-worker, zero-retry baseline exited 1 with 0/1 passing in 9.7
