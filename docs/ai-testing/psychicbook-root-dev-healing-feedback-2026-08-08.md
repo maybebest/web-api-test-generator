@@ -36,6 +36,7 @@ Totals: 8 API tests in 6 files; 19 UI tests in 9 files.
 | `tests-dev/api/experts/expert-lifecycle.spec.ts` | api | 0/1 passed; 1 failed in 1.1s | authentication/data/shared-owner: administrator lookup returned HTTP 400 in `api/facades/ExpertFacade.ts` before generation | 0 | 0 | none | not run; failure is outside the repairable boundary | NON-TEST BLOCKER |
 | `tests-dev/api/users/delete-user.spec.ts` | api | 1/1 passed in 8.8s | already-green | 0 | 0 | none | no separate run; exact baseline passed | ALREADY GREEN |
 | `tests-dev/api/users/register-user.spec.ts` | api | 1/2 passed; 1 failed in 1.3m | product/data: e-mail code submission returned HTTP 400 on a duplicate device database constraint; phone flow passed | 0 | 0 | none | not run; failure is outside the repairable boundary | NON-TEST BLOCKER |
+| `tests-dev/api/users/update-user.spec.ts` | api | 1/1 passed in 44.4s | already-green | 0 | 0 | none | no separate run; exact baseline passed | ALREADY GREEN |
 
 ### `tests-dev/api/experts/expert-booking.spec.ts`
 
@@ -82,5 +83,14 @@ is product/data evidence, not synchronization drift, so the healer was not
 invoked, no provider call or attempt occurred, and no test file changed. This
 Task 6 result supersedes the earlier factual 2/2 green observation.
 
-No Task 6 baseline or result has been recorded here yet for the other two
-unlisted inventory files.
+### `tests-dev/api/users/update-user.spec.ts`
+
+The exact one-worker, zero-retry baseline exited 0 with 1/1 passing in 44.4
+seconds. It completed API profile creation, update and read-back assertions,
+browser login and header assertions, the About Me assertions, and fixture
+cleanup. Playwright's last-run result is `passed` with no failed test IDs.
+There was no failure to heal, so the healer was not invoked, no provider call
+or attempt occurred, and no test file changed.
+
+No Task 6 baseline or result has been recorded here yet for
+`tests-dev/api/users/user-lifecycle.spec.ts`.
