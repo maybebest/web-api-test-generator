@@ -32,6 +32,21 @@ Totals: 8 API tests in 6 files; 19 UI tests in 9 files.
 
 | File | Project | Baseline | Classification | Provider calls | Attempts | Applied diff | Verification | Final |
 |---|---|---:|---|---:|---:|---|---|---|
+| `tests-dev/api/experts/expert-booking.spec.ts` | api | 0/1 passed; 1 failed in 1.1s | authentication/shared-owner: agent authorization returned HTTP 400 in `api/facades/AgentFacade.ts` before the spec body | 0 | 0 | none | not run; failure is outside the repairable boundary | NON-TEST BLOCKER |
 | `tests-dev/api/users/register-user.spec.ts` | api | 2/2 passed | already-green | 0 | 0 | none | 2/2 passed in 17.5s | ALREADY GREEN |
 
-No baseline or healer result has been recorded here for the remaining inventory files.
+### `tests-dev/api/experts/expert-booking.spec.ts`
+
+The exact one-worker, zero-retry baseline exited 1. The retained trace records
+`POST /profile/agent/authorization` as HTTP 400 `Bad Request`; its redacted-safe
+response fields carry domain status `3022` and the detail `Login or password is
+not correct`. The stack is owned by `api/facades/AgentFacade.ts:37` through the
+shared `onlineAgents` fixture, and the failure occurs before the spec body.
+This is authentication/shared-owner evidence, not locator drift or
+synchronization owned by the test. The healer was therefore not invoked, no
+provider call or attempt occurred, and no test file changed.
+
+No Task 6 baseline or result has been recorded here yet for the other four
+unlisted inventory files. The existing `register-user.spec.ts` row remains the
+previously observed factual no-op healer result and will be refreshed during
+its Task 6 turn.
