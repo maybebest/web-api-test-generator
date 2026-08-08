@@ -1,6 +1,6 @@
 # Environment variables
 
-Copy `.env.example` to `.env` and fill it in. `playwright.config.ts` loads `.env` automatically, so a plain `npm run test:api` works after that.
+Copy `.env.example` to `.env` and fill it in. `playwright.config.ts` loads `.env` automatically, so `npx playwright test --project=api` works after that.
 
 Never commit `.env` — it is in `.gitignore`.
 
@@ -20,7 +20,7 @@ A run fails immediately with a clear message if any of these is missing.
 
 | Variable | What it is | Default |
 |---|---|---|
-| `TEST_ENV` | Which environment to run against, see `config/environments.ts` | `stage` |
+| `TEST_ENV` | Which environment to run against: `stage` or `dev`, see `config/environments.ts` | `stage` |
 | `AGENT_POOL_LOGINS` | Comma separated agent logins the tests borrow from | `aqa1@gmail.com,aqa2@gmail.com,aqa3@gmail.com` |
 | `TEST_CARD_NUMBER` | Card used in paid steps | `4242424242424242` |
 | `TEST_CARD_EXPIRY` | Card expiry | `04/44` |
@@ -28,6 +28,16 @@ A run fails immediately with a clear message if any of these is missing.
 | `TEST_CARD_PAYMENT_METHOD_ID` | Payment method id for the API path | `pm_card_visa` |
 | `TEST_EMAIL_LOCAL_PART` | Local part of generated e-mails | `olekwer` |
 | `TEST_EMAIL_DOMAIN` | Domain of generated e-mails | `gmail.com` |
+
+## Choosing an environment
+
+`TEST_ENV` accepts `stage` and `dev`. It defaults to `stage` when unset.
+
+To run the API tests against the dev environment:
+
+```bash
+TEST_ENV=dev npx playwright test --project=api
+```
 
 ## How the pool size affects parallel runs
 
