@@ -38,6 +38,40 @@ test('suite-root selection reaches static and runtime subprocesses', () => {
   );
 });
 
+test('PsychicBook credentials reach only external runtime and remain redactable', () => {
+  const source = {
+    TEST_ENV: 'dev',
+    WEB_BASIC_AUTH_USER: 'basic-user',
+    WEB_BASIC_AUTH_PASSWORD: 'basic-password',
+    AGENT_PASSWORD: 'agent-password',
+    ADMIN_EMAIL: 'admin@example.test',
+    ADMIN_PASSWORD: 'admin-password'
+  };
+
+  const external = buildGateEnvironment(source, { profile: 'external-runtime' });
+  const staticEnvironment = buildGateEnvironment(source, { profile: 'static' });
+
+  assert.equal(external.TEST_ENV, 'dev');
+  assert.equal(staticEnvironment.TEST_ENV, 'dev');
+  assert.equal(external.WEB_BASIC_AUTH_USER, 'basic-user');
+  assert.equal(external.WEB_BASIC_AUTH_PASSWORD, 'basic-password');
+  assert.equal(external.AGENT_PASSWORD, 'agent-password');
+  assert.equal(external.ADMIN_EMAIL, 'admin@example.test');
+  assert.equal(external.ADMIN_PASSWORD, 'admin-password');
+  assert.notEqual(staticEnvironment.WEB_BASIC_AUTH_USER, 'basic-user');
+  assert.notEqual(staticEnvironment.WEB_BASIC_AUTH_PASSWORD, 'basic-password');
+  assert.notEqual(staticEnvironment.AGENT_PASSWORD, 'agent-password');
+  assert.notEqual(staticEnvironment.ADMIN_EMAIL, 'admin@example.test');
+  assert.notEqual(staticEnvironment.ADMIN_PASSWORD, 'admin-password');
+  assert.deepEqual(knownSecretEnvValues(source), [
+    'basic-user',
+    'basic-password',
+    'agent-password',
+    'admin@example.test',
+    'admin-password'
+  ]);
+});
+
 test('generic user email reaches external gates but not static subprocesses', () => {
   const source = {
     PATH: '/usr/bin',
