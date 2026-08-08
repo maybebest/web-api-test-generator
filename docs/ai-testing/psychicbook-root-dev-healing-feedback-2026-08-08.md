@@ -43,6 +43,7 @@ Totals: 8 API tests in 6 files; 19 UI tests in 9 files.
 | `tests-dev/ui/chat/user-agent-chat.spec.ts` | ui | 0/1 passed; 1 failed in 10.0s | authentication/shared-owner: agent authorization returned HTTP 400 in `api/facades/AgentFacade.ts` before the spec body | 0 | 0 | none | not run; failure is outside the repairable boundary | NON-TEST BLOCKER |
 | `tests-dev/ui/coupons/discount-lifecycle.spec.ts` | ui | 0/1 passed; 1 failed in 9.7s | authentication/shared-owner: agent authorization returned HTTP 400 in `api/facades/AgentFacade.ts` before the spec body | 0 | 0 | none | not run; failure is outside the repairable boundary | NON-TEST BLOCKER |
 | `tests-dev/ui/horoscope/daily-horoscope.spec.ts` | ui | 0/1 passed; 1 failed in 17.1s | authentication/shared-owner: agent authorization returned HTTP 400 in `api/facades/AgentFacade.ts` before the spec body | 0 | 0 | none | not run; failure is outside the repairable boundary | NON-TEST BLOCKER |
+| `tests-dev/ui/match-advisor/find-your-match.spec.ts` | ui | 2/2 passed in 15.6s | already-green | 0 | 0 | none | no separate run; exact baseline passed | ALREADY GREEN |
 
 ### `tests-dev/api/experts/expert-booking.spec.ts`
 
@@ -168,6 +169,18 @@ authentication/shared-owner blocker, not test-owned locator drift or
 synchronization. The healer was not invoked, no provider call or attempt
 occurred, and no test file changed. The only runtime warning was the same
 non-actionable `NO_COLOR`/`FORCE_COLOR` notice.
+
+### `tests-dev/ui/match-advisor/find-your-match.spec.ts`
+
+The exact one-worker, zero-retry baseline exited 0 with 2/2 passing in 15.6
+seconds. The signed-in flow navigated from Psychics to the home page, submitted
+the match question, reached `/match-advisor/`, and asserted the breadcrumb in
+11.5 seconds. The independent e-mail flow created a user, submitted the known
+wrong code, remained on the verification-code screen, and confirmed it did
+not reach `/psychics/` in 3.6 seconds. Both cases completed cleanup. There was
+no failure to heal, so the healer was not invoked, no provider call or attempt
+occurred, and no test file changed. Playwright emitted only the non-actionable
+`NO_COLOR`/`FORCE_COLOR` runtime warning.
 
 ### `tests-dev/ui/coupons/discount-lifecycle.spec.ts`
 
