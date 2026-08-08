@@ -44,6 +44,7 @@ Totals: 8 API tests in 6 files; 19 UI tests in 9 files.
 | `tests-dev/ui/coupons/discount-lifecycle.spec.ts` | ui | 0/1 passed; 1 failed in 9.7s | authentication/shared-owner: agent authorization returned HTTP 400 in `api/facades/AgentFacade.ts` before the spec body | 0 | 0 | none | not run; failure is outside the repairable boundary | NON-TEST BLOCKER |
 | `tests-dev/ui/horoscope/daily-horoscope.spec.ts` | ui | 0/1 passed; 1 failed in 17.1s | authentication/shared-owner: agent authorization returned HTTP 400 in `api/facades/AgentFacade.ts` before the spec body | 0 | 0 | none | not run; failure is outside the repairable boundary | NON-TEST BLOCKER |
 | `tests-dev/ui/match-advisor/find-your-match.spec.ts` | ui | 2/2 passed in 15.6s | already-green | 0 | 0 | none | no separate run; exact baseline passed | ALREADY GREEN |
+| `tests-dev/ui/navigation/site-navigation.spec.ts` | ui | 3/4 passed; 1 failed in 3.7m | product/data: the article scenario received HTTP 200 with zero article records; all menu and footer scenarios passed | 0 | 0 | none | not run; failure is outside the repairable boundary | NON-TEST BLOCKER |
 
 ### `tests-dev/api/experts/expert-booking.spec.ts`
 
@@ -181,6 +182,25 @@ not reach `/psychics/` in 3.6 seconds. Both cases completed cleanup. There was
 no failure to heal, so the healer was not invoked, no provider call or attempt
 occurred, and no test file changed. Playwright emitted only the non-actionable
 `NO_COLOR`/`FORCE_COLOR` runtime warning.
+
+### `tests-dev/ui/navigation/site-navigation.spec.ts`
+
+The exact one-worker, zero-retry baseline exited 1 with 3/4 passing in 3.7
+minutes. The Psychics-menu scenario passed all ten destinations in 56.1
+seconds, the Horoscope-menu scenario passed all sixteen destinations in 1.7
+minutes, and the footer scenario passed all eighteen links and content-heading
+checks in 28.0 seconds. The article scenario reached `/articles/`, asserted its
+heading and title, then timed out after 20 seconds waiting for the first card
+to exist. Its retained screenshot and accessibility snapshot show the
+Articles heading and footer with no article cards. Redacted-safe trace
+inspection shows both article requests completed at the transport layer:
+`GET /api/articles/popular/` returned HTTP 200 with an empty array, and `GET
+/api/articles/` returned HTTP 200 with `data` as an empty array. This is the
+same dev product/data blocker observed in `articles-tab`, not locator drift or
+synchronization owned by this test. The healer was therefore not invoked, no
+provider call or attempt occurred, and no test file changed. Playwright
+emitted the non-actionable `NO_COLOR`/`FORCE_COLOR` warning, including after
+the worker restarted for the fourth scenario.
 
 ### `tests-dev/ui/coupons/discount-lifecycle.spec.ts`
 
