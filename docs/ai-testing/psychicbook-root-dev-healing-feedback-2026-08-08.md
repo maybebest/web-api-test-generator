@@ -35,7 +35,7 @@ Totals: 8 API tests in 6 files; 19 UI tests in 9 files.
 | `tests-dev/api/experts/expert-booking.spec.ts` | api | 0/1 passed; 1 failed in 1.1s | authentication/shared-owner: agent authorization returned HTTP 400 in `api/facades/AgentFacade.ts` before the spec body | 0 | 0 | none | not run; failure is outside the repairable boundary | NON-TEST BLOCKER |
 | `tests-dev/api/experts/expert-lifecycle.spec.ts` | api | 0/1 passed; 1 failed in 1.1s | authentication/data/shared-owner: administrator lookup returned HTTP 400 in `api/facades/ExpertFacade.ts` before generation | 0 | 0 | none | not run; failure is outside the repairable boundary | NON-TEST BLOCKER |
 | `tests-dev/api/users/delete-user.spec.ts` | api | 1/1 passed in 8.8s | already-green | 0 | 0 | none | no separate run; exact baseline passed | ALREADY GREEN |
-| `tests-dev/api/users/register-user.spec.ts` | api | 2/2 passed | already-green | 0 | 0 | none | 2/2 passed in 17.5s | ALREADY GREEN |
+| `tests-dev/api/users/register-user.spec.ts` | api | 1/2 passed; 1 failed in 1.3m | product/data: e-mail code submission returned HTTP 400 on a duplicate device database constraint; phone flow passed | 0 | 0 | none | not run; failure is outside the repairable boundary | NON-TEST BLOCKER |
 
 ### `tests-dev/api/experts/expert-booking.spec.ts`
 
@@ -68,7 +68,19 @@ browser re-login, and both cleanup deletions. Playwright's last-run result is
 was not invoked, no provider call or attempt occurred, and no test file
 changed.
 
+### `tests-dev/api/users/register-user.spec.ts`
+
+The refreshed exact one-worker, zero-retry Task 6 baseline exited 1 with 1/2
+passing in 1.3 minutes. The phone registration and browser-login case passed
+in 11.2 seconds. The e-mail case timed out at the spec-owned `/psychics` URL
+wait after the page visibly reported a registration error. The retained
+network trace identifies the earlier divergence: `POST
+/profile/user/web/registration/code` returned HTTP 400 because the dev backend
+attempted to insert a duplicate `(device_id, brand)` pair and violated its
+unique database constraint. Cleanup deleted the created e-mail account. This
+is product/data evidence, not synchronization drift, so the healer was not
+invoked, no provider call or attempt occurred, and no test file changed. This
+Task 6 result supersedes the earlier factual 2/2 green observation.
+
 No Task 6 baseline or result has been recorded here yet for the other two
-unlisted inventory files. The existing `register-user.spec.ts` row remains
-the previously observed factual no-op healer result and will be refreshed
-during its Task 6 turn.
+unlisted inventory files.
