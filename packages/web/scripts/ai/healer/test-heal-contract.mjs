@@ -118,7 +118,9 @@ export function resolveHealContract(options) {
   }
   const recording = source.match(RECORDING_HEADER);
   if (recordingMarkers.length > 0 && !recording) throw new Error('Heal target declares a malformed recording header.');
-  const specBinding = resolveExplicitOrDiscoveredSpec({ ...options, testPath: contractTestPath });
+  const specBinding = options.explicitSpecPath !== undefined || specMarker !== null || isSpecBoundDirectory(contractTestPath)
+    ? resolveExplicitOrDiscoveredSpec({ ...options, testPath: contractTestPath })
+    : null;
   if (recording && specBinding) throw new Error('Heal target declares both recording and spec contracts.');
   if (recording) {
     const recordingPath = assertPortableRepoPath(recording[1], 'Recording path');

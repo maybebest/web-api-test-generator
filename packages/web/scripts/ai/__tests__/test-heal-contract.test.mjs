@@ -120,6 +120,22 @@ test('dev recorded layout keeps the canonical recording requirement', () => {
   assert.equal(contract.testPath, 'tests-dev/recorded/save.spec.ts');
 });
 
+test('ordinary api and ui targets do not require a flow-spec directory', () => {
+  for (const testPath of [
+    'tests-dev/api/users/register-user.spec.ts',
+    'tests-dev/ui/articles/articles-tab.spec.ts'
+  ]) {
+    const contract = resolveHealContract({
+      testPath,
+      source: 'import { test } from "@playwright/test";',
+      webRoot: makeWebRoot(),
+      discoverSpec: () => { throw new Error('spec discovery must not run'); }
+    });
+    assert.equal(contract.kind, 'handwritten');
+    assert.equal(contract.testPath, testPath);
+  }
+});
+
 test('recording and spec contracts cannot be combined', () => {
   const webRoot = makeWebRoot();
   assert.throws(() => resolveHealContract({
