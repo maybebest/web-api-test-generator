@@ -38,6 +38,7 @@ Totals: 8 API tests in 6 files; 19 UI tests in 9 files.
 | `tests-dev/api/users/register-user.spec.ts` | api | 1/2 passed; 1 failed in 1.3m | product/data: e-mail code submission returned HTTP 400 on a duplicate device database constraint; phone flow passed | 0 | 0 | none | not run; failure is outside the repairable boundary | NON-TEST BLOCKER |
 | `tests-dev/api/users/update-user.spec.ts` | api | 1/1 passed in 44.4s | already-green | 0 | 0 | none | no separate run; exact baseline passed | ALREADY GREEN |
 | `tests-dev/api/users/user-lifecycle.spec.ts` | api | 2/2 passed in 3.9s | already-green | 0 | 0 | none | no separate run; exact baseline passed | ALREADY GREEN |
+| `tests-dev/ui/articles/articles-tab.spec.ts` | ui | 0/1 passed; 1 failed in 16.5s | product/data: both article APIs returned HTTP 200 with zero records, leaving the list empty | 0 | 0 | none | not run; failure is outside the repairable boundary | NON-TEST BLOCKER |
 
 ### `tests-dev/api/experts/expert-booking.spec.ts`
 
@@ -115,3 +116,20 @@ run (e-mail in 6.6 seconds and phone in 9.4 seconds), as did the other four
 user tests. Playwright's last-run result names exactly the two expert test IDs
 as failed. No locator-drift or synchronization failure appeared, no healer or
 provider call was made, and no test file changed.
+
+## UI file baselines and healing
+
+### `tests-dev/ui/articles/articles-tab.spec.ts`
+
+The exact one-worker, zero-retry baseline exited 1 with 0/1 passing in 16.5
+seconds. User creation, profile completion, card attachment, login, navigation
+to `/articles/`, the page-title assertion, and cleanup all completed. The next
+spec-owned assertion could not find the `Popular Articles` heading. The
+retained screenshot and accessibility snapshot show the Articles heading and
+footer with an otherwise empty content area. Redacted-safe trace inspection
+shows `GET /api/articles/popular/` returned HTTP 200 with an empty array and
+`GET /api/articles/` returned HTTP 200 with `data` as an empty array. This is a
+dev product/data blocker, not locator drift or synchronization owned by the
+test. The healer was therefore not invoked, no provider call or attempt
+occurred, and no test file changed. Playwright also emitted the non-actionable
+runtime warning that `NO_COLOR` was ignored because `FORCE_COLOR` was set.
