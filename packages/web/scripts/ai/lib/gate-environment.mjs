@@ -42,6 +42,21 @@ const KNOWN_SECRET_NAMES = new Set([
   'ANTHROPIC_API_KEY', 'OPENAI_API_KEY'
 ]);
 export const GATE_ENVIRONMENT_PROFILES = ['static', 'local-runtime', 'external-runtime'];
+const MIN_REDACTABLE_SECRET_LENGTH = 4;
+
+export function assertRedactableSecretValues(secretValues = []) {
+  const hasUnsafeShortValue = Array.isArray(secretValues)
+    && secretValues.some((value) => (
+      typeof value === 'string'
+      && value.length > 0
+      && value.length < MIN_REDACTABLE_SECRET_LENGTH
+    ));
+  if (hasUnsafeShortValue) {
+    throw new Error(
+      'Sensitive environment values shorter than four characters cannot be safely redacted for AI provider use.'
+    );
+  }
+}
 
 // Actual secret VALUES present in the runner's environment, for value-based
 // redaction of text that may echo them (e.g. Playwright error messages).
@@ -49,8 +64,9 @@ export function knownSecretEnvValues(source = process.env) {
   const values = [];
   for (const name of KNOWN_SECRET_NAMES) {
     const value = String(source[name] ?? '').trim();
-    if (value.length >= 4) values.push(value);
+    if (value) values.push(value);
   }
+  assertRedactableSecretValues(values);
   return values;
 }
 

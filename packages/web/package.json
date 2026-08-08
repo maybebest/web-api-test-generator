@@ -5,7 +5,7 @@
   "description": "AI-assisted Playwright AQA framework for deterministic web automated testing.",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "lint": "eslint playwright.config.ts tests tests-dev pages fixtures data automation --max-warnings=0",
+    "lint": "eslint playwright.config.ts tests pages fixtures data automation --max-warnings=0",
     "fixture:start": "node local-fixture/server.mjs",
     "test:e2e": "playwright test",
     "test:e2e:local": "node scripts/ai/run-local-playwright.mjs",

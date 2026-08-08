@@ -507,22 +507,46 @@ test('CLI arg parsing and standalone project inference', () => {
   assert.equal(authCandidate, '/web/tests/regression/.foo.heal-run-a1.candidate.authenticated.spec.ts');
 });
 
-test('default candidate lint uses each package manager with the static gate environment', () => {
+function eslintReport(filePath, messages = []) {
+  return {
+    filePath,
+    messages,
+    errorCount: messages.filter((message) => message.severity === 2).length,
+    warningCount: messages.filter((message) => message.severity === 1).length,
+    fatalErrorCount: messages.filter((message) => message.fatal).length
+  };
+}
+
+function eslintComparisonResult(targetPath, candidatePath, targetMessages = [], candidateMessages = []) {
+  const hasFindings = targetMessages.length > 0 || candidateMessages.length > 0;
+  return {
+    status: hasFindings ? 1 : 0,
+    stdout: JSON.stringify([
+      eslintReport(targetPath, targetMessages),
+      eslintReport(candidatePath, candidateMessages)
+    ]),
+    stderr: ''
+  };
+}
+
+test('default candidate lint compares target and candidate with each package manager in the static gate environment', () => {
+  const targetPath = '/web/tests/flow.spec.ts';
   const candidatePath = '/web/tests/.flow.candidate.spec.ts';
   for (const [packageManager, expectedCommand, expectedArgs] of [
-    ['npm', 'npx', ['eslint', candidatePath, '--max-warnings=0']],
-    ['pnpm', 'pnpm', ['exec', 'eslint', candidatePath, '--max-warnings=0']],
-    ['yarn', 'yarn', ['eslint', candidatePath, '--max-warnings=0']]
+    ['npm', 'npx', ['eslint', targetPath, candidatePath, '--format=json', '--max-warnings=0']],
+    ['pnpm', 'pnpm', ['exec', 'eslint', targetPath, candidatePath, '--format=json', '--max-warnings=0']],
+    ['yarn', 'yarn', ['eslint', targetPath, candidatePath, '--format=json', '--max-warnings=0']]
   ]) {
     const calls = [];
     const result = lintCandidate({
+      targetPath,
       candidatePath,
       webRoot: '/web',
       packageManager,
       env: { PATH: '/tools', API_TOKEN: 'private-token', UNRELATED_CANARY: 'must-not-pass' },
       commandRunner: (command, args, options) => {
         calls.push({ command, args, options });
-        return { status: 0, stdout: '', stderr: '' };
+        return eslintComparisonResult(targetPath, candidatePath);
       }
     });
     assert.deepEqual(result, { passed: true, issues: [] });
@@ -537,12 +561,107 @@ test('default candidate lint uses each package manager with the static gate envi
   }
 
   const rejected = lintCandidate({
+    targetPath,
     candidatePath,
     webRoot: '/web',
     packageManager: 'npm',
     commandRunner: () => ({ status: null, signal: 'SIGTERM', stderr: 'PRIVATE_LINT_CANARY' })
   });
   assert.deepEqual(rejected, { passed: false, issues: ['ESLint did not accept the heal candidate.'] });
+});
+
+test('differential lint accepts unchanged inherited findings on a current root-style target', () => {
+  const webRoot = path.resolve(import.meta.dirname, '../../../../..');
+  const result = lintCandidate({
+    targetPath: 'tests/ui/navigation/site-navigation.spec.ts',
+    candidatePath: 'tests-dev/ui/navigation/site-navigation.spec.ts',
+    webRoot,
+    packageManager: 'npm'
+  });
+
+  assert.deepEqual(result, { passed: true, issues: [] });
+});
+
+test('differential lint rejects a newly introduced candidate finding', () => {
+  const targetPath = '/web/tests/flow.spec.ts';
+  const candidatePath = '/web/tests/.flow.candidate.spec.ts';
+  const inherited = {
+    ruleId: '@typescript-eslint/no-unused-vars',
+    severity: 2,
+    message: "'page' is defined but never used."
+  };
+  const introduced = {
+    ruleId: 'playwright/no-wait-for-timeout',
+    severity: 2,
+    message: 'Unexpected use of page.waitForTimeout().'
+  };
+  const result = lintCandidate({
+    targetPath,
+    candidatePath,
+    webRoot: '/web',
+    packageManager: 'npm',
+    commandRunner: () => eslintComparisonResult(
+      targetPath,
+      candidatePath,
+      [inherited],
+      [inherited, introduced]
+    )
+  });
+
+  assert.equal(result.passed, false);
+  assert.match(result.issues.join(' '), /new or increased candidate finding/i);
+});
+
+test('differential lint rejects an increased occurrence of an inherited finding', () => {
+  const targetPath = '/web/tests/flow.spec.ts';
+  const candidatePath = '/web/tests/.flow.candidate.spec.ts';
+  const inherited = {
+    ruleId: '@typescript-eslint/no-unused-vars',
+    severity: 2,
+    message: "'page' is defined but never used."
+  };
+  const result = lintCandidate({
+    targetPath,
+    candidatePath,
+    webRoot: '/web',
+    packageManager: 'npm',
+    commandRunner: () => eslintComparisonResult(
+      targetPath,
+      candidatePath,
+      [inherited],
+      [inherited, inherited]
+    )
+  });
+
+  assert.equal(result.passed, false);
+  assert.match(result.issues.join(' '), /new or increased candidate finding/i);
+});
+
+test('differential lint rejects malformed or fatal ESLint results', () => {
+  const targetPath = '/web/tests/flow.spec.ts';
+  const candidatePath = '/web/tests/.flow.candidate.spec.ts';
+  const malformed = lintCandidate({
+    targetPath,
+    candidatePath,
+    webRoot: '/web',
+    packageManager: 'npm',
+    commandRunner: () => ({ status: 1, stdout: 'not json', stderr: '' })
+  });
+  const fatal = lintCandidate({
+    targetPath,
+    candidatePath,
+    webRoot: '/web',
+    packageManager: 'npm',
+    commandRunner: () => eslintComparisonResult(targetPath, candidatePath, [], [{
+      ruleId: null,
+      severity: 2,
+      fatal: true,
+      message: 'Parsing error'
+    }])
+  });
+
+  assert.deepEqual(malformed, { passed: false, issues: ['ESLint did not accept the heal candidate.'] });
+  assert.deepEqual(fatal, { passed: false, issues: ['ESLint did not accept the heal candidate.'] });
 });
 
 function makeHealWorkspace() {
@@ -2580,6 +2699,38 @@ test('known secret values are removed from evidence by value, not just by shape'
   });
   assert.match(evidence[0], /<redacted>/);
   assert.doesNotMatch(evidence[0], /hunter2-pass/);
+});
+
+test('short known secret values are rejected instead of partially redacted', () => {
+  for (const value of ['q', 'qa', 'qax']) {
+    assert.throws(
+      () => redactKnownSecretValues(`login failed for ${value}`, [value]),
+      /cannot be safely redacted/i
+    );
+  }
+});
+
+test('short sensitive values stop healing before the provider is called', async () => {
+  for (const value of ['q', 'qa', 'qax']) {
+    let providerCalls = 0;
+    await assert.rejects(
+      healTestSource({
+        testPath: 'tests/regression/flow.spec.ts',
+        source: CLEAN_SOURCE,
+        evidence: ['flow works: locator timeout'],
+        attempt: 1,
+        maxAttempts: 3,
+        repositoryContext: { importedSources: [], manualChangeRequired: false },
+        env: { AI_AUTOHEAL_ENABLED: 'true', WEB_BASIC_AUTH_USER: value },
+        runBrainImpl: async () => {
+          providerCalls += 1;
+          return { text: '```typescript\nconst healed = true;\n```' };
+        }
+      }),
+      /cannot be safely redacted/i
+    );
+    assert.equal(providerCalls, 0);
+  }
 });
 
 test('healSingleTest canonicalizes absolute --test paths to repo-relative targets', async () => {

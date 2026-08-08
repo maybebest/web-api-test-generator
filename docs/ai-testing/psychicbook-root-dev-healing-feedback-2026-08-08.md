@@ -388,3 +388,63 @@ manual or healer-authored change during the campaign.
   non-repairable blockers before invocation. Repair-generation quality was not
   exercised because no failure met the locator-drift or synchronization
   boundary.
+
+## Final whole-branch fix wave
+
+This was a static framework-only follow-up. The live PsychicBook suite was not
+rerun, and every live result recorded above remains unchanged.
+
+### Fixed review findings
+
+- Package lint no longer names the deleted `packages/web/tests-dev` operand.
+  `npm run -w packages/web lint` now exits 0 with the remaining package paths
+  still checked under `--max-warnings=0`.
+- Healer candidate lint is differential. ESLint runs once over the immutable
+  target and candidate with JSON output; unchanged target findings may remain,
+  while every new finding, increased occurrence, fatal parse result, malformed
+  report, or abnormal lint exit rejects the candidate. A real comparison of
+  the byte-identical root and dev `site-navigation.spec.ts` files accepted
+  their four inherited unused-fixture findings, while focused synthetic
+  regressions rejected a new rule finding and a duplicated inherited finding.
+  No lint rule, package policy, or generated-test policy was disabled.
+- Root `.ai-runs`, exact hidden healer candidates, and exact atomic promotion
+  temporaries under both `tests` and `tests-dev` are ignored. A deterministic
+  `git check-ignore --no-index --stdin` regression accepted nine representative
+  root/nested artifact paths and rejected four ordinary/hidden test controls.
+- Sensitive values of one to three characters now fail closed before AI
+  provider use because reliable substring redaction would also corrupt
+  unrelated evidence. The error exposes neither the value nor environment
+  contents. Ordinary external Playwright runtime still accepts these values,
+  including the documented short identity shape, and existing exact-value
+  redaction for values of four or more characters is unchanged.
+- Every static Playwright `--list` subprocess now selects a non-persistent CLI
+  reporter. Both configuration test paths preserve a pre-existing HTML-report
+  sentinel in regression coverage.
+- Coverage now checks all exact dev endpoints, the unchanged stage defaults,
+  actual Playwright `rootDir` and project `testDir` routing to `tests-dev`, and
+  local-runtime blanking of `WEB_BASIC_AUTH_USER`,
+  `WEB_BASIC_AUTH_PASSWORD`, `AGENT_PASSWORD`, `ADMIN_EMAIL`, and
+  `ADMIN_PASSWORD`.
+- Root configuration comments now show the existing `npx playwright test`
+  commands for API-only, UI-only, and combined execution.
+
+### Final static verification
+
+| Check | Exit | Observed result |
+|---|---:|---|
+| Focused RED/Green regressions | expected nonzero, then 0 | Ignore, report-sentinel, short-secret, and differential-lint tests failed for the reviewed reasons before implementation and passed afterward |
+| Required aggregate Node command | 0 | 117 passed, 0 failed |
+| `npx tsc --noEmit` | 0 | No diagnostics |
+| `npm run -w packages/web lint` | 0 | Package lint passed with `--max-warnings=0` |
+| Exact Task 8 root ESLint audit | 1 | 54 inherited findings: 36 errors and 18 warnings |
+| `npm run api:secrets` | 0 | No secrets or PII in 190 eligible configured files |
+| `diff -qr tests tests-dev` | 0 | No differences |
+| Canonical pre-run SHA-256 comparison | 0 | All 15 tracked `tests` files match the preserved pre-run snapshot |
+
+The root lint audit remains intentionally candid rather than being hidden by
+suppression: two supported root `config/*.mjs` files still lack declared Node
+globals, and the canonical/dev trees retain mirrored business-test style debt
+(17 errors and 9 warnings per tree). Differential candidate lint addresses the
+healer integration defect without pretending that this inherited full-tree
+debt is clean. No file under `tests`, `tests-dev`, or `packages/web/tests` was
+changed in this fix wave.

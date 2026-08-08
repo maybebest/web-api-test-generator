@@ -8,7 +8,10 @@ import {
   hasKnownSecretShape,
   redactSecretMaterial
 } from '../lib/secret-safety.mjs';
-import { knownSecretEnvValues } from '../lib/gate-environment.mjs';
+import {
+  assertRedactableSecretValues,
+  knownSecretEnvValues
+} from '../lib/gate-environment.mjs';
 import { normalizeHealRepositoryContext } from './test-heal-context.mjs';
 
 export const TEST_HEAL_SCHEMA = 'playwright-test-heal/v1';
@@ -169,6 +172,7 @@ function reportFileMatchesTarget(reportFile, target) {
 // no recognizable shape, so value-based removal is the only reliable cover.
 export function redactKnownSecretValues(text, secretValues = []) {
   let result = String(text ?? '');
+  assertRedactableSecretValues(secretValues);
   const ordered = [...new Set(secretValues.filter((value) => typeof value === 'string' && value.length >= 4))]
     .sort((left, right) => right.length - left.length);
   for (const value of ordered) {

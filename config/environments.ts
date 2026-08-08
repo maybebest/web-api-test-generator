@@ -3,7 +3,7 @@ import './load-dotenv';
 /**
  * All environments live here. To switch, set TEST_ENV (see .env.example):
  *
- *   TEST_ENV=stage npm run test:api
+ *   TEST_ENV=stage npx playwright test --project=api
  *
  * Nothing else in the project should hard-code a host name. If a test or a
  * page needs a URL, it takes it from `environment` below.

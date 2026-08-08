@@ -9,9 +9,9 @@ const selectedRoot = resolveRootTestDir(process.env);
 
 /**
  * Suites:
- *   npm run test:api  - API tests only        (tests/api)
- *   npm run test:ui   - UI tests only         (tests/ui)
- *   npm test          - everything, API first (both projects)
+ *   npx playwright test --project=api  - API tests only (tests/api)
+ *   npx playwright test --project=ui   - UI tests only  (tests/ui)
+ *   npx playwright test                - both projects
  *
  * Every URL comes from config/environments.ts, so switching environment is
  * TEST_ENV=<name> and nothing else.

@@ -589,16 +589,17 @@ export function gitTargetDirty(target, webRoot = process.cwd()) {
 
 export function lintCandidate({
   candidatePath,
+  targetPath,
   webRoot = process.cwd(),
   env = process.env,
   commandRunner = spawnSync,
   packageManager = detectPackageManager(webRoot)
 }) {
   const [command, args] = packageManager === 'pnpm'
-    ? ['pnpm', ['exec', 'eslint', candidatePath, '--max-warnings=0']]
+    ? ['pnpm', ['exec', 'eslint', targetPath, candidatePath, '--format=json', '--max-warnings=0']]
     : packageManager === 'yarn'
-      ? ['yarn', ['eslint', candidatePath, '--max-warnings=0']]
-      : ['npx', ['eslint', candidatePath, '--max-warnings=0']];
+      ? ['yarn', ['eslint', targetPath, candidatePath, '--format=json', '--max-warnings=0']]
+      : ['npx', ['eslint', targetPath, candidatePath, '--format=json', '--max-warnings=0']];
   try {
     const result = commandRunner(command, args, {
       cwd: webRoot,
@@ -607,9 +608,60 @@ export function lintCandidate({
       maxBuffer: MAX_HEAL_ARCHIVE_FILE_BYTES,
       shell: false
     });
-    if (result?.status === 0 && !result.signal && !result.error) {
-      return { passed: true, issues: [] };
+    if (![0, 1].includes(result?.status) || result.signal || result.error) {
+      return { passed: false, issues: ['ESLint did not accept the heal candidate.'] };
     }
+
+    const reports = JSON.parse(String(result.stdout ?? ''));
+    if (!Array.isArray(reports)) {
+      return { passed: false, issues: ['ESLint did not accept the heal candidate.'] };
+    }
+    const reportFor = (filePath) => {
+      const expectedPath = path.resolve(webRoot, filePath);
+      const matches = reports.filter((report) => (
+        report
+        && typeof report.filePath === 'string'
+        && path.resolve(webRoot, report.filePath) === expectedPath
+      ));
+      return matches.length === 1 ? matches[0] : null;
+    };
+    const findingCounts = (report) => {
+      if (!report || !Array.isArray(report.messages)) return null;
+      if ((report.fatalErrorCount ?? 0) > 0 || report.messages.some((message) => message?.fatal)) {
+        return null;
+      }
+      const counts = new Map();
+      for (const message of report.messages) {
+        if (!message
+          || !Number.isInteger(message.severity)
+          || typeof message.message !== 'string') return null;
+        const fingerprint = JSON.stringify([
+          message.ruleId ?? null,
+          message.severity,
+          message.message
+        ]);
+        counts.set(fingerprint, (counts.get(fingerprint) ?? 0) + 1);
+      }
+      return counts;
+    };
+    const targetFindings = findingCounts(reportFor(targetPath));
+    const candidateFindings = findingCounts(reportFor(candidatePath));
+    if (!targetFindings || !candidateFindings) {
+      return { passed: false, issues: ['ESLint did not accept the heal candidate.'] };
+    }
+    let increasedFindings = 0;
+    for (const [fingerprint, count] of candidateFindings) {
+      increasedFindings += Math.max(0, count - (targetFindings.get(fingerprint) ?? 0));
+    }
+    if (increasedFindings > 0) {
+      return {
+        passed: false,
+        issues: [
+          `ESLint found ${increasedFindings} new or increased candidate finding${increasedFindings === 1 ? '' : 's'}.`
+        ]
+      };
+    }
+    return { passed: true, issues: [] };
   } catch {
     // A thrown runner is an abnormal lint exit and receives the same bounded,
     // non-provider-controlled diagnostic as a nonzero process status.
@@ -1599,6 +1651,7 @@ export async function runCli() {
   const env = resolvedEnvironment.env;
   let maxAttempts;
   let verifyRuns;
+  let secretValues;
   try {
     if (!autoHealEnabled(env)) {
       console.error('Auto-heal is disabled; set AI_AUTOHEAL_ENABLED=true (environment or .env) to allow a repair proposal.');
@@ -1611,6 +1664,7 @@ export async function runCli() {
     verifyRuns = args.verifyRuns !== undefined
       ? autoHealVerifyRuns({ AI_AUTOHEAL_VERIFY_RUNS: args.verifyRuns })
       : autoHealVerifyRuns(env);
+    secretValues = knownSecretEnvValues(env);
   } catch (error) {
     console.error(error.message);
     process.exitCode = 1;
@@ -1637,7 +1691,7 @@ export async function runCli() {
     } catch (error) {
       results.push(sanitizePublicResult(
         { status: 'error', target: testPath, attemptsUsed: 0, issues: [error.message] },
-        knownSecretEnvValues(env)
+        secretValues
       ));
     }
   }
