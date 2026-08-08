@@ -173,6 +173,36 @@ synchronization. The healer was not invoked, no provider call or attempt
 occurred, and no test file changed. The only runtime warning was the same
 non-actionable `NO_COLOR`/`FORCE_COLOR` notice.
 
+### `tests-dev/ui/coupons/discount-lifecycle.spec.ts`
+
+The exact one-worker, zero-retry baseline exited 1 with 0/1 passing in 9.7
+seconds. The run completed user setup, card attachment, browser login, and
+cleanup, but stopped before any booking, session, price, message, or coupon
+step. Its shared `onlineAgents` fixture failed while logging in the first pool
+agent, with the stack at `api/facades/AgentFacade.ts:37` through
+`fixtures/api-test.ts:142`. Redacted-safe trace inspection records `POST
+/profile/agent/authorization` as HTTP 400 with domain status `3022` and the
+detail `Login or password is not correct`; the screenshot shows only the
+signed-in user page loading. This is an authentication/shared-owner blocker,
+not test-owned locator drift or synchronization. The healer was not invoked,
+no provider call or attempt occurred, and no test file changed. The only
+runtime warning was the non-actionable `NO_COLOR`/`FORCE_COLOR` notice.
+
+### `tests-dev/ui/horoscope/daily-horoscope.spec.ts`
+
+The exact one-worker, zero-retry baseline exited 1 with 0/1 passing in 17.1
+seconds. User setup, card attachment, browser login, and cleanup completed, but
+the run stopped before the first horoscope step because the shared
+`onlineAgents` fixture could not log in its first pool agent. The stack is at
+`api/facades/AgentFacade.ts:37` through `fixtures/api-test.ts:142`.
+Redacted-safe trace inspection records `POST /profile/agent/authorization` as
+HTTP 400 with domain status `3022` and the detail `Login or password is not
+correct`; the screenshot shows the signed-in user page still loading. This is
+an authentication/shared-owner blocker, not test-owned locator drift or
+synchronization. The healer was not invoked, no provider call or attempt
+occurred, and no test file changed. The only runtime warning was the same
+non-actionable `NO_COLOR`/`FORCE_COLOR` notice.
+
 ### `tests-dev/ui/match-advisor/find-your-match.spec.ts`
 
 The exact one-worker, zero-retry baseline exited 0 with 2/2 passing in 15.6
@@ -270,32 +300,91 @@ emitted the non-actionable warning that `NO_COLOR` was ignored because
 `FORCE_COLOR` was set; there were no healer policy warnings because there were
 no eligible healer cycles.
 
-### `tests-dev/ui/coupons/discount-lifecycle.spec.ts`
+## Final verification and healer feedback
 
-The exact one-worker, zero-retry baseline exited 1 with 0/1 passing in 9.7
-seconds. The run completed user setup, card attachment, browser login, and
-cleanup, but stopped before any booking, session, price, message, or coupon
-step. Its shared `onlineAgents` fixture failed while logging in the first pool
-agent, with the stack at `api/facades/AgentFacade.ts:37` through
-`fixtures/api-test.ts:142`. Redacted-safe trace inspection records `POST
-/profile/agent/authorization` as HTTP 400 with domain status `3022` and the
-detail `Login or password is not correct`; the screenshot shows only the
-signed-in user page loading. This is an authentication/shared-owner blocker,
-not test-owned locator drift or synchronization. The healer was not invoked,
-no provider call or attempt occurred, and no test file changed. The only
-runtime warning was the non-actionable `NO_COLOR`/`FORCE_COLOR` notice.
+### Static verification
 
-### `tests-dev/ui/horoscope/daily-horoscope.spec.ts`
+The three Task 8 static commands were run exactly as specified on the final
+tree:
 
-The exact one-worker, zero-retry baseline exited 1 with 0/1 passing in 17.1
-seconds. User setup, card attachment, browser login, and cleanup completed, but
-the run stopped before the first horoscope step because the shared
-`onlineAgents` fixture could not log in its first pool agent. The stack is at
-`api/facades/AgentFacade.ts:37` through `fixtures/api-test.ts:142`.
-Redacted-safe trace inspection records `POST /profile/agent/authorization` as
-HTTP 400 with domain status `3022` and the detail `Login or password is not
-correct`; the screenshot shows the signed-in user page still loading. This is
-an authentication/shared-owner blocker, not test-owned locator drift or
-synchronization. The healer was not invoked, no provider call or attempt
-occurred, and no test file changed. The only runtime warning was the same
-non-actionable `NO_COLOR`/`FORCE_COLOR` notice.
+| Check | Exit | Observed result |
+|---|---:|---|
+| Node configuration, environment-gate, and healer-contract tests | 0 | 22 passed, 0 failed in 1.9 seconds |
+| `npx tsc --noEmit` | 0 | No diagnostics in 1.3 seconds |
+| Required root ESLint command with `--max-warnings=0` | 1 | 59 findings: 41 errors and 18 warnings in 1.4 seconds |
+
+The lint result is a concrete framework/static-policy defect, not a green
+gate. Seven `no-undef` errors show that the root policy does not provide Node
+globals to the supported `config/*.mjs` runtime files. The remaining findings
+are duplicated across the canonical and dev-mirror suites: each tree has 17
+unused-fixture/value errors and 9 Playwright style warnings. The exact final
+lint command therefore cannot pass against the copied suite it is required to
+check. Task 8 did not change either test tree to hide these findings.
+
+### Complete 27-test dev run
+
+The exact final command used `PLAYWRIGHT_TEST_SUITE_ROOT=tests-dev`,
+`TEST_ENV=dev`, one worker, and zero retries. It collected all 27 tests and
+exited 1 with 15 passing and 12 failing in 13.3 minutes. The API project was
+6/8; the UI project was 9/19.
+
+| Final-run class | Tests | Evidence-backed disposition |
+|---|---:|---|
+| API authentication/shared-owner | 1 | Agent authorization returned HTTP 400 before the booking body |
+| API authentication/data/shared-owner | 1 | Administrator lookup returned HTTP 400 before expert generation |
+| UI authentication/shared-owner | 5 | Booking, chat, coupons, horoscope, and sessions stopped at the same HTTP 400 agent authorization fixture boundary |
+| UI product/data | 2 | Both article scenarios rendered an empty list; the popular endpoint returned HTTP 200 with an empty array and the list endpoint returned HTTP 200 with `data` as an empty array |
+| UI product/data/shared-owner | 3 | About Me, Customer Support, and Payments remained on e-mail verification; each code submission returned HTTP 400 with a duplicate `device_id`/`brand` unique-constraint data error |
+
+The three profile failures stopped in `signedInEmailUser` setup before their
+spec bodies. Their screenshots show all four code digits plus `An error
+occurred while registration by code.` The `/psychics` wait at
+`fixtures/ui-test.ts:138` is the final symptom, not synchronization drift. The
+earlier full-UI Next.js chunk-503 blocker did not reproduce: the Psychics-menu
+scenario passed all ten destinations in this final run. No final failure was
+locator drift or test-owned synchronization, so no final healer call was
+warranted.
+
+### Canonical integrity
+
+The fresh `/tmp/psychicbook-canonical-after.sha256` snapshot contains the same
+15 tracked canonical files as the pre-runtime snapshot. The required checksum
+diff exited 0 with no output, and `git diff --name-only -- tests` also returned
+no paths. No canonical test changed. The dev mirrors likewise received no
+manual or healer-authored change during the campaign.
+
+### Observed healer quality, cost, and improvement points
+
+- The only real healer invocation in this campaign was Task 4's
+  `tests-dev/api/users/register-user.spec.ts` baseline. It correctly returned
+  `already-green` after 2/2 tests passed in 17.5 seconds. It made zero provider
+  calls, consumed zero repair attempts, produced no proposal, and applied no
+  diff. The later intermittent duplicate-device backend failures do not make
+  that time-specific green classification incorrect.
+- No incorrect healer classification was observed. The failing API and UI
+  cases were classified from runtime evidence before healer invocation, so
+  automated healer classification quality on those classes was not exercised.
+  There were no unnecessary provider calls or repair attempts anywhere in the
+  campaign.
+- No healer policy warning, provider timeout, or promotion warning occurred.
+  Playwright repeatedly warned that `NO_COLOR` was ignored because
+  `FORCE_COLOR` was set; that warning did not affect outcomes and was not
+  actionable for this campaign. The 59 lint findings are actionable framework
+  debt, but fixing canonical/dev test style or root lint configuration is
+  outside this evidence-only task.
+- The final unified runtime cost was 13.3 minutes, compared with 56.5 seconds
+  for the earlier complete API project and 9.4 minutes for the earlier complete
+  UI project. The three static checks together took about 4.5 seconds. Most
+  runtime cost came from serial live UI navigation/profile setup and the three
+  60-second e-mail-login timeouts. Readiness preflights for agent/admin identity,
+  article seed data, and duplicate-device state would make these external
+  blockers fail earlier without weakening tests.
+- Safe healer-applied test changes: none. Provider calls: zero. Repair
+  attempts: zero. Proposed or promoted diffs: none. The campaign correctly
+  excluded authentication, product, data, network, and shared-fixture-owner
+  failures instead of modifying copied tests around them.
+- No additional real healer defect was observed. For the remaining cycles the
+  campaign enforced the framework's repair boundary correctly by excluding
+  non-repairable blockers before invocation. Repair-generation quality was not
+  exercised because no failure met the locator-drift or synchronization
+  boundary.
