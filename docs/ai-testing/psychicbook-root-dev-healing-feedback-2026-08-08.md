@@ -40,6 +40,7 @@ Totals: 8 API tests in 6 files; 19 UI tests in 9 files.
 | `tests-dev/api/users/user-lifecycle.spec.ts` | api | 2/2 passed in 3.9s | already-green | 0 | 0 | none | no separate run; exact baseline passed | ALREADY GREEN |
 | `tests-dev/ui/articles/articles-tab.spec.ts` | ui | 0/1 passed; 1 failed in 16.5s | product/data: both article APIs returned HTTP 200 with zero records, leaving the list empty | 0 | 0 | none | not run; failure is outside the repairable boundary | NON-TEST BLOCKER |
 | `tests-dev/ui/booking/book-with-article-author.spec.ts` | ui | 0/1 passed; 1 failed in 9.7s | authentication/shared-owner: agent authorization returned HTTP 400 in `api/facades/AgentFacade.ts` before the spec body | 0 | 0 | none | not run; failure is outside the repairable boundary | NON-TEST BLOCKER |
+| `tests-dev/ui/chat/user-agent-chat.spec.ts` | ui | 0/1 passed; 1 failed in 10.0s | authentication/shared-owner: agent authorization returned HTTP 400 in `api/facades/AgentFacade.ts` before the spec body | 0 | 0 | none | not run; failure is outside the repairable boundary | NON-TEST BLOCKER |
 
 ### `tests-dev/api/experts/expert-booking.spec.ts`
 
@@ -150,3 +151,18 @@ blocker, not test-owned locator drift or synchronization. The healer was not
 invoked, no provider call or attempt occurred, and no test file changed.
 Playwright again emitted the non-actionable `NO_COLOR`/`FORCE_COLOR` runtime
 warning.
+
+### `tests-dev/ui/chat/user-agent-chat.spec.ts`
+
+The exact one-worker, zero-retry baseline exited 1 with 0/1 passing in 10.0
+seconds. User setup, card attachment, browser login, and cleanup completed, but
+the shared `onlineAgents` fixture failed before the booking step while logging
+in the first agent in the pool. The retained stack again leads through
+`api/facades/AgentFacade.ts:37` and `fixtures/api-test.ts:142`. Redacted-safe
+trace inspection records `POST /profile/agent/authorization` as HTTP 400 with
+domain status `3022` and the detail `Login or password is not correct`; the
+screenshot shows the signed-in user page in its loading state. This is an
+authentication/shared-owner blocker, not test-owned locator drift or
+synchronization. The healer was not invoked, no provider call or attempt
+occurred, and no test file changed. The only runtime warning was the same
+non-actionable `NO_COLOR`/`FORCE_COLOR` notice.
