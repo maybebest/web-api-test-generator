@@ -46,6 +46,7 @@ Totals: 8 API tests in 6 files; 19 UI tests in 9 files.
 | `tests-dev/ui/match-advisor/find-your-match.spec.ts` | ui | 2/2 passed in 15.6s | already-green | 0 | 0 | none | no separate run; exact baseline passed | ALREADY GREEN |
 | `tests-dev/ui/navigation/site-navigation.spec.ts` | ui | 3/4 passed; 1 failed in 3.7m | product/data: the article scenario received HTTP 200 with zero article records; all menu and footer scenarios passed | 0 | 0 | none | not run; failure is outside the repairable boundary | NON-TEST BLOCKER |
 | `tests-dev/ui/profile/profile-sections.spec.ts` | ui | 6/7 passed; 1 failed in 5.3m | product/data/shared-owner: one e-mail login code submission returned HTTP 400 on a duplicate device database constraint before the Terms spec body | 0 | 0 | none | not run; failure is outside the repairable boundary | NON-TEST BLOCKER |
+| `tests-dev/ui/sessions/my-sessions.spec.ts` | ui | 0/1 passed; 1 failed in 10.6s | authentication/shared-owner: agent authorization returned HTTP 400 in `api/facades/AgentFacade.ts` before the spec body | 0 | 0 | none | not run; failure is outside the repairable boundary | NON-TEST BLOCKER |
 
 ### `tests-dev/api/experts/expert-booking.spec.ts`
 
@@ -224,6 +225,21 @@ synchronization. The healer was not invoked, no provider call or attempt
 occurred, and no test file changed. Playwright emitted the non-actionable
 `NO_COLOR`/`FORCE_COLOR` warning, including when the worker restarted after the
 failed Terms setup.
+
+### `tests-dev/ui/sessions/my-sessions.spec.ts`
+
+The exact one-worker, zero-retry baseline exited 1 with 0/1 passing in 10.6
+seconds. User setup, card attachment, browser login, and cleanup completed, but
+the run stopped before creating any of its three bookings. The shared
+`onlineAgents` fixture failed while logging in the first pool agent, with the
+stack at `api/facades/AgentFacade.ts:37` through `fixtures/api-test.ts:142`.
+Redacted-safe trace inspection records `POST /profile/agent/authorization` as
+HTTP 400 with domain status `3022` and the detail `Login or password is not
+correct`; the screenshot shows the signed-in user page still loading. This is
+an authentication/shared-owner blocker, not test-owned locator drift or
+synchronization. The healer was not invoked, no provider call or attempt
+occurred, and no test file changed. The only runtime warning was the
+non-actionable `NO_COLOR`/`FORCE_COLOR` notice.
 
 ### `tests-dev/ui/coupons/discount-lifecycle.spec.ts`
 
