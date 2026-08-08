@@ -45,6 +45,7 @@ Totals: 8 API tests in 6 files; 19 UI tests in 9 files.
 | `tests-dev/ui/horoscope/daily-horoscope.spec.ts` | ui | 0/1 passed; 1 failed in 17.1s | authentication/shared-owner: agent authorization returned HTTP 400 in `api/facades/AgentFacade.ts` before the spec body | 0 | 0 | none | not run; failure is outside the repairable boundary | NON-TEST BLOCKER |
 | `tests-dev/ui/match-advisor/find-your-match.spec.ts` | ui | 2/2 passed in 15.6s | already-green | 0 | 0 | none | no separate run; exact baseline passed | ALREADY GREEN |
 | `tests-dev/ui/navigation/site-navigation.spec.ts` | ui | 3/4 passed; 1 failed in 3.7m | product/data: the article scenario received HTTP 200 with zero article records; all menu and footer scenarios passed | 0 | 0 | none | not run; failure is outside the repairable boundary | NON-TEST BLOCKER |
+| `tests-dev/ui/profile/profile-sections.spec.ts` | ui | 6/7 passed; 1 failed in 5.3m | product/data/shared-owner: one e-mail login code submission returned HTTP 400 on a duplicate device database constraint before the Terms spec body | 0 | 0 | none | not run; failure is outside the repairable boundary | NON-TEST BLOCKER |
 
 ### `tests-dev/api/experts/expert-booking.spec.ts`
 
@@ -201,6 +202,28 @@ synchronization owned by this test. The healer was therefore not invoked, no
 provider call or attempt occurred, and no test file changed. Playwright
 emitted the non-actionable `NO_COLOR`/`FORCE_COLOR` warning, including after
 the worker restarted for the fourth scenario.
+
+### `tests-dev/ui/profile/profile-sections.spec.ts`
+
+The exact one-worker, zero-retry baseline exited 1 with 6/7 passing in 5.3
+minutes. About Me passed its exact zero-balance checks in 44.0 seconds, Privacy
+Policy passed all heading and copy checks in 43.4 seconds, Customer Support
+passed both iframe checks in 44.9 seconds, Coupons passed its empty-state check
+in 27.3 seconds, Payments passed both history checks in 42.7 seconds, and FAQ
+passed the full closed/open/closed animation sequence in 47.7 seconds. The
+Terms case failed during its shared `signedInEmailUser` setup, before the spec
+body. The screenshot and accessibility snapshot show the verification-code
+screen with all four expected digits entered and the visible message `An error
+occurred while registration by code.` Redacted-safe trace inspection shows
+`POST /profile/user/web/registration/code` returned HTTP 400 because the dev
+backend attempted to insert a duplicate `(device_id, brand)` pair and violated
+its unique database constraint. The later `/psychics` URL wait in
+`fixtures/ui-test.ts:138` was only the final symptom. This is a
+product/data/shared-owner blocker, not test-owned locator drift or
+synchronization. The healer was not invoked, no provider call or attempt
+occurred, and no test file changed. Playwright emitted the non-actionable
+`NO_COLOR`/`FORCE_COLOR` warning, including when the worker restarted after the
+failed Terms setup.
 
 ### `tests-dev/ui/coupons/discount-lifecycle.spec.ts`
 
