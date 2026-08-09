@@ -118,6 +118,36 @@ export function stringValue(node) {
   return undefined;
 }
 
+// Neutral stand-in for a template-literal interpolation when folding titles.
+// U+2026 HORIZONTAL ELLIPSIS is deliberately outside [A-Za-z0-9-] so an
+// interpolation can never fake an AC-###/NEG-### token or bridge two static
+// spans into one ("AC-" + wildcard + "001" stays unmatchable), while the
+// static spans stay intact for substring and token checks.
+export const TEMPLATE_INTERPOLATION_WILDCARD = '…';
+
+// Like stringValue, but also folds TemplateExpression titles by concatenating
+// their static text spans around TEMPLATE_INTERPOLATION_WILDCARD. Use this for
+// step/test titles where the STATIC parts carry the reviewable contract
+// (AC ids, NEG ids, salient tokens); interpolated values are intentionally NOT
+// resolved — even a foldable const — so a dynamic AC id never counts as
+// statically proven. stringValue keeps its strict semantics for callers that
+// must reject templates outright (annotation types, waitForLoadState args).
+export function stringValueWithTemplatePlaceholders(node) {
+  if (isStringLiteralLike(node)) {
+    return node.text;
+  }
+
+  if (node && ts.isTemplateExpression(node)) {
+    let result = node.head.text;
+    for (const span of node.templateSpans) {
+      result += TEMPLATE_INTERPOLATION_WILDCARD + span.literal.text;
+    }
+    return result;
+  }
+
+  return undefined;
+}
+
 export function isLiteralExpression(node) {
   if (!node) {
     return false;

@@ -131,6 +131,10 @@ const complexStyles = `
   #pagination { display: flex; gap: .35rem; margin-top: .8rem; align-items: center; }
   #pagination button[aria-current="page"] { background: #0f2038; }
   .modal-backdrop { position: fixed; inset: 0; z-index: 60; background: rgba(15, 32, 56, .55); display: grid; place-items: center; }
+  /* display:grid above overrides the UA [hidden] rule, which left an invisible
+     full-viewport overlay intercepting every click on the page. Keep the
+     backdrop truly hidden until a quick view opens. */
+  .modal-backdrop[hidden] { display: none; }
   .modal { background: #fff; border-radius: 14px; padding: 1.4rem; width: min(92vw, 28rem); display: grid; gap: .7rem; }
   #toast-region { position: fixed; right: 1rem; bottom: 1rem; z-index: 80; display: grid; gap: .5rem; }
   .toast { background: #0f2038; color: #fff; border-radius: 10px; padding: .7rem 1rem; font-size: .85rem; box-shadow: 0 10px 24px rgba(0,0,0,.25); }

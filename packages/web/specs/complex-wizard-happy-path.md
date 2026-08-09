@@ -124,7 +124,7 @@ So that the stateful wizard proves validation, dynamic fields, and async submiss
 |---:|---|---|---|---|---|---|
 | 1 | AC-001 | Open the wizard page | `/complex/wizard` | none | The page shows heading `Account setup wizard` and progress `Step 1 of 3` | Progress line is testid `wizard-progress` |
 | 2 | AC-002 | Enter an invalid email and blur the field | Email input | `wizard.user` | The `role=alert` region lists `Enter a valid email address.` and Next stays disabled | Blur (e.g. Tab away) triggers validation; the region has no testid |
-| 3 | AC-003 | Fill valid name, email, and password | Step 1 inputs | `Wizard User` / `wizard.user@example.com` / `fixture-pass-1` | The alert region clears and Next becomes enabled | Inputs carry testids `wizard-name`, `wizard-email`, `wizard-password` |
+| 3 | AC-003 | Fill valid name, email, and password | Step 1 inputs | `Wizard User` / `wizard.user@example.com` / `fixture-pass-1` | The alert region clears its text content (it stays attached and visible — it never hides) and Next becomes enabled | Inputs carry testids `wizard-name`, `wizard-email`, `wizard-password`; assert empty text, not hidden state |
 | 4 | AC-004 | Advance to step 2 and choose the Business plan | Next button, Plan select | plan `business` | Progress reads `Step 2 of 3` and the company-name field appears | Plan select is testid `wizard-plan`; company field has a visible label and no testid |
 | 5 | AC-004 | Complete step 2 with company and start date | Company and Start date inputs | `Fixture Works Ltd`, `2026-09-01` | Next becomes enabled for step 2 | The date input uses label `Start date` |
 | 6 | AC-005 | Advance to step 3 and review the summary | Next button, review summary | none | The review summary shows the submitted email address | Summary is testid `review-summary`; progress reads `Step 3 of 3` |
@@ -141,7 +141,7 @@ So that the stateful wizard proves validation, dynamic fields, and async submiss
 
 - AC-001: The wizard opens on step 1 showing heading `Account setup wizard` and progress `Step 1 of 3`.
 - AC-002: Blurring an invalid email shows `Enter a valid email address.` in the alert region while Next stays disabled.
-- AC-003: Valid step-1 values clear the alert region and enable Next.
+- AC-003: Valid step-1 values clear the alert region's text content — the region stays attached and visible (assert empty text, never wait for it to hide) — and enable Next.
 - AC-004: Step 2 reveals the company-name field for the Business plan and accepts the start date.
 - AC-005: The step-3 review summary reflects the entered email address.
 - AC-006: Submitting with consent passes the spinner phase and shows confirmation code `CFX-01798`.

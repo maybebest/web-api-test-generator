@@ -45,6 +45,7 @@ export const REQUIRED_PIPELINE_INPUTS = Object.freeze([
   'scripts/ai/lib/salient-tokens.mjs',
   'scripts/ai/lib/secret-safety.mjs',
   'scripts/ai/lib/spec-parser.mjs',
+  'scripts/ai/lib/ts-ast.mjs',
   'scripts/ai/lib/verified-file-read.mjs',
   'scripts/ai/review-generated-test.mjs',
   'scripts/ai/review-recorded-test.mjs',

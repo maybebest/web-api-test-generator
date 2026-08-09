@@ -35,6 +35,7 @@ import {
   parseSourceFile,
   propertyName,
   stringValue,
+  stringValueWithTemplatePlaceholders,
   walk
 } from './lib/ts-ast.mjs';
 import { validateSpecFile } from './validate-flow-spec.mjs';
@@ -117,6 +118,7 @@ export function reviewGeneratedTest({ specPath, testPath, mode = undefined, vali
   const constStringIdentifiers = collectConstStringIdentifiers(sourceFile);
   const stringIdentifiers = collectStringIdentifiers(sourceFile);
   const locatorIdentifiers = collectLocatorIdentifiers(sourceFile);
+  const pageObjectLocatorAliases = collectPageObjectLocatorAliasIdentifiers(sourceFile);
   const expectCalls = collectExpectCalls(sourceFile);
   const stepCalls = collectTestStepCalls(sourceFile);
   const testCases = collectTestCaseCalls(sourceFile);
@@ -129,14 +131,14 @@ export function reviewGeneratedTest({ specPath, testPath, mode = undefined, vali
   checkGeneratedRuntimeCapabilities(sourceFile, issues, { constStringIdentifiers });
   checkGenerationModeShape(generationMode, parsedSpec, testCases, sourceFile, locatorIdentifiers, issues, warnings);
   if (generationMode === 'suite') {
-    checkPerAcceptanceCriteria(parsedSpec, stepCalls, sourceFile, locatorIdentifiers, constLiteralIdentifiers, issues);
+    checkPerAcceptanceCriteria(parsedSpec, stepCalls, sourceFile, locatorIdentifiers, constLiteralIdentifiers, pageObjectLocatorAliases, issues);
     checkPerNegativeCase(parsedSpec.negativeCases, stepCalls, sourceFile, issues);
     checkDataCaseAssertionStrength(sourceFile, issues);
   }
   checkSpecTagDeclarations(parsedSpec, sourceFile, constStringIdentifiers, issues);
   checkDataCaseCoverage(parsedSpec.dataCasesJson.value, countableStringLiterals, issues);
   checkSingleResponsibilityAssertions(testCases, sourceFile, issues);
-  checkExpectCalls(expectCalls, sourceFile, locatorIdentifiers, constLiteralIdentifiers, issues);
+  checkExpectCalls(expectCalls, sourceFile, locatorIdentifiers, constLiteralIdentifiers, pageObjectLocatorAliases, issues);
   checkForbiddenRuntimePatterns(sourceFile, issues);
   checkUnimplementedTestDataHelpers(sourceFile, issues);
   checkForbiddenAgentBrowserRefs(content, issues);
@@ -210,7 +212,7 @@ function checkFixtureImport(sourceFile, issues) {
   }
 }
 
-function checkPerAcceptanceCriteria(parsedSpec, stepCalls, sourceFile, locatorIdentifiers, constLiteralIdentifiers, issues) {
+function checkPerAcceptanceCriteria(parsedSpec, stepCalls, sourceFile, locatorIdentifiers, constLiteralIdentifiers, pageObjectLocatorAliases, issues) {
   const acStepRegistry = new Map();
   for (const step of stepCalls) {
     const dedicatedAcIds = extractDedicatedAcIds(step.title);
@@ -245,7 +247,7 @@ function checkPerAcceptanceCriteria(parsedSpec, stepCalls, sourceFile, locatorId
       const expects = collectExpectCalls(step.body);
       return expects.some((expectCall) =>
         isExpectPollCall(expectCall) ||
-        isValidExpectReceiver(expectCall.arguments[0], sourceFile, locatorIdentifiers, constLiteralIdentifiers)
+        isValidExpectReceiver(expectCall.arguments[0], sourceFile, locatorIdentifiers, constLiteralIdentifiers, pageObjectLocatorAliases)
       );
     });
 
@@ -669,7 +671,7 @@ function checkSingleResponsibilityAssertions(testCases, sourceFile, issues) {
   }
 }
 
-function checkExpectCalls(expectCalls, sourceFile, locatorIdentifiers, constLiteralIdentifiers, issues) {
+function checkExpectCalls(expectCalls, sourceFile, locatorIdentifiers, constLiteralIdentifiers, pageObjectLocatorAliases, issues) {
   if (expectCalls.length === 0) {
     issues.push('Generated test must contain meaningful expect assertions.');
     return;
@@ -702,7 +704,7 @@ function checkExpectCalls(expectCalls, sourceFile, locatorIdentifiers, constLite
       continue;
     }
 
-    if (!isValidExpectReceiver(argument, sourceFile, locatorIdentifiers, constLiteralIdentifiers)) {
+    if (!isValidExpectReceiver(argument, sourceFile, locatorIdentifiers, constLiteralIdentifiers, pageObjectLocatorAliases)) {
       issues.push(`expect(${nodeText(sourceFile, argument)}) must target a Page or Page Object locator expression.`);
     }
 
@@ -1880,7 +1882,11 @@ function collectTestStepCalls(node, sourceFile = node.getSourceFile()) {
       return;
     }
 
-    const title = stringValue(child.arguments[0]) ?? '';
+    // Template-literal titles are legitimate generated output (`Act AC-002:
+    // submit ${dataCase.email}`): fold the static spans so the AC-id and
+    // token checks see them; interpolations become a neutral wildcard that
+    // can never satisfy an AC-### check by itself.
+    const title = stringValueWithTemplatePlaceholders(child.arguments[0]) ?? '';
     const callback = child.arguments[1];
     if (!callback || !(ts.isArrowFunction(callback) || ts.isFunctionExpression(callback))) {
       return;
@@ -1940,7 +1946,7 @@ function isNodeInside(node, parent, sourceFile) {
   return nodeStart >= parentStart && nodeEnd <= parentEnd;
 }
 
-function isValidExpectReceiver(argument, sourceFile, locatorIdentifiers, constLiteralIdentifiers) {
+function isValidExpectReceiver(argument, sourceFile, locatorIdentifiers, constLiteralIdentifiers, pageObjectLocatorAliases = new Set()) {
   if (!argument) {
     return false;
   }
@@ -1953,7 +1959,50 @@ function isValidExpectReceiver(argument, sourceFile, locatorIdentifiers, constLi
     return false;
   }
 
+  // `const badgeObject = somePageObject.badgeObject(); expect(badgeObject)`:
+  // a bare identifier is an accepted receiver only when it provably aliases a
+  // Page-Object locator expression (see collectPageObjectLocatorAliasIdentifiers).
+  if (ts.isIdentifier(argument) && pageObjectLocatorAliases.has(argument.text)) {
+    return true;
+  }
+
   return isLocatorLikeExpression(argument, locatorIdentifiers) || isPageObjectLocatorExpression(argument);
+}
+
+// Identifiers bound (const/let) to a valid Page-Object locator expression per
+// isPageObjectLocatorExpression. Fail-closed on ambiguity: any declaration of
+// the same name with a missing or non-PO initializer, and any later plain
+// reassignment (`alias = ...`), disqualifies the name entirely — a reassigned
+// or shadowed alias never counts, even when the new value is itself a PO
+// locator, because the binding is no longer provably one expression.
+function collectPageObjectLocatorAliasIdentifiers(sourceFile) {
+  const aliases = new Set();
+  const disqualified = new Set();
+
+  walk(sourceFile, (node) => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
+      if (node.initializer && isPageObjectLocatorExpression(node.initializer)) {
+        aliases.add(node.name.text);
+      } else {
+        disqualified.add(node.name.text);
+      }
+      return;
+    }
+
+    if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      ts.isIdentifier(node.left)
+    ) {
+      disqualified.add(node.left.text);
+    }
+  });
+
+  for (const name of disqualified) {
+    aliases.delete(name);
+  }
+
+  return aliases;
 }
 
 function isPageObjectLocatorExpression(argument) {

@@ -2137,6 +2137,150 @@ test('bare ai:spec:validate defaults to validating the specs directory', () => {
   assert.match(result.stdout, /Flow spec directory validation passed: specs/);
 });
 
+// --- Iteration-2 reviewer AST-shape regressions -----------------------------
+// Shape 1 (8/10 blocking diagnostics): template-literal step titles whose
+// STATIC parts carry the AC-### tokens were read as '' by stringValue(), so
+// every such step failed "must name the AC id(s)" and cascaded into
+// covered-ac-ids derived mismatches. Minimal recreation of the archived
+// candidates dbc084f1/35cadb54/00559fb1 (.ai-runs/rejected/*/candidate.ts).
+
+test('reviewer accepts template-literal step titles whose static parts name the AC ids (iteration-2 shape 1)', () => {
+  const workspace = createWorkspace();
+  const specPath = writeSpec(workspace);
+  const body = singleBodyWithExtras('')
+    .replace(
+      "await test.step('Act AC-002: submit checkout request', async () => {",
+      'await test.step(`Act AC-002: submit checkout request for ${checkoutCase.email}`, async () => {'
+    )
+    .replace(
+      "await test.step('Assert AC-003: confirmation request is visible', async () => {",
+      'await test.step(`Assert AC-003: confirmation ${checkoutCase.requestId} is visible`, async () => {'
+    );
+  const testPath = writeGeneratedTest(workspace, specPath, body);
+
+  const result = reviewGeneratedTest({ specPath, testPath });
+
+  assert.equal(result.passed, true, result.issues.join('\n'));
+});
+
+test('reviewer still rejects a template step title whose AC id itself is interpolated (guard)', () => {
+  const workspace = createWorkspace();
+  const specPath = writeSpec(workspace);
+  const body = singleBodyWithExtras('')
+    .replace(
+      "const checkoutCase = {",
+      "const acLabel = 'AC-001';\n\nconst checkoutCase = {"
+    )
+    .replace(
+      "await test.step('Arrange AC-001: open checkout page', async () => {",
+      'await test.step(`Arrange ${acLabel}: open checkout page`, async () => {'
+    );
+  const testPath = writeGeneratedTest(workspace, specPath, body);
+
+  const result = reviewGeneratedTest({ specPath, testPath });
+
+  assert.equal(result.passed, false);
+  assert.match(result.issues.join('\n'), /must name the AC id\(s\)/);
+});
+
+test('reviewer still rejects a template step title with no AC id in its static parts', () => {
+  const workspace = createWorkspace();
+  const specPath = writeSpec(workspace);
+  const body = singleBodyWithExtras('').replace(
+    "await test.step('Arrange AC-001: open checkout page', async () => {",
+    'await test.step(`Arrange: open ${checkoutCase.email} checkout page`, async () => {'
+  );
+  const testPath = writeGeneratedTest(workspace, specPath, body);
+
+  const result = reviewGeneratedTest({ specPath, testPath });
+
+  assert.equal(result.passed, false);
+  assert.match(result.issues.join('\n'), /must name the AC id\(s\)/);
+});
+
+test('template interpolation wildcard cannot merge static spans into a fake AC id', () => {
+  const workspace = createWorkspace();
+  const specPath = writeSpec(workspace);
+  // Static parts "Arrange AC-" + "001..." must NOT be read as AC-001: the
+  // interpolation sits inside the token, so the id is not statically proven.
+  const body = singleBodyWithExtras('').replace(
+    "await test.step('Arrange AC-001: open checkout page', async () => {",
+    'await test.step(`Arrange AC-${checkoutCase.caseId}001: open checkout page`, async () => {'
+  );
+  const testPath = writeGeneratedTest(workspace, specPath, body);
+
+  const result = reviewGeneratedTest({ specPath, testPath });
+
+  assert.equal(result.passed, false);
+  assert.match(result.issues.join('\n'), /must name the AC id\(s\)/);
+});
+
+// Shape 2 (2/10 blocking diagnostics): `const badgeObject = pageObject.badgeObject();
+// expect(badgeObject)` — a bare identifier aliasing a Page-Object locator call
+// was never an accepted expect receiver.
+
+function poAliasBody(finalStepLines) {
+  return singleBodyWithExtras('')
+    .replace(
+      '  async open(): Promise<void> {',
+      '  confirmationRequestLocator(): Locator {\n    return this.confirmationRequest;\n  }\n\n  async open(): Promise<void> {'
+    )
+    .replace(
+      '    await expect(checkoutPage.confirmationRequest).toBeVisible();',
+      finalStepLines
+    );
+}
+
+test('reviewer accepts a const alias of a Page-Object locator call as expect receiver (iteration-2 shape 2)', () => {
+  const workspace = createWorkspace();
+  const specPath = writeSpec(workspace);
+  const testPath = writeGeneratedTest(
+    workspace,
+    specPath,
+    poAliasBody(
+      '    const confirmationRequestObject = checkoutPage.confirmationRequestLocator();\n    await expect(confirmationRequestObject).toBeVisible();'
+    )
+  );
+
+  const result = reviewGeneratedTest({ specPath, testPath });
+
+  assert.equal(result.passed, true, result.issues.join('\n'));
+});
+
+test('reviewer rejects an aliased expect receiver that is reassigned', () => {
+  const workspace = createWorkspace();
+  const specPath = writeSpec(workspace);
+  const testPath = writeGeneratedTest(
+    workspace,
+    specPath,
+    poAliasBody(
+      '    let confirmationRequestObject = checkoutPage.confirmationRequestLocator();\n    confirmationRequestObject = checkoutPage.confirmationRequestLocator();\n    await expect(confirmationRequestObject).toBeVisible();'
+    )
+  );
+
+  const result = reviewGeneratedTest({ specPath, testPath });
+
+  assert.equal(result.passed, false);
+  assert.match(result.issues.join('\n'), /must target a Page or Page Object locator expression/);
+});
+
+test('reviewer rejects a bare-identifier expect receiver aliasing a non-Page-Object expression', () => {
+  const workspace = createWorkspace();
+  const specPath = writeSpec(workspace);
+  const testPath = writeGeneratedTest(
+    workspace,
+    specPath,
+    poAliasBody(
+      '    const confirmationRequestObject = checkoutCase;\n    await expect(confirmationRequestObject).toBeVisible();'
+    )
+  );
+
+  const result = reviewGeneratedTest({ specPath, testPath });
+
+  assert.equal(result.passed, false);
+  assert.match(result.issues.join('\n'), /must target a Page or Page Object locator expression/);
+});
+
 function createWorkspace() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'ai-review-'));
 }
