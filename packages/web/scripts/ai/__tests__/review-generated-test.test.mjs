@@ -2821,3 +2821,133 @@ function writeGeneratedTest(workspace, specPath, body, headerHash = undefined) {
   fs.writeFileSync(testPath, `/* spec: ${specPath} version:1.0.0 sha256:${hash} */\n${body}`);
   return testPath;
 }
+
+// --- Non-blocking grounding warnings (iteration-1 runtime-rejection shapes) ---
+
+function bodyWithPageObjectMembers({ fields = '', constructorLines = '', methods = '' } = {}) {
+  return singleBodyWithExtras('')
+    .replace(
+      '  readonly confirmationRequest: Locator;',
+      `  readonly confirmationRequest: Locator;\n${fields}`
+    )
+    .replace(
+      '    this.confirmationRequest = this.page.getByText(checkoutCase.requestId);',
+      `    this.confirmationRequest = this.page.getByText(checkoutCase.requestId);\n${constructorLines}`
+    )
+    .replace(
+      '  async open(): Promise<void> {',
+      `${methods}  async open(): Promise<void> {`
+    );
+}
+
+test('reviewer warns (non-blocking) on accessible-name literals not traceable to hints or salient tokens', () => {
+  const workspace = createWorkspace();
+  const specPath = writeSpec(workspace);
+  // Iteration-1 rejection shapes: the wizard's hallucinated 'Consent' checkbox
+  // name and the catalog's exact-true 'Price' column header (real header text
+  // was 'Price ↑' because of a CSS ::after sort arrow).
+  const body = bodyWithPageObjectMembers({
+    fields: '  readonly consent: Locator;\n  readonly priceHeader: Locator;',
+    constructorLines: [
+      "    this.consent = this.page.getByRole('checkbox', { name: 'Consent' });",
+      "    this.priceHeader = this.page.getByRole('columnheader', { name: 'Price', exact: true });"
+    ].join('\n')
+  });
+  const testPath = writeGeneratedTest(workspace, specPath, body);
+
+  const result = reviewGeneratedTest({ specPath, testPath });
+
+  assert.equal(result.passed, true, result.issues.join('\n'));
+  const warningsText = result.warnings.join('\n');
+  assert.match(warningsText, /Ungrounded accessible name[^\n]*'Consent'/);
+  assert.match(warningsText, /Ungrounded accessible name[^\n]*'Price'/);
+});
+
+test('reviewer keeps grounded accessible names silent (hints, salient tokens, DOM candidates)', () => {
+  const workspace = createWorkspace();
+  const specPath = writeSpec(workspace, {
+    locatorHints: [
+      "- Prefer `getByRole('heading', { name: 'Checkout' })` for the page heading.",
+      "- Prefer `getByRole('button', { name: 'Place order request' })` for submission.",
+      "- The email field is `getByLabel('Email')`."
+    ]
+  });
+  // 'REQ-1001' is a salient expected value from the data cases; 'Price ↑' is
+  // only known from the DOM artifact candidate list.
+  const body = bodyWithPageObjectMembers({
+    fields: '  readonly requestBadge: Locator;\n  readonly priceHeader: Locator;',
+    constructorLines: [
+      "    this.requestBadge = this.page.getByRole('link', { name: 'REQ-1001', exact: true });",
+      "    this.priceHeader = this.page.getByRole('columnheader', { name: 'Price ↑', exact: true });"
+    ].join('\n')
+  });
+  const testPath = writeGeneratedTest(workspace, specPath, body);
+
+  const withDomCandidates = reviewGeneratedTest({
+    specPath,
+    testPath,
+    domCandidateNames: ['Price ↑']
+  });
+  assert.equal(withDomCandidates.passed, true, withDomCandidates.issues.join('\n'));
+  assert.doesNotMatch(withDomCandidates.warnings.join('\n'), /Ungrounded accessible name/);
+
+  // Without the DOM candidate list, the same 'Price ↑' literal is ungrounded.
+  const withoutDomCandidates = reviewGeneratedTest({ specPath, testPath });
+  assert.equal(withoutDomCandidates.passed, true);
+  assert.match(withoutDomCandidates.warnings.join('\n'), /Ungrounded accessible name[^\n]*'Price ↑'/);
+});
+
+test('reviewer warns (non-blocking) on getAttribute reads guarded by a manual throw', () => {
+  const workspace = createWorkspace();
+  const specPath = writeSpec(workspace);
+  // Iteration-1 catalog rejection shape: aria-sort read via getAttribute with
+  // a hand-rolled throw instead of the auto-retrying toHaveAttribute.
+  const body = bodyWithPageObjectMembers({
+    methods: `  async assertPriceSorted(expectedAriaSort: string): Promise<void> {
+    const actualAriaSort = await this.heading.getAttribute('aria-sort');
+    if (actualAriaSort !== expectedAriaSort) {
+      throw new Error('Expected Price header aria-sort=' + expectedAriaSort);
+    }
+  }
+
+  async assertInlineSorted(): Promise<void> {
+    if ((await this.heading.getAttribute('aria-sort')) !== 'ascending') {
+      throw new Error('Price header is not sorted ascending');
+    }
+  }
+
+`
+  });
+  const testPath = writeGeneratedTest(workspace, specPath, body);
+
+  const result = reviewGeneratedTest({ specPath, testPath });
+
+  assert.equal(result.passed, true, result.issues.join('\n'));
+  const attributeWarnings = result.warnings.filter((warning) => /Non-retrying attribute assertion/.test(warning));
+  assert.equal(attributeWarnings.length, 2, result.warnings.join('\n'));
+  assert.match(attributeWarnings.join('\n'), /toHaveAttribute/);
+});
+
+test('reviewer stays silent on retrying attribute assertions and unguarded attribute reads', () => {
+  const workspace = createWorkspace();
+  const specPath = writeSpec(workspace);
+  const body = bodyWithPageObjectMembers({
+    methods: `  async readSortState(): Promise<string | null> {
+    return this.heading.getAttribute('aria-sort');
+  }
+
+`
+  }).replace(
+    '    await expect(checkoutPage.confirmationRequest).toBeVisible();',
+    [
+      '    await expect(checkoutPage.confirmationRequest).toBeVisible();',
+      "    await expect(checkoutPage.heading).toHaveAttribute('aria-sort', 'ascending');"
+    ].join('\n')
+  );
+  const testPath = writeGeneratedTest(workspace, specPath, body);
+
+  const result = reviewGeneratedTest({ specPath, testPath });
+
+  assert.equal(result.passed, true, result.issues.join('\n'));
+  assert.doesNotMatch(result.warnings.join('\n'), /Non-retrying attribute assertion/);
+});

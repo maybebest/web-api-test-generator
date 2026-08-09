@@ -150,6 +150,8 @@ So that the stateful wizard proves validation, dynamic fields, and async submiss
 
 - Keep all locators in an inline Page Object class inside the generated file; the test body must not create direct Playwright locators.
 - Step-1 inputs and the plan select carry testids (`wizard-name`, `wizard-email`, `wizard-password`, `wizard-plan`); the company, date, consent, Next, and Back controls deliberately have none — use labels and role/name.
+- The consent checkbox's real accessible name is the full sentence `I confirm the details above are correct` — use `getByRole('checkbox', { name: 'I confirm the details above are correct' })` and never abbreviate the name (there is no control named 'Consent').
+- The submit control carries testid `wizard-submit` — use `getByTestId('wizard-submit')` (its visible label is 'Create account' and it stays disabled until the consent checkbox is checked).
 - The validation region is `role=alert`; inline field errors are plain spans without roles.
 - Wait for the success panel (testid `wizard-success`) via web-first assertions; the submit delay is a fixed 1100 ms and must not be bridged with hard waits.
 - The confirmation code element is testid `confirmation-code` inside the success panel.

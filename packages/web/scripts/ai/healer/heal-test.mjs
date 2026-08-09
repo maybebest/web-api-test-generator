@@ -35,6 +35,14 @@ import {
 import { buildGateEnvironment, knownSecretEnvValues } from '../lib/gate-environment.mjs';
 import { resolveHealContract, reviewHealContract } from './test-heal-contract.mjs';
 import { collectHealContext } from './test-heal-context.mjs';
+import {
+  HEAL_DOM_EVIDENCE_CLASSIFICATIONS,
+  buildHealDomEvidence,
+  collectFailureAttachments,
+  extractPageSnapshotLines,
+  extractTestidCandidatesFromTrace,
+  readZipTextEntries
+} from './test-heal-dom-evidence.mjs';
 import { verifyScopedRoleEvidence } from './test-heal-scoped-role.mjs';
 import { triageRuntimeFailure } from './test-heal-triage.mjs';
 import { containsSecretLikeValue, redactSecretMaterial } from '../lib/secret-safety.mjs';
@@ -331,6 +339,74 @@ export function collectRuntimeEvidence(execution, targetTestFile, {
     evidence.push(redactKnownSecretValues(String(issue), secretValues));
   }
   return evidence.slice(0, MAX_HEAL_EVIDENCE_ITEMS);
+}
+
+const MAX_ERROR_CONTEXT_ATTACHMENT_BYTES = 2 * 1024 * 1024;
+const MAX_TRACE_ATTACHMENT_BYTES = 64 * 1024 * 1024;
+const TRACE_EVENT_ENTRY_PATTERN = /(^|\/)[^/]*\.trace$/;
+
+function readBoundedArtifactFile(artifactPath, rootDir, maxBytes) {
+  const realRoot = fs.realpathSync(rootDir);
+  const realPath = fs.realpathSync(artifactPath);
+  if (!strictDescendant(realPath, realRoot)) return undefined;
+  const stat = fs.lstatSync(realPath);
+  if (!stat.isFile() || stat.size > maxBytes) return undefined;
+  return fs.readFileSync(realPath);
+}
+
+// Distills bounded, sanitized DOM evidence (accessibility-snapshot lines and
+// live data-testid candidates) from the failed run's own artifacts: the
+// error-context markdown attachment and the trace's frame-snapshot events.
+// Best-effort by design — any structural or read problem yields undefined and
+// the heal proceeds exactly as before. Must run BEFORE cleanupFailedRunDir
+// deletes the run directory. Raw artifacts (traces, screenshots, HTML) never
+// leave this function; only distilled candidate lines do.
+export function collectBaselineDomEvidence(execution, targetTestFile, {
+  secretValues = [],
+  readReport = (reportPath) => readVerifiedJsonFile({
+    filePath: reportPath,
+    rootPath: path.dirname(reportPath),
+    maxBytes: 32 * 1024 * 1024,
+    label: 'Playwright JSON report'
+  }),
+  readArtifactFile = readBoundedArtifactFile
+} = {}) {
+  const pageSnapshotLines = [];
+  const testIdCandidates = [];
+  for (const artifact of execution?.artifacts ?? []) {
+    if (!artifact?.jsonReportPath || !artifact?.testResultsDir) continue;
+    let attachments;
+    try {
+      attachments = collectFailureAttachments(readReport(artifact.jsonReportPath), targetTestFile);
+    } catch {
+      continue;
+    }
+    for (const attachment of attachments) {
+      try {
+        if (attachment.name === 'error-context' && attachment.contentType === 'text/markdown') {
+          const bytes = readArtifactFile(
+            attachment.path,
+            artifact.testResultsDir,
+            MAX_ERROR_CONTEXT_ATTACHMENT_BYTES
+          );
+          if (!bytes) continue;
+          pageSnapshotLines.push(...extractPageSnapshotLines(bytes.toString('utf8'), { secretValues }));
+        } else if (attachment.name === 'trace' && attachment.contentType === 'application/zip') {
+          const bytes = readArtifactFile(attachment.path, artifact.testResultsDir, MAX_TRACE_ATTACHMENT_BYTES);
+          if (!bytes) continue;
+          const entries = readZipTextEntries(bytes, {
+            nameFilter: (name) => TRACE_EVENT_ENTRY_PATTERN.test(name)
+          });
+          for (const entry of entries) {
+            testIdCandidates.push(...extractTestidCandidatesFromTrace(entry.text, { secretValues }));
+          }
+        }
+      } catch {
+        // One unreadable attachment must never abort DOM-evidence collection.
+      }
+    }
+  }
+  return buildHealDomEvidence({ pageSnapshotLines, testIdCandidates });
 }
 
 // Verification runs can leave traces/screenshots that may embed tokens. Once
@@ -1020,6 +1096,7 @@ export async function healSingleTest({
   lint = lintCandidate,
   targetDirty = gitTargetDirty,
   collectEvidence = collectRuntimeEvidence,
+  collectDomEvidence = collectBaselineDomEvidence,
   archiveFactory = createHealArchive,
   validateDirectory = validateSpecDirectory,
   domSnapshotPath,
@@ -1174,8 +1251,16 @@ export async function healSingleTest({
   }
 
   let evidence;
+  let domEvidence;
   try {
     evidence = sanitizedEvidenceList(collectEvidence(execution, target, { secretValues }), secretValues);
+    // DOM evidence must be distilled while the run directory (and therefore
+    // the error-context and trace attachments) still exists.
+    try {
+      domEvidence = collectDomEvidence(execution, target, { secretValues });
+    } catch {
+      domEvidence = undefined;
+    }
   } finally {
     cleanupFailedRunDir(execution, runRoot);
   }
@@ -1213,7 +1298,15 @@ export async function healSingleTest({
   const evidenceAudit = () => `${JSON.stringify({
     schema: 'test-heal-evidence/v1',
     evidence: triage.reasonCodes,
-    triage
+    triage,
+    // Counts only: the sanitized DOM evidence itself rides in the prompt, and
+    // the audit trail must stay free of page content.
+    ...(domEvidence ? {
+      domEvidence: {
+        pageSnapshotLines: domEvidence.pageSnapshot.length,
+        testIdCandidates: domEvidence.testIdCandidates.length
+      }
+    } : {})
   }, null, 2)}\n`;
   archive.write('evidence.json', evidenceAudit());
   if (!triage.repairable) {
@@ -1273,6 +1366,9 @@ export async function healSingleTest({
           attempt,
           maxAttempts: attemptsBudget,
           repositoryContext,
+          domEvidence: HEAL_DOM_EVIDENCE_CLASSIFICATIONS.has(triage.classification)
+            ? domEvidence
+            : undefined,
           env,
           signal
         });
@@ -1595,11 +1691,20 @@ export async function healSingleTest({
         }
 
         let freshEvidence;
+        let freshDomEvidence;
         try {
           freshEvidence = collectEvidence(execution, candidateRelative, { secretValues });
+          try {
+            freshDomEvidence = collectDomEvidence(execution, candidateRelative, { secretValues });
+          } catch {
+            freshDomEvidence = undefined;
+          }
         } finally {
           cleanupFailedRunDir(execution, runRoot);
         }
+        // A fresh page observation from the candidate's failed verify run
+        // supersedes the baseline one; otherwise the baseline stays.
+        domEvidence = freshDomEvidence ?? domEvidence;
         evidence = sanitizedEvidenceList(
           Array.isArray(freshEvidence) && freshEvidence.length > 0 ? freshEvidence : (execution.issues ?? []),
           secretValues

@@ -77,7 +77,13 @@ const PAGE_STRING_SELECTOR_ACTION_APIS = new Set([
   '$',
   '$$'
 ]);
-export function reviewGeneratedTest({ specPath, testPath, mode = undefined, validation: providedValidation = undefined }) {
+export function reviewGeneratedTest({
+  specPath,
+  testPath,
+  mode = undefined,
+  validation: providedValidation = undefined,
+  domCandidateNames = undefined
+}) {
   const issues = [];
   const warnings = [];
   const validation = providedValidation ?? validateSpecFile(specPath);
@@ -147,6 +153,8 @@ export function reviewGeneratedTest({ specPath, testPath, mode = undefined, vali
   checkLocatorSelectors(sourceFile, stringIdentifiers, locatorIdentifiers, issues, warnings);
   checkSemanticLocatorPresence(sourceFile, content, issues);
   checkLocatorHints(parsedSpec.locatorHints, sourceFile, content, issues);
+  checkAccessibleNameGrounding(parsedSpec, sourceFile, warnings, { domCandidateNames });
+  checkNonRetryingAttributeAssertions(sourceFile, warnings);
   checkMockContract(parsedSpec.mocksJson.value, sourceFile, countableStringLiterals, constStringIdentifiers, issues);
   checkExpectedTokens(parsedSpec, countableStringLiterals, issues);
   checkSecretAndUrlLiterals(sourceFile, constStringIdentifiers, issues);
@@ -1318,6 +1326,195 @@ function checkLocatorHints(locatorHints, sourceFile, content, issues) {
       }
     }
   }
+}
+
+// --- Non-blocking grounding warnings (iteration-1 runtime-rejection shapes) ---
+//
+// Iteration-1 evidence: 2 of 3 runtime gate rejections came from accessible
+// names the model invented instead of observed ('Consent' vs the real label
+// 'I confirm the details above are correct'; exact-true 'Price' broken by a
+// CSS ::after sort arrow rendering 'Price ↑'), plus a hand-rolled
+// getAttribute+throw that raced the UI where toHaveAttribute would have
+// auto-retried. Both checks warn only — they never block — and their counts
+// surface through staticReviewWarningCount telemetry.
+
+function quotedSegments(text) {
+  const segments = [];
+  for (const match of String(text ?? '').matchAll(/'([^']+)'|"([^"]+)"|`([^`]+)`/g)) {
+    segments.push(match[1] ?? match[2] ?? match[3]);
+  }
+  return segments;
+}
+
+// The grounded-name vocabulary: quoted fragments from the spec's Locator
+// Hints, the spec's salient expected values, and (when the caller has one) a
+// DOM-artifact candidate name list. Prose words in hints deliberately do NOT
+// ground a name: "the consent checkbox" must not legitimize a literal
+// 'Consent' accessible name nobody observed.
+function collectGroundedNameVocabulary(parsedSpec, domCandidateNames) {
+  const vocabulary = new Set();
+  const add = (value) => {
+    const normalized = String(value ?? '').trim().toLowerCase();
+    if (normalized) vocabulary.add(normalized);
+  };
+  for (const hint of parsedSpec.locatorHints ?? []) {
+    for (const segment of quotedSegments(hint)) add(segment);
+  }
+  for (const token of collectSpecSalientTokens(parsedSpec)) add(token);
+  for (const name of Array.isArray(domCandidateNames) ? domCandidateNames : []) add(name);
+  return vocabulary;
+}
+
+function isGroundedName(literal, vocabulary) {
+  const normalized = String(literal ?? '').trim().toLowerCase();
+  if (!normalized) return true;
+  for (const entry of vocabulary) {
+    if (entry === normalized || entry.includes(normalized)) return true;
+  }
+  return false;
+}
+
+function objectLiteralPropertyName(property) {
+  const name = property.name;
+  if (!name) return undefined;
+  if (ts.isIdentifier(name) || ts.isStringLiteral(name)) return name.text;
+  return undefined;
+}
+
+function checkAccessibleNameGrounding(parsedSpec, sourceFile, warnings, { domCandidateNames } = {}) {
+  const vocabulary = collectGroundedNameVocabulary(parsedSpec, domCandidateNames);
+  walk(sourceFile, (node) => {
+    if (!ts.isCallExpression(node) || !ts.isPropertyAccessExpression(node.expression)) return;
+    const method = node.expression.name.text;
+    let nameLiteral;
+    let describedCall;
+    if (method === 'getByRole') {
+      const options = node.arguments[1];
+      if (!options || !ts.isObjectLiteralExpression(options)) return;
+      let exact = false;
+      for (const property of options.properties) {
+        if (!ts.isPropertyAssignment(property)) continue;
+        const key = objectLiteralPropertyName(property);
+        if (key === 'name' && isStringLiteralLike(property.initializer)) {
+          nameLiteral = property.initializer.text;
+        }
+        if (key === 'exact' && property.initializer.kind === ts.SyntaxKind.TrueKeyword) exact = true;
+      }
+      if (nameLiteral === undefined) return;
+      describedCall = `getByRole(..., { name: '${nameLiteral}'${exact ? ', exact: true' : ''} })`;
+    } else if (method === 'getByLabel') {
+      const first = node.arguments[0];
+      if (!first || !isStringLiteralLike(first)) return;
+      nameLiteral = first.text;
+      describedCall = `getByLabel('${nameLiteral}')`;
+    } else {
+      return;
+    }
+    if (isGroundedName(nameLiteral, vocabulary)) return;
+    warnings.push(
+      `Ungrounded accessible name (non-blocking): ${describedCall} uses '${nameLiteral}', which is not traceable to the spec's Locator Hints, salient expected values, or a DOM candidate list. Verify the literal against the real page (rendered text can differ, e.g. CSS-injected sort arrows) or pin it in Locator Hints.`
+    );
+  });
+}
+
+function containsThrowStatement(node) {
+  if (!node) return false;
+  let found = false;
+  const visit = (candidate) => {
+    if (found) return;
+    if (ts.isThrowStatement(candidate)) {
+      found = true;
+      return;
+    }
+    if (ts.isFunctionLike(candidate)) return;
+    ts.forEachChild(candidate, visit);
+  };
+  visit(node);
+  return found;
+}
+
+function referencesIdentifier(node, identifierName) {
+  let found = false;
+  const visit = (candidate) => {
+    if (found) return;
+    if (ts.isIdentifier(candidate) && candidate.text === identifierName) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(candidate, visit);
+  };
+  visit(node);
+  return found;
+}
+
+function enclosingFunctionLike(node) {
+  let cursor = node.parent;
+  while (cursor && !ts.isFunctionLike(cursor)) cursor = cursor.parent;
+  return cursor;
+}
+
+// True when a getAttribute() read feeds a hand-rolled `if (...) throw` guard:
+// either the call sits directly inside an if condition whose branch throws, or
+// its result is bound to a variable that such an if condition references.
+function isGetAttributeGuardedByThrow(callNode) {
+  let cursor = callNode;
+  while (cursor.parent) {
+    const parent = cursor.parent;
+    if (ts.isIfStatement(parent) && parent.expression === cursor) {
+      return containsThrowStatement(parent.thenStatement) || containsThrowStatement(parent.elseStatement);
+    }
+    if (ts.isAwaitExpression(parent)
+      || ts.isParenthesizedExpression(parent)
+      || ts.isBinaryExpression(parent)
+      || ts.isPrefixUnaryExpression(parent)
+      || ts.isNonNullExpression(parent)) {
+      cursor = parent;
+      continue;
+    }
+    break;
+  }
+  let declaration = callNode.parent;
+  while (declaration && (ts.isAwaitExpression(declaration) || ts.isParenthesizedExpression(declaration))) {
+    declaration = declaration.parent;
+  }
+  if (!declaration || !ts.isVariableDeclaration(declaration) || !ts.isIdentifier(declaration.name)) {
+    return false;
+  }
+  const variableName = declaration.name.text;
+  const enclosing = enclosingFunctionLike(callNode);
+  if (!enclosing?.body) return false;
+  let guarded = false;
+  const visit = (candidate) => {
+    if (guarded) return;
+    if (ts.isIfStatement(candidate)
+      && referencesIdentifier(candidate.expression, variableName)
+      && (containsThrowStatement(candidate.thenStatement) || containsThrowStatement(candidate.elseStatement))) {
+      guarded = true;
+      return;
+    }
+    if (ts.isFunctionLike(candidate)) return;
+    ts.forEachChild(candidate, visit);
+  };
+  ts.forEachChild(enclosing.body, visit);
+  return guarded;
+}
+
+function checkNonRetryingAttributeAssertions(sourceFile, warnings) {
+  walk(sourceFile, (node) => {
+    if (!ts.isCallExpression(node)
+      || !ts.isPropertyAccessExpression(node.expression)
+      || node.expression.name.text !== 'getAttribute') {
+      return;
+    }
+    if (!isGetAttributeGuardedByThrow(node)) return;
+    const attributeArgument = node.arguments[0];
+    const attribute = attributeArgument && isStringLiteralLike(attributeArgument)
+      ? `getAttribute('${attributeArgument.text}')`
+      : 'a getAttribute(...) read';
+    warnings.push(
+      `Non-retrying attribute assertion (non-blocking): ${attribute} is verified with a manual throw, which reads the state once and races the UI. Use await expect(locator).toHaveAttribute(...) so the assertion auto-retries.`
+    );
+  });
 }
 
 function checkDataCaseCoverage(dataCases, stringLiterals, issues) {
