@@ -38,6 +38,7 @@ import {
   walk
 } from './lib/ts-ast.mjs';
 import { validateSpecFile } from './validate-flow-spec.mjs';
+import { collectSpecSalientTokens, primitiveMockValues } from './lib/salient-tokens.mjs';
 import { containsSecretLikeValue } from './lib/secret-safety.mjs';
 import { checkGeneratedRuntimeCapabilities } from './lib/generated-capability-policy.mjs';
 
@@ -1552,78 +1553,16 @@ function collectMockRegistrations(sourceFile, constStringIdentifiers) {
   return { urls, statuses };
 }
 
+// Salient token derivation lives in lib/salient-tokens.mjs so the reviewer and
+// the provider input (which advertises the list to the model) cannot diverge.
 function checkExpectedTokens(parsedSpec, countableLiterals, issues) {
-  const extracted = [
-    ...parsedSpec.flowSteps.map((step) => step.expectedResult ?? ''),
-    ...primitiveExpectedValues(parsedSpec.dataCasesJson.value)
-  ].flatMap((value) => salientExpectedTokens(String(value)));
-
-  // The spec author can declare exactly which salient values must be asserted
-  // via a "Must assert the salient expected values ..." requirement. That
-  // explicit contract is authoritative and harder to game than heuristics.
-  const declared = parseDeclaredSalientValues(parsedSpec);
-
-  const tokens = [...new Set([...extracted, ...declared])];
-
-  for (const token of tokens) {
+  for (const token of collectSpecSalientTokens(parsedSpec)) {
     if (!countableLiterals.some((literal) => literal.includes(token))) {
       issues.push(
         `Salient expected value must be asserted in the test (inside an assertion, a step/test title, or an iterated data row): ${token}`
       );
     }
   }
-}
-
-// Reads "Must assert the salient expected values A, B, and C." from the spec's
-// Generated Test Requirements and returns the listed phrases verbatim.
-function parseDeclaredSalientValues(parsedSpec) {
-  const requirements = parsedSpec.sections?.['Generated Test Requirements'] ?? '';
-  const match = requirements.match(/must assert the salient expected values?\s+(.+?)\.?$/im);
-  if (!match) {
-    return [];
-  }
-
-  return match[1]
-    .split(/\s*,\s*|\s+and\s+/i)
-    .map((part) => part.replace(/^["'`]|["'`]$/g, '').trim())
-    .filter((part) => part.length > 0 && !/^and$/i.test(part));
-}
-
-function primitiveExpectedValues(dataCases) {
-  if (!Array.isArray(dataCases)) {
-    return [];
-  }
-
-  return dataCases.flatMap((dataCase) => primitiveMockValues(dataCase.expected));
-}
-
-// Conservative: only genuinely salient fragments — IDs (REQ-1001), "N days",
-// "must be at least/most" phrases, and quoted substrings. The previous
-// blanket "any capitalized word" rule was satisfiable by token-stuffing a dead
-// constant, so it has been removed in favor of the explicit declared list above.
-function salientExpectedTokens(value) {
-  if (!value || /NEEDS_REVIEW/i.test(value)) {
-    return [];
-  }
-
-  const tokens = new Set();
-  for (const match of value.matchAll(/\b[A-Z]{2,}-\d+\b/g)) {
-    tokens.add(match[0]);
-  }
-  for (const match of value.matchAll(/\b\d+\s+days?\b/gi)) {
-    tokens.add(match[0]);
-  }
-  if (/must be at least/i.test(value)) {
-    tokens.add('must be at least');
-  }
-  if (/must be at most/i.test(value)) {
-    tokens.add('must be at most');
-  }
-  for (const match of value.matchAll(/["'`]([^"'`]{3,})["'`]/g)) {
-    tokens.add(match[1].trim());
-  }
-
-  return [...tokens];
 }
 
 // String literals that count as "really used": those reachable without passing
@@ -1716,26 +1655,6 @@ function collectCountableStringLiterals(sourceFile, constStringIdentifiers) {
   });
 
   return values;
-}
-
-function primitiveMockValues(value) {
-  if (value === null || value === undefined) {
-    return [];
-  }
-
-  if (['string', 'number', 'boolean'].includes(typeof value)) {
-    return [value];
-  }
-
-  if (Array.isArray(value)) {
-    return value.flatMap((entry) => primitiveMockValues(entry));
-  }
-
-  if (typeof value === 'object') {
-    return Object.values(value).flatMap((entry) => primitiveMockValues(entry));
-  }
-
-  return [];
 }
 
 function checkSecretAndUrlLiterals(sourceFile, constStringIdentifiers, issues) {

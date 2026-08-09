@@ -27,6 +27,7 @@
     "scripts/ai/lib/generation-run.mjs",
     "scripts/ai/lib/output-contracts.mjs",
     "scripts/ai/lib/rest-prompt.mjs",
+    "scripts/ai/lib/salient-tokens.mjs",
     "scripts/ai/lib/secret-safety.mjs",
     "scripts/ai/lib/spec-parser.mjs",
     "scripts/ai/lib/verified-file-read.mjs",
@@ -36,7 +37,7 @@
     "scripts/ai/validate-flow-spec.mjs",
     "scripts/ai/verified-generate.mjs"
   ],
-  "pipelineFingerprintSha256": "cd0e8017e53f7420bb16f16642b24f2f8a821a6370ea7378285c6475bace08c0",
+  "pipelineFingerprintSha256": "05a8398fae24198a7e110d3934e4a0ed69e31901ed167c8145f1702eeb8a6435",
   "cases": [
     {
       "id": "single-checkout",

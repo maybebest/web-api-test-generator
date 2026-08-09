@@ -42,6 +42,7 @@ export const REQUIRED_PIPELINE_INPUTS = Object.freeze([
   'scripts/ai/lib/generation-run.mjs',
   'scripts/ai/lib/output-contracts.mjs',
   'scripts/ai/lib/rest-prompt.mjs',
+  'scripts/ai/lib/salient-tokens.mjs',
   'scripts/ai/lib/secret-safety.mjs',
   'scripts/ai/lib/spec-parser.mjs',
   'scripts/ai/lib/verified-file-read.mjs',

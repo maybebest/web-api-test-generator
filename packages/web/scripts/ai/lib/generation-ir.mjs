@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import { sanitizeGenerationContext } from './generation-context.mjs';
 import { GENERATION_POLICY_VERSION } from './generation-policy.mjs';
 import { parseFlowSpec, parseGenericTable } from './spec-parser.mjs';
+import { collectSpecSalientTokens } from './salient-tokens.mjs';
 import { containsProviderUnsafeSecret } from './secret-safety.mjs';
 
 export const GENERATION_IR_SCHEMA = 'playwright-generation-ir/v1';
@@ -129,7 +130,10 @@ export function compileGenerationIr(validation, {
       negativeCases: canonicalize(validation.negativeCases),
       acceptanceCriteria: section(parsed, 'Acceptance Criteria'),
       locatorHints: canonicalize(validation.locatorHints),
-      generatedTestRequirements: dynamicGeneratedRequirements(section(parsed, 'Generated Test Requirements'))
+      generatedTestRequirements: dynamicGeneratedRequirements(section(parsed, 'Generated Test Requirements')),
+      // Same derivation the reviewer enforces (lib/salient-tokens.mjs); the
+      // render below advertises the list so the model sees every required token.
+      salientExpectedTokens: collectSpecSalientTokens(parsed)
     }
   };
   assertProviderSafe({
@@ -153,5 +157,9 @@ export function renderGenerationIr(ir) {
   if (!ir || ir.schemaVersion !== GENERATION_IR_SCHEMA || !/^[a-f0-9]{64}$/.test(ir.fingerprint ?? '')) {
     throw new Error('Cannot render an invalid generation IR.');
   }
-  return `# Playwright Generation Input\n\nIR fingerprint: sha256:${ir.fingerprint}\n\n${JSON.stringify(ir)}\n`;
+  const tokens = Array.isArray(ir.behavior?.salientExpectedTokens) ? ir.behavior.salientExpectedTokens : [];
+  const salientSection = tokens.length > 0
+    ? `Salient expected tokens (each must appear verbatim in an assertion, a step/test title, or an iterated data row):\n${tokens.map((token) => `- ${token}`).join('\n')}\n\n`
+    : '';
+  return `# Playwright Generation Input\n\nIR fingerprint: sha256:${ir.fingerprint}\n\n${salientSection}${JSON.stringify(ir)}\n`;
 }
