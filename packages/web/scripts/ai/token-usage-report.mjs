@@ -216,8 +216,15 @@ function generationHistoryIssues(manifest, events) {
     issues.push('a nonterminal manifest must not contain run-finished');
   }
 
+  // A --replay-rejected run succeeds without any provider attempt or cache
+  // hit by design: the archived candidate is the generation output and the
+  // completed replay stage is its zero-token execution evidence.
+  const replayed = events.some(
+    (event) => event.type === 'stage' && event.stage === 'replay' && event.status === 'completed'
+  );
   if (
     manifest.status === 'succeeded'
+    && !replayed
     && !events.some((event) => event.type === 'provider-attempt' || event.type === 'result-cache')
   ) {
     issues.push('succeeded generation has no provider-attempt or result-cache evidence');

@@ -730,6 +730,72 @@ test('reviewer rejects direct environment, system, and network capabilities in g
   assert.match(joined, /Direct page navigation must use a static relative path/);
 });
 
+// Iteration-3 gap: the blocking browser-evaluation rule caught .evaluate()
+// but not the sibling escape hatches. The catalog candidate carried its
+// strict-null fault inside a waitForFunction callback and sailed through
+// review while the wizard candidate was blocked on .evaluate() — the same
+// fault class rotating between members.
+test('reviewer blocks the waitForFunction browser-evaluation escape (catalog shape)', () => {
+  const workspace = createWorkspace();
+  const specPath = writeSpec(workspace);
+  const testPath = writeGeneratedTest(workspace, specPath, singleBodyWithExtras(`
+    await page.waitForFunction(
+      (element) => element?.getAttribute('aria-sort') === 'ascending',
+      await checkoutPage.confirmationRequest.elementHandle(),
+    );
+  `));
+
+  const result = reviewGeneratedTest({ specPath, testPath });
+
+  assert.equal(result.passed, false);
+  assert.match(result.issues.join('\n'), /Browser evaluation is forbidden[\s\S]*waitForFunction/);
+});
+
+test('reviewer blocks $eval, $$eval, and evaluateHandle member calls', () => {
+  const workspace = createWorkspace();
+  const specPath = writeSpec(workspace);
+  for (const extra of [
+    "const text = await page.$eval('#price', (element) => element.textContent); void text;",
+    "const rows = await page.$$eval('#rows', (elements) => elements.length); void rows;",
+    'const handle = await page.evaluateHandle(() => 1); void handle;'
+  ]) {
+    const testPath = writeGeneratedTest(workspace, specPath, singleBodyWithExtras(extra));
+    const result = reviewGeneratedTest({ specPath, testPath });
+    assert.equal(result.passed, false, extra);
+    assert.match(result.issues.join('\n'), /Browser evaluation is forbidden/);
+  }
+});
+
+test('an explicit locator-policy exception downgrades waitForFunction to a warning', () => {
+  const workspace = createWorkspace();
+  const specPath = writeSpec(workspace);
+  const testPath = writeGeneratedTest(workspace, specPath, singleBodyWithExtras(`
+    // locator-policy:exception counting the request collection requires a selector-count wait
+    await page.waitForFunction(() => 2 > 1);
+  `));
+
+  const result = reviewGeneratedTest({ specPath, testPath });
+
+  assert.equal(result.passed, true, result.issues.join('\n'));
+  assert.match(result.warnings.join('\n'), /waitForFunction/);
+});
+
+test('a locator-policy exception never excuses $eval or .evaluate()', () => {
+  const workspace = createWorkspace();
+  const specPath = writeSpec(workspace);
+  for (const extra of [
+    `// locator-policy:exception justification cannot excuse extraction
+    const text = await page.$eval('#price', (element) => element.textContent); void text;`,
+    `// locator-policy:exception justification cannot excuse evaluation
+    const value = await page.evaluate(() => 1); void value;`
+  ]) {
+    const testPath = writeGeneratedTest(workspace, specPath, singleBodyWithExtras(extra));
+    const result = reviewGeneratedTest({ specPath, testPath });
+    assert.equal(result.passed, false, extra);
+    assert.match(result.issues.join('\n'), /Browser evaluation is forbidden/);
+  }
+});
+
 test('reviewer permits only explicit non-secret generated-test configuration reads', () => {
   const workspace = createWorkspace();
   const specPath = writeSpec(workspace);

@@ -147,6 +147,131 @@ test('verified generation gates a sibling candidate twice and promotes it atomic
   );
 });
 
+// Iteration-3 salvage gap: a review-clean candidate cascade-rejected by an
+// unrelated global-static failure was preserved under .ai-runs/rejected but
+// had no path back through the gate except a full paid regeneration
+// (18,864 tokens for the feed candidate). --replay-rejected feeds the
+// preserved bytes through the same review + fast-gate + promotion path with
+// zero provider calls.
+test('replay-rejected gates and promotes the archived candidate with zero provider calls', async () => {
+  const { webRoot, target } = fixture();
+  const archived = 'const replayedCandidate = true;\n';
+  const sourceRunId = 'rejected-source-1';
+  fs.mkdirSync(path.join(webRoot, '.ai-runs', 'rejected', sourceRunId), { recursive: true });
+  fs.writeFileSync(path.join(webRoot, '.ai-runs', 'rejected', sourceRunId, 'candidate.ts'), archived);
+  const calls = [];
+
+  const result = await runVerifiedGeneration({
+    specPath: 'specs/checkout.md',
+    out: 'tests/regression/checkout.spec.ts',
+    webRoot,
+    replayRejected: sourceRunId,
+    candidateId: () => 'replay-run',
+    generate: async () => {
+      throw new Error('replay must never call the provider');
+    },
+    repair: async () => {
+      throw new Error('replay must never repair');
+    },
+    gate: async (options) => {
+      calls.push(['gate', fs.readFileSync(options.testPath, 'utf8')]);
+      return { passed: true, stage: 'accepted', reasonCode: 'PASSED', staticReviewWarningCount: 2 };
+    }
+  });
+
+  assert.equal(fs.readFileSync(target, 'utf8'), archived);
+  assert.deepEqual(calls, [['gate', archived]]);
+  assert.equal(result.runId, 'replay-run');
+  assert.equal(result.cachePromotion.promoted, false);
+  const runDir = path.join(webRoot, '.ai-runs', 'generation', 'replay-run');
+  const manifest = JSON.parse(fs.readFileSync(path.join(runDir, 'manifest.json'), 'utf8'));
+  assert.equal(manifest.status, 'succeeded');
+  assert.equal(manifest.attempts, 0, 'a replay run must record zero provider attempts');
+  assert.equal(manifest.quality.fastGatePassed, true);
+  const events = fs.readFileSync(path.join(runDir, 'events.jsonl'), 'utf8')
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
+  assert.ok(
+    events.some((event) => event.stage === 'replay' && event.status === 'completed'),
+    'telemetry must record a completed replay stage'
+  );
+  assert.equal(events.filter((event) => event.type === 'provider-attempt').length, 0);
+});
+
+test('replay-rejected fails closed when no preserved candidate exists', async () => {
+  const { webRoot, target } = fixture();
+
+  await assert.rejects(
+    runVerifiedGeneration({
+      specPath: 'specs/checkout.md',
+      out: 'tests/regression/checkout.spec.ts',
+      webRoot,
+      replayRejected: 'missing-run',
+      generate: async () => {
+        throw new Error('replay must never call the provider');
+      },
+      gate: async () => {
+        throw new Error('a missing replay source must never reach the gate');
+      }
+    }),
+    /rejected candidate/i
+  );
+
+  assert.equal(fs.readFileSync(target, 'utf8'), 'const oldTarget = true;\n');
+  const manifest = JSON.parse(fs.readFileSync(
+    path.join(webRoot, '.ai-runs', 'generation', fs.readdirSync(path.join(webRoot, '.ai-runs', 'generation'))[0], 'manifest.json'),
+    'utf8'
+  ));
+  assert.equal(manifest.status, 'failed');
+  assert.equal(manifest.failureStage, 'replay');
+  assert.equal(manifest.attempts, 0);
+});
+
+test('a rejected replay is archived again and never repaired even with repair enabled', async () => {
+  const { webRoot, target } = fixture();
+  const archived = 'const rereviewedCandidate = true;\n';
+  const sourceRunId = 'rejected-source-2';
+  fs.mkdirSync(path.join(webRoot, '.ai-runs', 'rejected', sourceRunId), { recursive: true });
+  fs.writeFileSync(path.join(webRoot, '.ai-runs', 'rejected', sourceRunId, 'candidate.ts'), archived);
+
+  await assert.rejects(
+    runVerifiedGeneration({
+      specPath: 'specs/checkout.md',
+      out: 'tests/regression/checkout.spec.ts',
+      webRoot,
+      env: { AI_REPAIR_ENABLED: 'true' },
+      replayRejected: sourceRunId,
+      candidateId: () => 'replay-run-fail',
+      generate: async () => {
+        throw new Error('replay must never call the provider');
+      },
+      repair: async () => {
+        throw new Error('replay must never repair');
+      },
+      gate: async () => ({
+        passed: false,
+        stage: 'static-review',
+        reasonCode: 'STATIC_REVIEW_FAILED',
+        diagnostics: ['replayed candidate failed static review'],
+        repairable: true
+      })
+    }),
+    /Fast acceptance gate failed/
+  );
+
+  assert.equal(fs.readFileSync(target, 'utf8'), 'const oldTarget = true;\n');
+  assert.equal(
+    fs.readFileSync(path.join(webRoot, '.ai-runs', 'rejected', 'replay-run-fail', 'candidate.ts'), 'utf8'),
+    archived
+  );
+  // The replay source archive is untouched.
+  assert.equal(
+    fs.readFileSync(path.join(webRoot, '.ai-runs', 'rejected', sourceRunId, 'candidate.ts'), 'utf8'),
+    archived
+  );
+});
+
 test('post-provider telemetry write failure never discards an accepted generated candidate', async () => {
   const { webRoot, target } = fixture();
   const runId = 'telemetry-write-fails';

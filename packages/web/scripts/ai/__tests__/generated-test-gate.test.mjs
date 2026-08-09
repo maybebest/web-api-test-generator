@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 
@@ -771,6 +772,124 @@ test('gate verdict writer never follows or replaces a symbolic-link target', () 
     assert.equal(fs.readFileSync(victimPath, 'utf8'), 'preserve me');
     assert.equal(fs.lstatSync(verdictPath).isSymbolicLink(), true);
   } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+// Iteration-3 hole: staged candidates are dot-prefixed
+// (tests/smoke/.NAME.<runId>.candidate.spec.ts) and TypeScript wildcard
+// matching skips dotfiles, so `tsc -p tsconfig.json` (include tests/**/*.ts)
+// never typechecked the candidate — a catalog candidate promoted with a
+// TS18047 strict-null fault and broke the project typecheck for every later
+// gate. The gate now extends the project config with the explicit staged
+// paths (explicit include entries are matched even when dotted).
+test('a per-gate tsconfig project makes a dot-prefixed staged candidate visible to tsc', () => {
+  const require = createRequire(import.meta.url);
+  const tscBin = path.join(path.dirname(require.resolve('typescript/package.json')), 'bin', 'tsc');
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-tsconfig-project-'));
+  const runTsc = (project) => spawnSync(
+    process.execPath,
+    [tscBin, '--noEmit', '--pretty', 'false', '-p', project],
+    { cwd: workspace, encoding: 'utf8' }
+  );
+  try {
+    fs.mkdirSync(path.join(workspace, 'tests'));
+    fs.writeFileSync(
+      path.join(workspace, 'tsconfig.json'),
+      `${JSON.stringify({ compilerOptions: { strict: true, noEmit: true, types: [] }, include: ['tests/**/*.ts'] })}\n`
+    );
+    fs.writeFileSync(path.join(workspace, 'tests', 'visible.spec.ts'), "export const ok: string = 'ok';\n");
+    const brokenCandidate = 'tests/.checkout.run-1.candidate.spec.ts';
+    fs.writeFileSync(
+      path.join(workspace, brokenCandidate),
+      'export function broken(value: string | null): number {\n  return value.length;\n}\n'
+    );
+
+    // The historical hole itself: the project config typechecks green while
+    // the staged candidate carries a strict-null error.
+    assert.equal(runTsc('tsconfig.json').status, 0);
+
+    const scoped = generatedTestGate.createGateTypecheckProject({
+      rootDir: workspace,
+      testPaths: [brokenCandidate]
+    });
+    try {
+      assert.match(scoped.configName, /^tsconfig\.gate-.+\.json$/);
+      const config = JSON.parse(fs.readFileSync(scoped.configPath, 'utf8'));
+      assert.equal(config.extends, './tsconfig.json');
+      assert.deepEqual(config.include, ['tests/**/*.ts', brokenCandidate]);
+      const broken = runTsc(scoped.configName);
+      assert.notEqual(broken.status, 0);
+      assert.match(`${broken.stdout}\n${broken.stderr}`, /TS18047|possibly 'null'/);
+    } finally {
+      scoped.cleanup();
+    }
+    assert.equal(fs.existsSync(scoped.configPath), false);
+
+    const cleanCandidate = 'tests/.checkout.run-2.candidate.spec.ts';
+    fs.writeFileSync(
+      path.join(workspace, cleanCandidate),
+      "export const staged: string = 'clean';\n"
+    );
+    const cleanScoped = generatedTestGate.createGateTypecheckProject({
+      rootDir: workspace,
+      testPaths: [cleanCandidate]
+    });
+    try {
+      assert.equal(runTsc(cleanScoped.configName).status, 0);
+    } finally {
+      cleanScoped.cleanup();
+    }
+
+    assert.throws(
+      () => generatedTestGate.createGateTypecheckProject({
+        rootDir: workspace,
+        testPaths: ['../outside.spec.ts']
+      }),
+      /escapes the package root/
+    );
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test('the single-pair gate rejects a strict-null staged candidate at the typecheck step', () => {
+  const id = `tscheck-${process.pid}`;
+  const candidatePath = path.join('tests', 'smoke', `.complex-feed-lazyload-comments-c3.${id}.candidate.spec.ts`);
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'generated-gate-typecheck-'));
+  const verdictPath = path.join(workspace, 'verdict.json');
+  const source = fs.readFileSync(path.join('tests', 'smoke', 'complex-feed-lazyload-comments-c1.spec.ts'), 'utf8')
+    .replace(
+      "await this.page.goto('/complex/feed');",
+      "const staged: string | null = null;\n    void staged.length;\n    await this.page.goto('/complex/feed');"
+    );
+  assert.match(source, /void staged\.length/);
+  fs.writeFileSync(candidatePath, source);
+  try {
+    const result = spawnSync(
+      process.execPath,
+      [
+        path.join(process.cwd(), 'scripts', 'ai', 'generated-test-gate.mjs'),
+        '--spec',
+        path.join('specs', 'complex-feed-lazyload-comments.md'),
+        '--test',
+        candidatePath,
+        '--verdict-file',
+        verdictPath
+      ],
+      { cwd: process.cwd(), encoding: 'utf8' }
+    );
+
+    assert.notEqual(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    const verdict = JSON.parse(fs.readFileSync(verdictPath, 'utf8'));
+    assert.equal(verdict.stage, 'global-static', JSON.stringify(verdict));
+    assert.equal(verdict.reasonCode, 'GLOBAL_STATIC_CHECK_FAILED');
+    // The typecheck rejection happens before any Playwright execution.
+    assert.doesNotMatch(result.stdout, /--reporter=html,json/);
+    // The per-gate temp tsconfig never survives the gate.
+    assert.deepEqual(fs.readdirSync('.').filter((entry) => entry.startsWith('tsconfig.gate-')), []);
+  } finally {
+    fs.rmSync(candidatePath, { force: true });
     fs.rmSync(workspace, { recursive: true, force: true });
   }
 });

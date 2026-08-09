@@ -219,6 +219,128 @@ for (const { label, healedSource } of [
   });
 }
 
+// Iteration-3 false rejection: the repo's canonical getByRole option shape is
+// { name, exact: true } (see tests/smoke/complex-feed-lazyload-comments-c1.spec.ts),
+// but the gate parsed any two-property options object as an invalid scoped-role
+// form and hard-rejected role-name drift heals with UNVERIFIED_SCOPED_ROLE_LOCATOR
+// (3 valid repair attempts / 56,178 tokens exhausted in heal run
+// 1786270762736-50937-6b6974a7-5e97-4370-a5bc-b67746e0ce8e).
+const feedOriginal = `class ComplexFeedPage {
+  private story(storyId: string) {
+    return this.page.getByTestId('feed-item-' + storyId);
+  }
+  async expandDetails(storyNumber: string): Promise<void> {
+    await this.story(storyNumber).getByRole('button', { name: 'Story details', exact: true }).click();
+  }
+}`;
+const feedHealed = feedOriginal.replace("name: 'Story details'", "name: 'Details'");
+const feedDomEvidence = {
+  source: 'playwright-baseline-failure-artifacts',
+  pageSnapshot: [
+    '- article:',
+    '- button "Details"',
+    '- button "Comments"'
+  ],
+  testIdCandidates: ['data-testid "feed-item-1" on <article>']
+};
+
+test('a canonical { name, exact: true } drift heal grounded in DOM evidence is accepted', () => {
+  assert.deepEqual(
+    verifyScopedRoleEvidence({
+      previousSource: feedOriginal,
+      healedSource: feedHealed,
+      repositoryContext: {},
+      domEvidence: feedDomEvidence
+    }),
+    { passed: true, reasonCodes: [], warningCodes: [] }
+  );
+});
+
+test('a canonical { name } drift heal grounded in DOM evidence is accepted', () => {
+  const previousSource = `const control = container.getByRole('button', { name: 'Story details' });`;
+  const healedSource = `const control = container.getByRole('button', { name: 'Details' });`;
+  assert.deepEqual(
+    verifyScopedRoleEvidence({ previousSource, healedSource, domEvidence: feedDomEvidence }),
+    { passed: true, reasonCodes: [], warningCodes: [] }
+  );
+});
+
+test('a hallucinated accessible name still rejects against DOM evidence', () => {
+  const hallucinated = feedOriginal.replace("name: 'Story details'", "name: 'Imaginary control'");
+  assert.deepEqual(
+    verifyScopedRoleEvidence({
+      previousSource: feedOriginal,
+      healedSource: hallucinated,
+      repositoryContext: {},
+      domEvidence: feedDomEvidence
+    }),
+    { passed: false, reasonCodes: ['UNVERIFIED_SCOPED_ROLE_LOCATOR'], warningCodes: [] }
+  );
+});
+
+test('a role mismatch on an evidence-listed name still rejects', () => {
+  const wrongRole = feedOriginal.replace(
+    "getByRole('button', { name: 'Story details', exact: true })",
+    "getByRole('link', { name: 'Details', exact: true })"
+  );
+  assert.deepEqual(
+    verifyScopedRoleEvidence({
+      previousSource: feedOriginal,
+      healedSource: wrongRole,
+      repositoryContext: {},
+      domEvidence: feedDomEvidence
+    }),
+    { passed: false, reasonCodes: ['UNVERIFIED_SCOPED_ROLE_LOCATOR'], warningCodes: [] }
+  );
+});
+
+test('dom-discovery snapshot elements also ground an introduced role and name', () => {
+  const discoveryContext = {
+    domSnapshot: {
+      path: '.ai-runs/dom-discovery/run/selector-candidates.json',
+      sha256: 'b'.repeat(64),
+      content: JSON.stringify({
+        elements: [{
+          elementId: 'el-details', role: 'button', accessibleName: 'Details', label: null,
+          placeholder: null, candidateLocators: []
+        }]
+      })
+    }
+  };
+  assert.deepEqual(
+    verifyScopedRoleEvidence({
+      previousSource: feedOriginal,
+      healedSource: feedHealed,
+      repositoryContext: discoveryContext
+    }),
+    { passed: true, reasonCodes: [], warningCodes: [] }
+  );
+  const hallucinated = feedOriginal.replace("name: 'Story details'", "name: 'Imaginary control'");
+  assert.deepEqual(
+    verifyScopedRoleEvidence({
+      previousSource: feedOriginal,
+      healedSource: hallucinated,
+      repositoryContext: discoveryContext
+    }),
+    { passed: false, reasonCodes: ['UNVERIFIED_SCOPED_ROLE_LOCATOR'], warningCodes: [] }
+  );
+});
+
+test('a dynamic exact option keeps the canonical-shape rejection', () => {
+  const healedSource = `const exact = true; const control = container.getByRole('button', { name: 'Details', exact });`;
+  assert.deepEqual(
+    verifyScopedRoleEvidence({ previousSource: baseline, healedSource, domEvidence: feedDomEvidence }),
+    { passed: false, reasonCodes: ['UNVERIFIED_SCOPED_ROLE_LOCATOR'], warningCodes: [] }
+  );
+});
+
+test('an unchanged canonical named chain does not require evidence', () => {
+  assert.deepEqual(
+    verifyScopedRoleEvidence({ previousSource: feedOriginal, healedSource: `${feedOriginal}\nconst unrelated = true;` }),
+    { passed: true, reasonCodes: [], warningCodes: [] }
+  );
+});
+
 test('a static computed non-getByRole method is not a scoped-role call', () => {
   const healedSource = `const roleLocator = page.getByRole('button'); await roleLocator['click']();`;
   assert.deepEqual(

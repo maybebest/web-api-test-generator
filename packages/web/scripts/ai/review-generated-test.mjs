@@ -149,6 +149,7 @@ export function reviewGeneratedTest({
   checkUnimplementedTestDataHelpers(sourceFile, issues);
   checkForbiddenAgentBrowserRefs(content, issues);
   checkPomLocatorOwnership(sourceFile, content, issues);
+  checkBrowserWaitForFunction(sourceFile, issues, warnings);
   checkStringSelectorActionApis(sourceFile, issues);
   checkLocatorSelectors(sourceFile, stringIdentifiers, locatorIdentifiers, issues, warnings);
   checkSemanticLocatorPresence(sourceFile, content, issues);
@@ -1279,6 +1280,32 @@ function checkForbiddenAgentBrowserRefs(content, issues) {
       `Generated tests must not contain agent-browser snapshot refs (${[...new Set(matches)].join(', ')}). Use framework-selected Playwright locators instead.`
     );
   }
+}
+
+// waitForFunction completes the blocking browser-evaluation rule owned by
+// checkGeneratedRuntimeCapabilities (evaluate/evaluateAll/evaluateHandle/
+// $eval/$$eval): iteration 3 promoted a catalog candidate whose strict-null
+// fault rode inside a waitForFunction callback the reviewer never flagged.
+// Unlike the evaluate family, the repository's committed generated tests
+// sanction waitForFunction for collection-count waits behind the existing
+// // locator-policy:exception annotation, so an annotated call downgrades to
+// a warning while a bare call stays blocking.
+function checkBrowserWaitForFunction(sourceFile, issues, warnings) {
+  const sourceText = sourceFile.getFullText();
+  walk(sourceFile, (node) => {
+    if (!ts.isCallExpression(node) || propertyName(node.expression) !== 'waitForFunction') {
+      return;
+    }
+    if (hasLocatorPolicyException(sourceText, sourceFile, node.getStart(sourceFile))) {
+      warnings.push(
+        'Browser-evaluation exception accepted for .waitForFunction(...). Keep the justification current.'
+      );
+      return;
+    }
+    issues.push(
+      'Browser evaluation is forbidden in generated tests: .waitForFunction(...) requires // locator-policy:exception <reason> on the previous line. Put browser logic behind a reviewed Page Object method.'
+    );
+  });
 }
 
 function hasLocatorPolicyException(sourceText, sourceFile, position) {

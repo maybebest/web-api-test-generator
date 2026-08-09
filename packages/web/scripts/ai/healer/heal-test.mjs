@@ -1413,7 +1413,11 @@ export async function healSingleTest({
       const locatorEvidence = verifyScopedRoleEvidence({
         previousSource: originalSource,
         healedSource: healed.code,
-        repositoryContext
+        repositoryContext,
+        // Observed-page grounding for introduced named role locators: the
+        // sanitized baseline-failure DOM evidence carries the accessibility
+        // snapshot (role + accessible name) the candidate must name.
+        domEvidence
       });
       checks.locatorEvidence = locatorEvidence.passed ? 'passed' : 'rejected';
       if (!locatorEvidence.passed) {

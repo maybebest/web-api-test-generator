@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process';
 
 import {
   buildPlaywrightStage,
+  createGateTypecheckProject,
   normalizePlaywrightTarget,
   playwrightFailureStage,
   projectPlanForSpec,
@@ -57,22 +58,45 @@ export function runGlobalGeneratedChecks(options = {}) {
     };
   }
   const sourceEnvironment = options.env ?? resolveEnv(process.env).env;
-  const stages = options.stages ?? globalStages(
-    detectPackageManager(options.rootDir ?? '.'),
-    testPaths,
-    buildGateEnvironment(sourceEnvironment, { profile: 'static' })
-  );
-  for (const stage of stages) {
-    const status = commandRunner(stage);
-    if (status !== 0) {
+  let stages = options.stages;
+  // The typecheck stage must observe the explicit (possibly dot-prefixed
+  // staged-candidate) test paths that the project tsconfig's include globs
+  // cannot match; see createGateTypecheckProject in generated-test-gate.mjs.
+  let typecheckProject = null;
+  if (stages === undefined) {
+    try {
+      typecheckProject = createGateTypecheckProject({ rootDir: options.rootDir ?? '.', testPaths });
+    } catch (error) {
       return {
         passed: false,
-        issues: [`Global generated-test stage failed: ${stage.kind} (exit ${status}).`],
+        issues: [`Global generated-test typecheck project could not be created: ${error.message}`],
         directoryResult,
         fingerprint: undefined,
         expectedFingerprint: undefined
       };
     }
+    stages = globalStages(
+      detectPackageManager(options.rootDir ?? '.'),
+      testPaths,
+      buildGateEnvironment(sourceEnvironment, { profile: 'static' }),
+      typecheckProject.configName
+    );
+  }
+  try {
+    for (const stage of stages) {
+      const status = commandRunner(stage);
+      if (status !== 0) {
+        return {
+          passed: false,
+          issues: [`Global generated-test stage failed: ${stage.kind} (exit ${status}).`],
+          directoryResult,
+          fingerprint: undefined,
+          expectedFingerprint: undefined
+        };
+      }
+    }
+  } finally {
+    typecheckProject?.cleanup();
   }
 
   const fingerprint = computeGlobalChecksFingerprint(specDir, directoryResult, options.rootDir ?? '.');
@@ -532,22 +556,22 @@ function normalizeScopedTestPaths(testPaths) {
   return normalized;
 }
 
-function globalStages(packageManager, testPaths, env) {
+function globalStages(packageManager, testPaths, env, typecheckProjectName = 'tsconfig.json') {
   if (packageManager === 'pnpm') {
     return [
       { kind: 'playwright-list', command: 'pnpm', args: ['run', 'test:e2e:list', '--', ...testPaths], env },
-      { kind: 'typescript', command: 'pnpm', args: ['exec', 'tsc', '--noEmit', '--pretty', 'false', '-p', 'tsconfig.json'], env }
+      { kind: 'typescript', command: 'pnpm', args: ['exec', 'tsc', '--noEmit', '--pretty', 'false', '-p', typecheckProjectName], env }
     ];
   }
   if (packageManager === 'yarn') {
     return [
       { kind: 'playwright-list', command: 'yarn', args: ['test:e2e:list', '--', ...testPaths], env },
-      { kind: 'typescript', command: 'yarn', args: ['tsc', '--noEmit', '--pretty', 'false', '-p', 'tsconfig.json'], env }
+      { kind: 'typescript', command: 'yarn', args: ['tsc', '--noEmit', '--pretty', 'false', '-p', typecheckProjectName], env }
     ];
   }
   return [
     { kind: 'playwright-list', command: 'npm', args: ['run', 'test:e2e:list', '--', ...testPaths], env },
-    { kind: 'typescript', command: 'npx', args: ['tsc', '--noEmit', '--pretty', 'false', '-p', 'tsconfig.json'], env }
+    { kind: 'typescript', command: 'npx', args: ['tsc', '--noEmit', '--pretty', 'false', '-p', typecheckProjectName], env }
   ];
 }
 

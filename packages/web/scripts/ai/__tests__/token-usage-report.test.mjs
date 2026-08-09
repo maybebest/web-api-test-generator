@@ -117,6 +117,40 @@ test('token usage report aggregates provider, retry, compaction, and exact-cache
   assert.equal(summary.compactionSavedChars, 600);
 });
 
+// A --replay-rejected run succeeds with zero provider calls: its execution
+// evidence is the completed replay stage, not a provider attempt or cache hit.
+test('a zero-provider replay run is a valid succeeded history with zero tokens', (t) => {
+  const directory = tempDirectory(t);
+  const replayStage = (status, sequenceHint) => ({
+    schemaVersion: 'generation-run-event/v1',
+    runId: 'replay-run',
+    type: 'stage',
+    timestamp: `2026-08-02T10:00:00.${sequenceHint}Z`,
+    stage: 'replay',
+    status
+  });
+  writeGenerationRun(directory, 'replay-run', {
+    attempts: [],
+    cacheEvents: [replayStage('started', '200'), replayStage('completed', '300')]
+  });
+  writeGenerationRun(directory, 'evidence-less-run', { attempts: [] });
+
+  const collected = readGenerationUsage(directory);
+
+  assert.deepEqual(
+    collected.invalidEvents.filter((entry) => entry.eventsPath.includes('replay-run')),
+    []
+  );
+  assert.equal(
+    collected.invalidEvents.some((entry) => entry.eventsPath.includes('evidence-less-run')
+      && /no provider-attempt or result-cache/.test(entry.error)),
+    true,
+    'a succeeded run without replay evidence must stay invalid'
+  );
+  const summary = summarizeGenerationUsage(collected);
+  assert.equal(summary.totalTokens, 0);
+});
+
 test('token usage report enforces per-generation token and retry budgets', (t) => {
   const directory = tempDirectory(t);
   writeManifest(directory, 'over-budget', { totalTokens: 501, retryCount: 2 });
