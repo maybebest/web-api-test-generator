@@ -45,7 +45,8 @@ import {
 } from './test-heal-dom-evidence.mjs';
 import { verifyScopedRoleEvidence } from './test-heal-scoped-role.mjs';
 import { triageRuntimeFailure } from './test-heal-triage.mjs';
-import { containsSecretLikeValue, redactSecretMaterial } from '../lib/secret-safety.mjs';
+import { containsSecretLikeValue, maskSpecGroundedValues, redactSecretMaterial } from '../lib/secret-safety.mjs';
+import { collectSpecGroundedDataValues } from '../lib/spec-parser.mjs';
 import {
   canonicalContractTestPath,
   testSuiteRootForPath,
@@ -910,25 +911,28 @@ function containsCandidateSecretLiteral(source) {
   return false;
 }
 
-function sourceSafetyIssue(source, secretValues, label) {
+function sourceSafetyIssue(source, secretValues, label, specExemptValues = []) {
   const normalizedSource = String(source ?? '');
   // Keep preflight checks deterministic. Generic candidate semantics belong to
   // verifyHealedSourcePolicy; every rejection below that boundary records only
   // a reason code, never candidate source.
+  // Known environment secret values are never exempt: the spec-grounded list
+  // only covers fixture values the trusted spec pins verbatim.
   if (redactKnownSecretValues(normalizedSource, secretValues) !== normalizedSource) {
     return `${label} contains a known secret value and cannot be healed or archived.`;
   }
-  if (containsSecretLikeValue(normalizedSource)) {
+  if (containsSecretLikeValue(maskSpecGroundedValues(normalizedSource, specExemptValues))) {
     return `${label} contains secret-like material and cannot be healed or archived.`;
   }
   return null;
 }
 
-function candidateSourceSafetyIssue(source, secretValues) {
+function candidateSourceSafetyIssue(source, secretValues, specExemptValues = []) {
   const normalizedSource = String(source ?? '');
-  const commonIssue = sourceSafetyIssue(normalizedSource, secretValues, 'Heal candidate source');
+  const commonIssue = sourceSafetyIssue(normalizedSource, secretValues, 'Heal candidate source', specExemptValues);
   if (commonIssue) return commonIssue;
-  if (analyzeHealSource(normalizedSource).containsSecrets || containsCandidateSecretLiteral(normalizedSource)) {
+  const scanned = maskSpecGroundedValues(normalizedSource, specExemptValues);
+  if (analyzeHealSource(scanned).containsSecrets || containsCandidateSecretLiteral(scanned)) {
     return 'Heal candidate source contains secret-like material and cannot be healed or archived.';
   }
   return null;
@@ -1136,8 +1140,6 @@ export async function healSingleTest({
   const runRoot = path.join(webRoot, '.ai-runs');
   const runId = `${Date.now()}-${process.pid}-${crypto.randomUUID()}`;
   const secretValues = knownSecretEnvValues(env);
-  const originalSafetyIssue = sourceSafetyIssue(originalSource, secretValues, 'Heal target source');
-  if (originalSafetyIssue) throw new Error(originalSafetyIssue);
 
   const contract = resolveContract({
     testPath: target,
@@ -1148,6 +1150,16 @@ export async function healSingleTest({
     validateDirectory,
     webRoot
   });
+
+  // Spec-grounded secret exemptions: values the bound spec pins verbatim in
+  // Test Data / Data Cases are trusted fixture data, so a spec with a pinned
+  // fixture password stays healable. The preflight therefore runs after
+  // contract resolution; without a spec binding nothing is exempt.
+  const specExemptValues = contract.kind === 'spec'
+    ? collectSpecGroundedDataValues(contract.validation?.content)
+    : [];
+  const originalSafetyIssue = sourceSafetyIssue(originalSource, secretValues, 'Heal target source', specExemptValues);
+  if (originalSafetyIssue) throw new Error(originalSafetyIssue);
 
   // Apply mode is the only mode that can overwrite the target. Refuse a dirty
   // starting target before running browsers or invoking a provider unless the
@@ -1382,6 +1394,7 @@ export async function healSingleTest({
             ? domEvidence
             : undefined,
           env,
+          specExemptValues,
           signal
         });
         stageTimings.push({ stage: 'provider', attempt, durationMs: Date.now() - providerStartedAtMs });
@@ -1405,7 +1418,7 @@ export async function healSingleTest({
       // candidate below is rejected for safety reasons.
       const providerAudit = structuredProviderAudit(healed, attempt, secretValues);
       if (providerAudit) providerAttempts.push(providerAudit);
-      const candidateSafetyIssue = candidateSourceSafetyIssue(healed?.code, secretValues);
+      const candidateSafetyIssue = candidateSourceSafetyIssue(healed?.code, secretValues, specExemptValues);
       if (candidateSafetyIssue) {
         checks.policy = 'rejected';
         if (!providerAudit) providerAttempts.push({ attempt, kind: 'brain-error', usage: null });
@@ -1444,7 +1457,7 @@ export async function healSingleTest({
         continue;
       }
 
-      const policy = verifyHealedSourcePolicy({ previousSource: originalSource, healedSource: healed.code });
+      const policy = verifyHealedSourcePolicy({ previousSource: originalSource, healedSource: healed.code, specExemptValues });
       const semanticPolicyIssueCodes = policy.passed
         ? []
         : normalizeHealPolicyIssueCodes(policy.issueCodes, { requireAtLeastOne: true });

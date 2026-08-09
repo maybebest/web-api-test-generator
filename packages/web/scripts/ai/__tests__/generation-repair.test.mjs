@@ -96,6 +96,51 @@ test('repair fails closed for reviewer-recognized credential families and opaque
   }
 });
 
+// Spec-grounded fixture values (Test Data / Data Cases) are trusted inputs: a
+// candidate that carries the spec's own pinned fixture password must stay
+// repairable, while secret-shaped literals the spec never pinned still refuse.
+const SPEC_WITH_PINNED_FIXTURE_PASSWORDS = `# Flow: Wizard personal plan
+
+## Test Data
+
+| Name | Value | Notes |
+|---|---|---|
+| password | fixture-pass-1 | pinned fixture credential |
+
+## Data Cases
+
+| Case ID | Inputs | Expected Result | Notes |
+|---|---|---|---|
+| DC-001 | password=fixture-pass-2 | Plan created | n/a |
+`;
+
+test('spec-grounded fixture credentials stay repairable; non-spec secret shapes still refuse', () => {
+  const source = "const password = 'fixture-pass-1';\nconst confirmPassword = 'fixture-pass-2';\n";
+
+  const prompt = buildGenerationRepairPrompt({
+    source,
+    verdict: STATIC_VERDICT,
+    specContent: SPEC_WITH_PINNED_FIXTURE_PASSWORDS
+  });
+  assert.equal(JSON.parse(prompt).previousTypeScriptSource, source);
+
+  // The same source without spec grounding keeps the fail-closed refusal.
+  assert.throws(
+    () => buildGenerationRepairPrompt({ source, verdict: STATIC_VERDICT }),
+    /secret-bearing source/i
+  );
+
+  // A secret shape the spec never pinned refuses even with the spec present.
+  assert.throws(
+    () => buildGenerationRepairPrompt({
+      source: `${source}const apiKey = 'sk-abcdefghijklmnop';\n`,
+      verdict: STATIC_VERDICT,
+      specContent: SPEC_WITH_PINNED_FIXTURE_PASSWORDS
+    }),
+    /secret-bearing source/i
+  );
+});
+
 test('repair source uses the repair stage and decodes one complete TypeScript result', async () => {
   const calls = [];
   const onAttempt = () => {};

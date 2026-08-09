@@ -43,6 +43,12 @@ answers "did it reflect?".
 the split is an early-warning signal of quality drift before it becomes
 rejections.
 
+Accepted-run manifests additionally persist `staticReviewWarningKinds`
+(bounded, stable kind identifiers such as `ungrounded-accessible-name` —
+never full warning texts) alongside `staticReviewWarningCount`. Historical
+runs carry `null` (unknown). `metrics-report` does not consume the kinds yet;
+they are a future metric input for warning-family trend reporting.
+
 ## Compatibility
 v1 history rows are never rewritten; trend renders mixed v1+v2 (dashes for
 fields v1 lacks). New snapshots are always v2.

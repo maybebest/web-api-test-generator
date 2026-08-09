@@ -992,6 +992,124 @@ test('ordinary high-entropy-looking TypeScript syntax is not treated as secret m
   assert.equal(executionCalls, 1);
 });
 
+// --- Spec-grounded secret exemptions (cycle-2 improvement B) ---
+// A spec that pins a fixture password in Test Data / Data Cases must stay
+// healable: the spec is trusted input, so its exact pinned values are exempt
+// from the secret sweep. Anything the spec never pinned keeps refusing.
+
+const SPEC_CONTENT_WITH_PINNED_PASSWORD = `# Flow: Wizard personal plan
+
+## Test Data
+
+| Name | Value | Notes |
+|---|---|---|
+| password | fixture-pass-2 | pinned fixture credential |
+`;
+
+function pinnedPasswordSpecContract(target) {
+  return {
+    kind: 'spec',
+    testPath: target,
+    specPath: 'specs/flow.md',
+    validation: { valid: true, issues: [], content: SPEC_CONTENT_WITH_PINNED_PASSWORD }
+  };
+}
+
+test('spec-pinned fixture passwords pass the heal preflight when the spec binding vouches for them', async () => {
+  const { webRoot, target, targetPath } = makeHealWorkspace();
+  const passwordSource = SPEC_SOURCE.replace(
+    "await page.getByRole('button', { name: 'Save' }).click();",
+    [
+      "const password = 'fixture-pass-2';",
+      "  await page.getByLabel('Password').fill(password);",
+      "  await page.getByRole('button', { name: 'Save' }).click();"
+    ].join('\n')
+  );
+  fs.writeFileSync(targetPath, passwordSource);
+  let executionCalls = 0;
+  const result = await healSingleTest({
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true' },
+    webRoot,
+    log: () => {},
+    resolveContract: () => pinnedPasswordSpecContract(target),
+    executePair: () => {
+      executionCalls += 1;
+      return PASSED_EXECUTION;
+    },
+    heal: async () => assert.fail('an already-green source must not invoke the provider')
+  });
+  assert.equal(result.status, 'already-green');
+  assert.equal(executionCalls, 1);
+});
+
+test('a non-spec secret-shaped literal still fails the heal preflight even with a spec binding', async () => {
+  const { webRoot, target, targetPath } = makeHealWorkspace();
+  fs.writeFileSync(targetPath, `${SPEC_SOURCE}const apiKey = 'sk-abcdefghijklmnop';\n`);
+  await assert.rejects(
+    healSingleTest({
+      testPath: target,
+      env: { AI_AUTOHEAL_ENABLED: 'true' },
+      webRoot,
+      log: () => {},
+      resolveContract: () => pinnedPasswordSpecContract(target),
+      executePair: () => assert.fail('secret-bearing originals must stop before browser execution'),
+      heal: async () => assert.fail('secret-bearing originals must never reach the provider')
+    }),
+    /secret-like/i
+  );
+});
+
+test('spec exemptions thread into the heal prompt and candidate policy without weakening non-spec refusals', () => {
+  const pinnedSource = `${SPEC_SOURCE}const password = 'fixture-pass-2';\n`;
+  const env = { AI_AUTOHEAL_ENABLED: 'true' };
+
+  // Prompt build: refuses without the exemption, sendable with it.
+  assert.throws(
+    () => buildTestHealPrompt({ testPath: 'tests/regression/flow.spec.ts', source: pinnedSource, evidence: ['locator timeout'], attempt: 1, maxAttempts: 2, env }),
+    /secret-bearing/
+  );
+  const prompt = buildTestHealPrompt({
+    testPath: 'tests/regression/flow.spec.ts',
+    source: pinnedSource,
+    evidence: ['locator timeout'],
+    attempt: 1,
+    maxAttempts: 2,
+    env,
+    specExemptValues: ['fixture-pass-2']
+  });
+  assert.match(prompt, /fixture-pass-2/);
+  assert.throws(
+    () => buildTestHealPrompt({
+      testPath: 'tests/regression/flow.spec.ts',
+      source: `${pinnedSource}const apiKey = 'sk-abcdefghijklmnop';\n`,
+      evidence: ['locator timeout'],
+      attempt: 1,
+      maxAttempts: 2,
+      env,
+      specExemptValues: ['fixture-pass-2']
+    }),
+    /secret-bearing/
+  );
+
+  // Candidate policy: the pinned value passes, a non-spec secret still fails.
+  const healedPinned = pinnedSource.replace("getByTestId('status')", "getByTestId('status-badge')");
+  const withExemption = verifyHealedSourcePolicy({
+    previousSource: pinnedSource,
+    healedSource: healedPinned,
+    specExemptValues: ['fixture-pass-2']
+  });
+  assert.equal(withExemption.passed, true, withExemption.issues.join('\n'));
+  const withoutExemption = verifyHealedSourcePolicy({ previousSource: pinnedSource, healedSource: healedPinned });
+  assert.equal(withoutExemption.issueCodes.includes('SECRET_LIKE_LITERAL'), true);
+  const leaked = verifyHealedSourcePolicy({
+    previousSource: pinnedSource,
+    healedSource: healedPinned.replace('const password', "const apiKey = 'sk-abcdefghijklmnop';\nconst password"),
+    specExemptValues: ['fixture-pass-2']
+  });
+  assert.equal(leaked.issueCodes.includes('SECRET_LIKE_LITERAL'), true);
+});
+
 test('healSingleTest reports already-green without invoking the brain', async () => {
   const { webRoot, target, targetPath } = makeHealWorkspace();
   const { run } = executionSequence([PASSED_EXECUTION]);

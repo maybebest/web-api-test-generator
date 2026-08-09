@@ -77,6 +77,36 @@ const PAGE_STRING_SELECTOR_ACTION_APIS = new Set([
   '$',
   '$$'
 ]);
+// Stable kind identifiers for non-blocking reviewer warnings. Manifests
+// persist these identifiers (never full warning texts) alongside
+// staticReviewWarningCount so warning families stay recoverable post-hoc.
+// Order matters only for readability; classification returns a sorted set.
+// Adding a warnings.push(...) call requires a matching entry here (or the
+// warning classifies as 'other', which telemetry treats as unmapped).
+const STATIC_REVIEW_WARNING_KIND_PATTERNS = [
+  [/^Negative cases without dedicated NEG tests/, 'neg-coverage-single-mode'],
+  [/^Unfoldable selector exception accepted/, 'unfoldable-selector-exception'],
+  [/^CSS selector exception accepted/, 'css-selector-exception'],
+  [/^Positional locator pick exception accepted/, 'positional-pick-exception'],
+  [/^Browser-evaluation exception accepted/, 'browser-evaluation-exception'],
+  [/^Ungrounded accessible name/, 'ungrounded-accessible-name'],
+  [/^Non-retrying attribute assertion/, 'non-retrying-attribute-assertion'],
+  [/^Spec allows \d+ retries/, 'retries-not-configured'],
+  [/^Base Path appears to have a Page Object/, 'page-object-available'],
+  [/is repeated \d+ times/, 'repeated-locator'],
+  [/inline locator actions and no Page Object import/, 'inline-actions-without-pom']
+];
+
+export function classifyStaticReviewWarnings(warnings) {
+  const kinds = new Set();
+  for (const warning of Array.isArray(warnings) ? warnings : []) {
+    const text = String(warning ?? '');
+    const match = STATIC_REVIEW_WARNING_KIND_PATTERNS.find(([pattern]) => pattern.test(text));
+    kinds.add(match ? match[1] : 'other');
+  }
+  return [...kinds].sort();
+}
+
 export function reviewGeneratedTest({
   specPath,
   testPath,
@@ -714,7 +744,10 @@ function checkExpectCalls(expectCalls, sourceFile, locatorIdentifiers, constLite
     }
 
     if (!isValidExpectReceiver(argument, sourceFile, locatorIdentifiers, constLiteralIdentifiers, pageObjectLocatorAliases)) {
-      issues.push(`expect(${nodeText(sourceFile, argument)}) must target a Page or Page Object locator expression.`);
+      issues.push(
+        `expect(${nodeText(sourceFile, argument)}) must target a Page or Page Object locator expression. `
+        + 'Remedy: move the assertion into the test body; expect() inside Page Object methods is not recognized.'
+      );
     }
 
     checkWeakMatcher(expectCall, argument, sourceFile, issues);
@@ -1879,7 +1912,8 @@ function checkExpectedTokens(parsedSpec, countableLiterals, issues) {
   for (const token of collectSpecSalientTokens(parsedSpec)) {
     if (!countableLiterals.some((literal) => literal.includes(token))) {
       issues.push(
-        `Salient expected value must be asserted in the test (inside an assertion, a step/test title, or an iterated data row): ${token}`
+        `Salient expected value must be asserted in the test: ${token}. `
+        + 'Remedy: assert the listed token verbatim in an assertion, a step/test title, or an iterated data row in the test body.'
       );
     }
   }

@@ -6,6 +6,7 @@ import { OUTPUT_KINDS } from '../lib/output-contracts.mjs';
 import {
   containsSecretLikeValue,
   hasKnownSecretShape,
+  maskSpecGroundedValues,
   redactSecretMaterial
 } from '../lib/secret-safety.mjs';
 import {
@@ -495,8 +496,12 @@ export function analyzeHealSource(source) {
   return analysis;
 }
 
-function sourceContainsEmbeddedSecrets(source) {
-  return analyzeHealSource(source).containsSecrets;
+// specExemptValues are fixture values pinned verbatim by the trusted flow
+// spec (Test Data / Data Cases); they are removed before the sweep so a spec
+// with a pinned fixture password stays healable. Non-exempt secret shapes
+// keep the fail-closed refusal because the scan runs on the masked text.
+function sourceContainsEmbeddedSecrets(source, specExemptValues = []) {
+  return analyzeHealSource(maskSpecGroundedValues(source, specExemptValues)).containsSecrets;
 }
 
 function callPath(node) {
@@ -1123,7 +1128,7 @@ function requireEqualFact(issues, issueCodes, code, label, before, after) {
   issues.push(`Healed source changes protected ${label}.`);
 }
 
-export function assertHealSourceSendable(source, env = process.env) {
+export function assertHealSourceSendable(source, env = process.env, specExemptValues = []) {
   if (typeof source !== 'string' || !source.trim()) {
     throw new TypeError('Test heal requires non-empty prior TypeScript source.');
   }
@@ -1133,7 +1138,7 @@ export function assertHealSourceSendable(source, env = process.env) {
       `Test heal source exceeds AI_AUTOHEAL_MAX_SOURCE_BYTES (${byteLimit} bytes); refusing a costly heal request.`
     );
   }
-  if (sourceContainsEmbeddedSecrets(source)) {
+  if (sourceContainsEmbeddedSecrets(source, specExemptValues)) {
     throw new Error('Test heal refuses to resend secret-bearing source.');
   }
 }
@@ -1145,7 +1150,7 @@ export function assertHealSourceSendable(source, env = process.env) {
 // around assertions are caught structurally. previousSource must be the
 // ORIGINAL committed file across every attempt so the rules cannot be relaxed
 // incrementally (ratchet, not a sliding window).
-export function verifyHealedSourcePolicy({ previousSource, healedSource }) {
+export function verifyHealedSourcePolicy({ previousSource, healedSource, specExemptValues = [] }) {
   const issues = [];
   const issueCodes = [];
   const addIssue = (code, message) => {
@@ -1262,7 +1267,9 @@ export function verifyHealedSourcePolicy({ previousSource, healedSource }) {
   if (healed.guardedExpectCount > baseline.guardedExpectCount) {
     addIssue('GUARDED_ASSERTION_INTRODUCED', 'Healed source must not place assertions behind conditions, short-circuits, or try/catch.');
   }
-  if (healed.containsSecrets) {
+  // Spec-grounded exemption: pinned fixture values are masked before the
+  // secret verdict only; every other structural count keeps the raw source.
+  if (healed.containsSecrets && sourceContainsEmbeddedSecrets(healedSource, specExemptValues)) {
     addIssue('SECRET_LIKE_LITERAL', 'Healed source contains secret-like literals; refusing to accept it.');
   }
   return { passed: issues.length === 0, issues, issueCodes };
@@ -1301,9 +1308,10 @@ export function buildTestHealPrompt({
   maxAttempts,
   repositoryContext = {},
   domEvidence = undefined,
-  env = process.env
+  env = process.env,
+  specExemptValues = []
 }) {
-  assertHealSourceSendable(source, env);
+  assertHealSourceSendable(source, env, specExemptValues);
   if (!Number.isSafeInteger(attempt) || attempt < 1) {
     throw new RangeError('Test heal attempt must be a positive integer.');
   }
@@ -1336,6 +1344,7 @@ export async function healTestSource({
   repositoryContext = {},
   domEvidence = undefined,
   env = process.env,
+  specExemptValues = [],
   signal,
   onAttempt,
   runBrainImpl = runBrain
@@ -1352,7 +1361,8 @@ export async function healTestSource({
     maxAttempts,
     repositoryContext,
     domEvidence,
-    env
+    env,
+    specExemptValues
   });
   const result = await runBrainImpl(prompt, {
     // Compaction is designed for generation IR. It must never rewrite the

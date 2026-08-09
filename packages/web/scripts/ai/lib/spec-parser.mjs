@@ -563,3 +563,38 @@ function camelCase(value) {
     .replace(/[^a-zA-Z0-9]+(.)/g, (_, character) => character.toUpperCase())
     .replace(/^[A-Z]/, (character) => character.toLowerCase());
 }
+
+// Fixture values the spec itself pins as executable test data: Test Data table
+// values, Data Cases table values (including key=value input fragments), and
+// Data Cases as JSON primitive strings. The spec is trusted input, so these
+// exact values are legitimate in a generated/healed test even when they look
+// secret-shaped (e.g. a pinned fixture password). Consumers use this list to
+// exempt spec-grounded literals from over-broad secret sweeps; anything not
+// listed here keeps its fail-closed treatment.
+export function collectSpecGroundedDataValues(specContent) {
+  const parsed = parseFlowSpec(String(specContent ?? ''));
+  const values = new Set();
+  const addValue = (value) => {
+    const text = String(value ?? '').trim();
+    if (text.length >= 4) values.add(text);
+    // Data Case inputs conventionally pack key=value pairs into one cell; the
+    // test embeds only the value part, so exempt each verbatim value too.
+    for (const pair of text.matchAll(/[A-Za-z0-9_.-]+=([^\s,;|]+)/g)) {
+      if (pair[1].length >= 4) values.add(pair[1]);
+    }
+  };
+  const addTableValues = (table) => {
+    for (const row of table?.rows ?? []) {
+      for (const cell of Object.values(row)) addValue(cell);
+    }
+  };
+  addTableValues(parseGenericTable(parsed.sections['Test Data'] ?? ''));
+  addTableValues(parsed.dataCases);
+  const addJsonPrimitives = (value) => {
+    if (typeof value === 'string') addValue(value);
+    else if (Array.isArray(value)) value.forEach(addJsonPrimitives);
+    else if (value && typeof value === 'object') Object.values(value).forEach(addJsonPrimitives);
+  };
+  if (!parsed.dataCasesJson.error) addJsonPrimitives(parsed.dataCasesJson.value);
+  return [...values];
+}

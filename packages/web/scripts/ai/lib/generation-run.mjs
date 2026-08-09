@@ -106,8 +106,21 @@ function normalizedQuality(value) {
     repairCount: nonNegativeInteger(source.repairCount) ?? 0,
     // Reviewer non-blocking warnings observed by the accepting gate. null
     // means unknown (legacy runs and non-accepted paths), never zero.
-    staticReviewWarningCount: nonNegativeInteger(source.staticReviewWarningCount)
+    staticReviewWarningCount: nonNegativeInteger(source.staticReviewWarningCount),
+    // Stable warning-kind identifiers alongside the count; null (unknown) for
+    // historical runs that never carried kinds. Bounded and validated so the
+    // manifest can never accumulate free text.
+    staticReviewWarningKinds: normalizedWarningKinds(source.staticReviewWarningKinds)
   };
+}
+
+const WARNING_KIND_PATTERN = /^[a-z][a-z0-9-]{0,47}$/;
+const MAX_WARNING_KINDS = 16;
+
+function normalizedWarningKinds(value) {
+  if (!Array.isArray(value)) return null;
+  if (!value.every((kind) => typeof kind === 'string' && WARNING_KIND_PATTERN.test(kind))) return null;
+  return [...new Set(value)].slice(0, MAX_WARNING_KINDS);
 }
 
 function normalizedCacheReference(value) {

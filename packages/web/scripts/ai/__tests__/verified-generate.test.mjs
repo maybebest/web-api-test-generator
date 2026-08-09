@@ -436,10 +436,13 @@ test('an explicitly enabled deterministic static failure gets exactly one bounde
       }
       return { schema: 'generated-gate-verdict/v1', passed: true, stage: 'accepted', reasonCode: 'PASSED', diagnostics: [], repairable: false };
     },
-    repair: async ({ source, verdict }) => {
+    repair: async ({ source, verdict, specContent }) => {
       repairs += 1;
       assert.equal(source, 'const firstCandidate = true;\n');
       assert.equal(verdict.reasonCode, 'STATIC_REVIEW_FAILED');
+      // The validated spec content must reach the repair path so spec-pinned
+      // fixture values can be exempted from the repair secret sweep.
+      assert.match(String(specContent), /^# Flow:/m);
       return {
         code: 'const repairedCandidate = true;\n',
         result: { cacheCandidate: { key: '2'.repeat(64) } }
@@ -535,8 +538,13 @@ test('invalid repair configuration fails before generation and pre-provider repa
     assert.equal(generated, false);
   }
 
+  // A throwing repair (for example its pre-provider secret refusal) must not
+  // convert a deterministic gate rejection into a terminal repair failure:
+  // the run falls through to the normal gate-rejected path, keeps the
+  // rejected-candidate archive, and records the failed repair stage.
   {
-    const { webRoot } = fixture();
+    const { webRoot, target } = fixture();
+    let gates = 0;
     await assert.rejects(
       runVerifiedGeneration({
         specPath: 'specs/checkout.md',
@@ -545,25 +553,47 @@ test('invalid repair configuration fails before generation and pre-provider repa
         env: { AI_REPAIR_ENABLED: 'true', AI_DOTENV_PATH: path.join(webRoot, 'missing.env') },
         candidateId: () => 'repair-preflight-fails',
         generate: async () => ({ code: 'const candidate = true;\n', result: {} }),
-        gate: async () => ({
-          schema: 'generated-gate-verdict/v1',
-          passed: false,
-          stage: 'static-review',
-          reasonCode: 'STATIC_REVIEW_FAILED',
-          diagnostics: ['Static issue.'],
-          repairable: true
-        }),
+        gate: async () => {
+          gates += 1;
+          return {
+            schema: 'generated-gate-verdict/v1',
+            passed: false,
+            stage: 'static-review',
+            reasonCode: 'STATIC_REVIEW_FAILED',
+            diagnostics: ['Static issue.'],
+            repairable: true
+          };
+        },
         repair: async () => {
           throw new Error('repair source rejected before provider');
         }
       }),
-      /rejected before provider/
+      (error) => {
+        assert.match(error.message, /fast acceptance gate failed/i);
+        assert.equal(error.failureReason, 'gate-rejected');
+        return true;
+      }
     );
+    assert.equal(gates, 1);
+    assert.equal(fs.readFileSync(target, 'utf8'), 'const oldTarget = true;\n');
     const runDir = path.join(webRoot, '.ai-runs', 'generation', 'repair-preflight-fails');
     const manifest = JSON.parse(fs.readFileSync(path.join(runDir, 'manifest.json'), 'utf8'));
     const events = fs.readFileSync(path.join(runDir, 'events.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
     assert.equal(manifest.quality.repairCount, 1);
+    assert.equal(manifest.failureReason, 'gate-rejected');
     assert.equal(events.filter((event) => event.type === 'provider-attempt' && event.stage === 'repair').length, 0);
+    const repairFailure = events.find(
+      (event) => event.type === 'stage' && event.stage === 'repair' && event.status === 'failed'
+    );
+    assert.ok(repairFailure, 'events must carry the failed repair stage');
+    assert.equal(repairFailure.failureStage, 'repair');
+    assert.match(repairFailure.failureReason, /^repair-/);
+    assert.match(repairFailure.failureReason, /rejected-before-provider/);
+    // The first (and only) candidate stays archived for replay.
+    assert.ok(
+      fs.existsSync(path.join(webRoot, '.ai-runs', 'rejected', 'repair-preflight-fails', 'attempt-1.ts')),
+      'rejected-candidate archive must stay intact'
+    );
   }
 });
 

@@ -6,6 +6,8 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
+import { classifyGeneratedGateFailure } from '../lib/generated-gate-verdict.mjs';
+import { buildGenerationRepairPrompt } from '../lib/generation-repair.mjs';
 import { parseFlowSpec, specSha256 } from '../lib/spec-parser.mjs';
 import { reviewGeneratedTest } from '../review-generated-test.mjs';
 import { validateSpecDirectory, validateSpecFile } from '../validate-flow-spec.mjs';
@@ -1449,7 +1451,9 @@ test('AC-003: confirmation visible', async ({ page }) => {
   const result = reviewSuiteGeneratedTest({ specPath, testPath });
 
   assert.equal(result.passed, false);
-  assert.match(result.issues.join('\n'), /Salient expected value must be asserted.*REQ-1001/);
+  const salientIssues = result.issues.join('\n');
+  assert.match(salientIssues, /Salient expected value must be asserted.*REQ-1001/);
+  assert.match(salientIssues, /Remedy: assert the listed token verbatim in an assertion, a step\/test title, or an iterated data row in the test body\./);
 });
 
 test('reviewer accepts a declared salient value asserted in the final step', () => {
@@ -2403,6 +2407,55 @@ test('reviewer rejects a bare-identifier expect receiver aliasing a non-Page-Obj
 
   assert.equal(result.passed, false);
   assert.match(result.issues.join('\n'), /must target a Page or Page Object locator expression/);
+});
+
+// --- Remedy-bearing diagnostics (cycle-2 improvement A) ---
+// The only observed repair call re-failed the same rule because the diagnostic
+// named the violation without its remedy. Both high-frequency rules must state
+// the concrete fix, and that remedy must survive verbatim into the repair
+// prompt the provider actually sees.
+
+test('expect-target diagnostics carry the move-into-test-body remedy', () => {
+  const workspace = createWorkspace();
+  const specPath = writeSpec(workspace);
+  const testPath = writeGeneratedTest(
+    workspace,
+    specPath,
+    poAliasBody(
+      '    const confirmationRequestObject = checkoutCase;\n    await expect(confirmationRequestObject).toBeVisible();'
+    )
+  );
+
+  const result = reviewGeneratedTest({ specPath, testPath });
+
+  assert.equal(result.passed, false);
+  const joined = result.issues.join('\n');
+  assert.match(joined, /must target a Page or Page Object locator expression/);
+  assert.match(joined, /Remedy: move the assertion into the test body; expect\(\) inside Page Object methods is not recognized\./);
+});
+
+test('remedy clauses reach the generation repair prompt through the gate verdict', () => {
+  const workspace = createWorkspace();
+  const specPath = writeSpec(workspace);
+  const testPath = writeGeneratedTest(
+    workspace,
+    specPath,
+    poAliasBody(
+      '    const confirmationRequestObject = checkoutCase;\n    await expect(confirmationRequestObject).toBeVisible();'
+    )
+  );
+
+  const result = reviewGeneratedTest({ specPath, testPath });
+  assert.equal(result.passed, false);
+
+  const verdict = classifyGeneratedGateFailure({ stage: 'static-review', issues: result.issues });
+  const prompt = buildGenerationRepairPrompt({
+    source: fs.readFileSync(testPath, 'utf8'),
+    verdict
+  });
+
+  assert.match(prompt, /move the assertion into the test body/);
+  assert.match(prompt, /expect\(\) inside Page Object methods is not recognized/);
 });
 
 function createWorkspace() {

@@ -4,8 +4,10 @@ import ts from 'typescript';
 import {
   containsSecretLikeValue,
   hasKnownSecretShape,
+  maskSpecGroundedValues,
   redactSecretMaterial
 } from './secret-safety.mjs';
+import { collectSpecGroundedDataValues } from './spec-parser.mjs';
 
 export const GENERATION_REPAIR_SCHEMA = 'playwright-generation-repair/v1';
 export const MAX_REPAIR_DIAGNOSTICS = 8;
@@ -35,9 +37,14 @@ function sanitizedDiagnostic(value) {
     .slice(0, MAX_REPAIR_DIAGNOSTIC_CHARS);
 }
 
-function assertSourceHasNoEmbeddedSecrets(source) {
-  let detected = hasKnownSecretShape(source);
-  const sourceFile = ts.createSourceFile('repair-candidate.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+// specExemptValues are fixture values pinned verbatim by the trusted flow
+// spec (Test Data / Data Cases). They are removed before scanning so a spec's
+// own pinned fixture password cannot fail this sweep; secret-shaped literals
+// the spec never pinned still refuse fail-closed.
+function assertSourceHasNoEmbeddedSecrets(source, specExemptValues = []) {
+  const scanned = maskSpecGroundedValues(source, specExemptValues);
+  let detected = hasKnownSecretShape(scanned);
+  const sourceFile = ts.createSourceFile('repair-candidate.ts', scanned, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   const inspect = (node) => {
     if (detected) return;
     if (ts.isStringLiteralLike(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
@@ -79,7 +86,7 @@ export function isRepairableGenerationVerdict(verdict) {
     && Array.isArray(verdict.diagnostics);
 }
 
-export function buildGenerationRepairPrompt({ source, verdict }) {
+export function buildGenerationRepairPrompt({ source, verdict, specContent }) {
   if (typeof source !== 'string' || !source.trim()) {
     throw new TypeError('Generation repair requires non-empty prior TypeScript source.');
   }
@@ -89,7 +96,10 @@ export function buildGenerationRepairPrompt({ source, verdict }) {
   if (!isRepairableGenerationVerdict(verdict)) {
     throw new Error('Generation verdict is not eligible for deterministic source repair.');
   }
-  assertSourceHasNoEmbeddedSecrets(source);
+  assertSourceHasNoEmbeddedSecrets(
+    source,
+    specContent === undefined ? [] : collectSpecGroundedDataValues(specContent)
+  );
 
   const diagnostics = verdict.diagnostics
     .slice(0, MAX_REPAIR_DIAGNOSTICS)
@@ -106,6 +116,7 @@ export function buildGenerationRepairPrompt({ source, verdict }) {
 export async function repairGeneratedSource({
   source,
   verdict,
+  specContent,
   env = process.env,
   signal,
   onAttempt,
@@ -120,7 +131,7 @@ export async function repairGeneratedSource({
       `Generation repair source exceeds AI_REPAIR_MAX_SOURCE_BYTES (${sourceByteLimit} bytes); refusing a costly repair request.`
     );
   }
-  const prompt = buildGenerationRepairPrompt({ source, verdict });
+  const prompt = buildGenerationRepairPrompt({ source, verdict, specContent });
   const result = await runBrainImpl(prompt, {
     // Compaction is designed for generation IR. It must never rewrite the
     // prior TypeScript source that a repair needs to preserve byte-for-byte.

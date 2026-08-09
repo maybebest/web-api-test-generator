@@ -21,7 +21,7 @@ import {
   acceptedGeneratedGateVerdict,
   classifyGeneratedGateFailure
 } from './lib/generated-gate-verdict.mjs';
-import { reviewGeneratedTest } from './review-generated-test.mjs';
+import { classifyStaticReviewWarnings, reviewGeneratedTest } from './review-generated-test.mjs';
 import {
   generationSubjectFingerprint,
   linkGenerationRunFullGate
@@ -1089,6 +1089,7 @@ function runCli() {
     validation
   });
   const staticReviewWarningCount = review.warnings.length;
+  const staticReviewWarningKinds = classifyStaticReviewWarnings(review.warnings);
   for (const warning of review.warnings) {
     console.warn(`- ${warning}`);
   }
@@ -1212,7 +1213,7 @@ function runCli() {
 
   console.log('');
   console.log('Generated test gate passed.');
-  return finishCli(args, acceptedGeneratedGateVerdict({ staticReviewWarningCount }), 0);
+  return finishCli(args, acceptedGeneratedGateVerdict({ staticReviewWarningCount, staticReviewWarningKinds }), 0);
 }
 
 function finishCli(args, verdict, exitCode) {

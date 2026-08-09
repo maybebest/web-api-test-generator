@@ -87,3 +87,19 @@ export function redactSecretMaterial(value) {
     isHighEntropySecretLike(candidate) || isOpaqueTokenLike(candidate) ? '<redacted>' : candidate
   ));
 }
+
+// Removes spec-grounded fixture values from a text before a secret sweep.
+// The caller vouches for the exempt list (values pinned verbatim in a trusted
+// flow spec's Test Data / Data Cases); every other literal keeps fail-closed
+// treatment because the scan runs on the masked text. Values shorter than 4
+// characters never mask: removing tiny fragments distorts unrelated text
+// without exempting anything a secret pattern could match.
+export function maskSpecGroundedValues(text, exemptValues = []) {
+  let masked = String(text ?? '');
+  const ordered = [...new Set(
+    (Array.isArray(exemptValues) ? exemptValues : [])
+      .filter((value) => typeof value === 'string' && value.trim().length >= 4)
+  )].sort((a, b) => b.length - a.length);
+  for (const value of ordered) masked = masked.split(value).join('');
+  return masked;
+}

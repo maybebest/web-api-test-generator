@@ -20,7 +20,13 @@ export function classifyGeneratedGateFailure({ stage, issues = [] }) {
   };
 }
 
-export function acceptedGeneratedGateVerdict({ staticReviewWarningCount = null } = {}) {
+const MAX_WARNING_KINDS = 16;
+const WARNING_KIND_PATTERN = /^[a-z][a-z0-9-]{0,47}$/;
+
+export function acceptedGeneratedGateVerdict({
+  staticReviewWarningCount = null,
+  staticReviewWarningKinds = null
+} = {}) {
   const verdict = {
     schema: 'generated-gate-verdict/v1',
     passed: true,
@@ -34,6 +40,15 @@ export function acceptedGeneratedGateVerdict({ staticReviewWarningCount = null }
   // counts are dropped: absence means "unknown", never zero.
   if (Number.isSafeInteger(staticReviewWarningCount) && staticReviewWarningCount >= 0) {
     verdict.staticReviewWarningCount = staticReviewWarningCount;
+  }
+  // Stable warning-kind identifiers (never full texts) keep warning families
+  // recoverable post-hoc. Any invalid shape or entry drops the whole field:
+  // absence means "unknown", and junk must never persist into manifests.
+  if (
+    Array.isArray(staticReviewWarningKinds)
+    && staticReviewWarningKinds.every((kind) => typeof kind === 'string' && WARNING_KIND_PATTERN.test(kind))
+  ) {
+    verdict.staticReviewWarningKinds = [...new Set(staticReviewWarningKinds)].slice(0, MAX_WARNING_KINDS);
   }
   return verdict;
 }

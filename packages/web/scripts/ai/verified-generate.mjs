@@ -46,6 +46,7 @@ import {
 } from './lib/environment-preflight.mjs';
 import { EXTERNAL_BROWSER_PROJECTS, checkGenerationReadiness } from './lib/generation-preflight.mjs';
 import { normalizeRecordingFile } from './lib/recording-parser.mjs';
+import { redactSecretMaterial } from './lib/secret-safety.mjs';
 import { specSha256 } from './lib/spec-parser.mjs';
 import { validateSpecFile } from './validate-flow-spec.mjs';
 
@@ -503,6 +504,17 @@ function archiveRejectedCandidate(candidatePath, binding, webRoot, id, fileName 
   return archivePath;
 }
 
+// Telemetry events only accept safe labels, so a thrown repair reason is
+// redacted first and then slugged into a bounded label. The 'repair-' prefix
+// keeps the family greppable; an unusable message degrades to 'repair-failed'.
+function repairFailureLabel(error) {
+  const slug = redactSecretMaterial(String(error?.message ?? error ?? ''))
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug ? `repair-${slug}`.slice(0, 128) : 'repair-failed';
+}
+
 export async function runVerifiedGeneration({
   taskPath,
   specPath,
@@ -555,6 +567,15 @@ export async function runVerifiedGeneration({
   let repairCount = 0;
   let currentAttemptBaseline = 0;
   let telemetryHealthy = true;
+  // Validated spec content captured during preflight; grounds the repair-side
+  // spec-pinned secret exemption without re-reading (and re-trusting) disk.
+  let validatedSpecContent = null;
+  // Set when the one bounded repair attempt itself threw: the run then falls
+  // through to the normal gate-rejected terminal path instead of surfacing a
+  // terminal repair failure. Also marks that the first candidate was already
+  // rejected and archived (attempt-1.ts).
+  let repairStageFailure = null;
+  let firstAttemptArchivePath = null;
 
   const noteTelemetryFailure = (error) => {
     if (telemetryHealthy) {
@@ -672,6 +693,9 @@ export async function runVerifiedGeneration({
       let readiness;
       try {
         const validation = validateSpecFile(sourcePath);
+        if (validation.valid && typeof validation.content === 'string') {
+          validatedSpecContent = validation.content;
+        }
         readiness = validation.valid
           ? checkGenerationReadiness({
               validation,
@@ -866,7 +890,7 @@ export async function runVerifiedGeneration({
         reason: verdict.reason ?? verdict.diagnostics?.[0] ?? 'candidate static review failed'
       };
       await rejectGeneratedResult(firstReason);
-      archiveRejectedCandidate(candidatePath, candidateBinding, webRoot, id, 'attempt-1.ts');
+      firstAttemptArchivePath = archiveRejectedCandidate(candidatePath, candidateBinding, webRoot, id, 'attempt-1.ts');
       candidateBinding = null;
 
       currentStage = 'repair';
@@ -875,49 +899,79 @@ export async function runVerifiedGeneration({
       const repairStartedAt = Date.now();
       safeRecordRunEvent({ type: 'stage', stage: currentStage, status: 'started' });
       const previousPromptPath = generation.promptPath;
-      const repaired = await repair({
-        source: generation.code,
-        verdict,
-        env: resolvedEnvironment.env,
-        signal,
-        onAttempt
-      });
-      recordFallbackAttempts({
-        usage: repaired.result?.usage,
-        brain: repaired.result?.brain,
-        stage: currentStage,
-        attemptsAtStart: currentAttemptBaseline
-      });
-      generation = { ...repaired, promptPath: repaired.promptPath ?? previousPromptPath };
-      safeRecordRunEvent({
-        type: 'stage', stage: currentStage, status: 'completed', durationMs: Date.now() - repairStartedAt
-      });
-      candidateBinding = createBoundRegularFile(
-        candidatePath,
-        generation.code,
-        0o600,
-        'Repaired generated candidate'
-      );
-      candidateSha256 = candidateBinding.sha256;
+      let repaired = null;
+      try {
+        repaired = await repair({
+          source: generation.code,
+          verdict,
+          // The validated spec content grounds the repair-side secret
+          // exemption: fixture values the spec pins (Test Data / Data Cases)
+          // must not make an otherwise repairable candidate unrepairable.
+          specContent: validatedSpecContent ?? undefined,
+          env: resolvedEnvironment.env,
+          signal,
+          onAttempt
+        });
+      } catch (error) {
+        // A throwing repair (for example its pre-provider secret refusal)
+        // must not convert a deterministic gate rejection into a terminal
+        // repair failure. Record the failed repair stage with a sanitized
+        // reason and fall through to the normal gate-rejected terminal path;
+        // the attempt-1 rejected-candidate archive stays intact for replay.
+        repairStageFailure = repairFailureLabel(error);
+        console.error(
+          `[verified-generate] repair attempt failed; keeping the gate rejection: `
+          + redactSecretMaterial(String(error?.message ?? error))
+        );
+        safeRecordRunEvent({
+          type: 'stage',
+          stage: 'repair',
+          status: 'failed',
+          durationMs: Date.now() - repairStartedAt,
+          failureStage: 'repair',
+          failureReason: repairStageFailure
+        });
+        currentStage = 'fast-gate';
+      }
 
-      currentStage = 'fast-gate';
-      const repairedGateStartedAt = Date.now();
-      safeRecordRunEvent({ type: 'stage', stage: currentStage, status: 'started' });
-      verdict = await gate({
-        ...input,
-        testPath: candidatePath,
-        repeatEach: PROMOTION_GATE_REPEAT_EACH,
-        webRoot,
-        env: gateEnvironment
-      });
-      gatePassed = verdict?.passed === true;
-      safeRecordRunEvent({
-        type: 'stage',
-        stage: verdict?.stage ?? currentStage,
-        status: gatePassed ? 'completed' : 'rejected',
-        durationMs: Date.now() - repairedGateStartedAt,
-        ...(!gatePassed ? { failureStage: verdict?.stage ?? currentStage, failureReason: 'gate-rejected' } : {})
-      });
+      if (repaired) {
+        recordFallbackAttempts({
+          usage: repaired.result?.usage,
+          brain: repaired.result?.brain,
+          stage: currentStage,
+          attemptsAtStart: currentAttemptBaseline
+        });
+        generation = { ...repaired, promptPath: repaired.promptPath ?? previousPromptPath };
+        safeRecordRunEvent({
+          type: 'stage', stage: currentStage, status: 'completed', durationMs: Date.now() - repairStartedAt
+        });
+        candidateBinding = createBoundRegularFile(
+          candidatePath,
+          generation.code,
+          0o600,
+          'Repaired generated candidate'
+        );
+        candidateSha256 = candidateBinding.sha256;
+
+        currentStage = 'fast-gate';
+        const repairedGateStartedAt = Date.now();
+        safeRecordRunEvent({ type: 'stage', stage: currentStage, status: 'started' });
+        verdict = await gate({
+          ...input,
+          testPath: candidatePath,
+          repeatEach: PROMOTION_GATE_REPEAT_EACH,
+          webRoot,
+          env: gateEnvironment
+        });
+        gatePassed = verdict?.passed === true;
+        safeRecordRunEvent({
+          type: 'stage',
+          stage: verdict?.stage ?? currentStage,
+          status: gatePassed ? 'completed' : 'rejected',
+          durationMs: Date.now() - repairedGateStartedAt,
+          ...(!gatePassed ? { failureStage: verdict?.stage ?? currentStage, failureReason: 'gate-rejected' } : {})
+        });
+      }
     }
 
     if (!verdict?.passed) {
@@ -926,8 +980,13 @@ export async function runVerifiedGeneration({
         failureStage: verdict?.stage ?? 'fast-gate',
         reason: verdict?.reason ?? verdict?.diagnostics?.[0] ?? 'candidate gate failed'
       };
-      await rejectGeneratedResult(reason);
-      const archivePath = archiveRejectedCandidate(candidatePath, candidateBinding, webRoot, id);
+      // After a thrown repair the generation result is unchanged and was
+      // already rejected (and its candidate archived) before the repair
+      // attempt; re-rejecting or re-archiving would double-count it.
+      if (!repairStageFailure) await rejectGeneratedResult(reason);
+      const archivePath = candidateBinding
+        ? archiveRejectedCandidate(candidatePath, candidateBinding, webRoot, id)
+        : firstAttemptArchivePath;
       candidateBinding = null;
       throw new VerifiedGenerationError(
         `Fast acceptance gate failed for the generated candidate (${reason.reason}); the existing target was not changed.`,
@@ -1070,6 +1129,13 @@ export async function runVerifiedGeneration({
         staticReviewWarningCount: Number.isSafeInteger(verdict?.staticReviewWarningCount)
           && verdict.staticReviewWarningCount >= 0
           ? verdict.staticReviewWarningCount
+          : null,
+        // Warning KINDS ride alongside the count (stable identifiers, not
+        // texts); null (unknown) when the gate predates kind telemetry.
+        // metrics-report ignores this field today; it is a future metric
+        // input for warning-family trends.
+        staticReviewWarningKinds: Array.isArray(verdict?.staticReviewWarningKinds)
+          ? verdict.staticReviewWarningKinds
           : null,
         promotionGatePolicy: PROMOTION_GATE_POLICY,
         promotionGateRepeatEach: PROMOTION_GATE_REPEAT_EACH,
