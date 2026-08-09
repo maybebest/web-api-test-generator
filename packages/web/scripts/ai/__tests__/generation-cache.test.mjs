@@ -69,10 +69,10 @@ test('cache key changes for every result-affecting input', () => {
 // Policy text and version both feed cache identity: ai-client.mjs assembles
 // cacheKnobs with policyVersion: GENERATION_POLICY_VERSION and passes the
 // policy-bearing system prompt into createGenerationCacheKey, whose key
-// material canonicalizes systemPrompt and knobs. Bumping the policy to v2
-// therefore auto-invalidates every v1 cached result on both identity paths.
-test('policy v2 bump invalidates v1 cache keys via knobs.policyVersion and the system prompt', () => {
-  assert.equal(GENERATION_POLICY_VERSION, 'playwright-generation-policy/v2');
+// material canonicalizes systemPrompt and knobs. Bumping the policy version
+// therefore auto-invalidates every older cached result on both identity paths.
+test('policy version bump invalidates older cache keys via knobs.policyVersion and the system prompt', () => {
+  assert.equal(GENERATION_POLICY_VERSION, 'playwright-generation-policy/v3');
 
   const v1Knobs = createGenerationCacheKey({
     ...keyInput,

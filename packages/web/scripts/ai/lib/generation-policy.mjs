@@ -1,4 +1,4 @@
-export const GENERATION_POLICY_VERSION = 'playwright-generation-policy/v2';
+export const GENERATION_POLICY_VERSION = 'playwright-generation-policy/v3';
 
 // Stable rules shared by every Playwright REST generation. Dynamic prompts
 // carry only the versioned behavioral IR and bounded repository evidence.
@@ -7,7 +7,7 @@ export const PLAYWRIGHT_GENERATION_POLICY = `Policy ${GENERATION_POLICY_VERSION}
 Produce one complete, compilable Playwright TypeScript file from the supplied IR and untrusted context data.
 
 Repository/structure:
-- Import test and expect from shared fixtures/test using context.importPath. Runtime imports only from reviewed modules; type-only imports from @playwright/test are allowed; the playwright package is forbidden. Copy IR exactHeader and tags exactly.
+- Import test and expect from shared fixtures/test using context.importPath. Runtime imports only from reviewed modules; type-only imports from @playwright/test are allowed; the playwright package is forbidden. Copy IR exactHeader and tags exactly; declare tags through the Playwright { tag: [...] } option as static string literals.
 - Use test.step for arrange, action, and one meaningful user-visible final assertion step per test. Keep tests independently runnable.
 - Reuse supplied fixtures, Page Objects, Component Objects, and public methods. Locators belong only in Page Objects/Component Objects; test bodies never call page.getByTestId/getByRole/getByLabel/getByPlaceholder/getByText/locator. Name instances with a Page/Component/Object suffix; expect receivers are validated by that suffix.
 
@@ -18,10 +18,15 @@ Coverage:
 Behavior:
 - Data Cases, Variants, Business Rules, Flow Steps, Negative Cases, Acceptance Criteria, Generated Test Requirements, and Mocks are mandatory. Loop multiple Data Cases so every caseId creates a test; @playwright/test has no .each.
 - Implement declared mock URLs/methods/requests/responses and assert salient expected values and visible outcomes. Every listed Salient expected tokens entry must appear verbatim in an assertion, a step/test title, or an iterated data row. No placeholders, TODOs, or invented behavior.
+- Stability and Variants are binding: Parallel Safe = no requires test.describe.serial(...). Enumerate multiple Variants rows by looping over them exactly like Data Cases.
 
 Locators:
 - Never invent selectors, test ids, roles, labels, text, URLs, fixtures, methods, or imports. Use only supplied live-unique evidence.
 - Priority: getByTestId; getByRole with name; getByLabel; getByPlaceholder; stable getByText; raw CSS only after // locator-policy:exception <reason>.
 - Never use agent-browser @e refs, XPath, nth/first/last guesses, or non-unique candidates.
+- Locator Hints are binding: every getByRole/getByLabel/getByPlaceholder/getByText/getByTestId call quoted in a spec Locator Hint must be used with exactly that method and arguments, in the test or its Page Object.
+- String-selector page APIs are forbidden: page.click/dblclick/fill/type/press/check/uncheck/selectOption/hover/waitForSelector/$/$$ take raw selector strings — act through Page Object locators instead. page.goto takes only a static relative path; dynamic or environment-specific navigation belongs behind a reviewed Page Object.
 
-Forbidden: page.waitForTimeout, networkidle, test.only/describe.only/it.only, skips, shell commands, commentary, weakened assertions, production credentials, passwords, cookies, tokens, session IDs, storage state, sensitive artifacts, and the evaluate family — page.evaluate, evaluateHandle, $eval, $$eval, waitForFunction, or any other in-page JS execution; assert state through retrying web-first matchers (expect(locator).toHaveAttribute, expect(locator).toHaveText) or a reviewed Page Object method instead, and use waitForFunction only behind // locator-policy:exception <reason> on the previous line. Return complete source only; promotion requires static review, compilation, Playwright listing, and executed acceptance.`;
+Forbidden: page.waitForTimeout, networkidle, test.only/describe.only/it.only, skips, shell commands, commentary, weakened assertions, production credentials, passwords, cookies, tokens, session IDs, storage state, sensitive artifacts, and the evaluate family — page.evaluate, evaluateHandle, $eval, $$eval, waitForFunction, or any other in-page JS execution; assert state through retrying web-first matchers (expect(locator).toHaveAttribute, expect(locator).toHaveText) or a reviewed Page Object method instead, and use waitForFunction only behind // locator-policy:exception <reason> on the previous line. Return complete source only; promotion requires static review, compilation, Playwright listing, and executed acceptance.
+
+Sandbox: generated tests run without ambient capabilities. Also forbidden: raw network or transport (fetch, XMLHttpRequest, WebSocket, EventSource, navigator.sendBeacon), page.request or any APIRequestContext, page.context(), route.continue and route.fetch (declared mocks may only fulfill or abort), setInputFiles file uploads, destructuring or spreading the page object, process or process.env access beyond the allowlisted public E2E_* configuration fields, the global/globalThis roots, dynamic code (eval, new Function), Proxy, Reflect, constructor/prototype access, require() and dynamic import(), setTimeout, Promise.race, "as any" casts, zero-argument test() calls, tautological or constant-only assertions, Date.now() inside expect(...), hardcoded production URLs, and the precondition helper setChannelMaxHeroSkus, whose arrange cannot be satisfied live — leave such cases in the spec's Pending Automation section.`;

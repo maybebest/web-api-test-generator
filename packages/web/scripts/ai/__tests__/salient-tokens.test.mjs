@@ -64,8 +64,8 @@ test('policy requires every supplied salient token verbatim', () => {
 // while the policy's Forbidden line never mentioned the evaluate family at
 // all. Policy v2 must name the whole family, the sanctioned web-first
 // alternative, and the single reviewed waitForFunction exception marker.
-test('policy v2 forbids the full browser-evaluate family on the Forbidden line', () => {
-  assert.equal(GENERATION_POLICY_VERSION, 'playwright-generation-policy/v2');
+test('policy forbids the full browser-evaluate family on the Forbidden line', () => {
+  assert.equal(GENERATION_POLICY_VERSION, 'playwright-generation-policy/v3');
   const forbiddenLine = PLAYWRIGHT_GENERATION_POLICY
     .split('\n')
     .find((line) => line.startsWith('Forbidden:'));
