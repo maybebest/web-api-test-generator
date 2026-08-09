@@ -453,7 +453,7 @@ function sum(rows, field) {
   return rows.reduce((total, row) => total + (row[field] ?? 0), 0);
 }
 
-function nearestRank(values, percentile) {
+export function nearestRank(values, percentile) {
   const sorted = values.filter((value) => value !== null).slice().sort((a, b) => a - b);
   if (sorted.length === 0) return null;
   return sorted[Math.max(0, Math.ceil(percentile * sorted.length) - 1)];
