@@ -14,6 +14,7 @@ import {
   rejectGenerationCache,
   writeGenerationCache
 } from '../lib/generation-cache.mjs';
+import { GENERATION_POLICY_VERSION, PLAYWRIGHT_GENERATION_POLICY } from '../lib/generation-policy.mjs';
 
 const QUALITY_FINGERPRINT = 'f'.repeat(64);
 const TARGET_A = 'a'.repeat(64);
@@ -63,6 +64,32 @@ test('cache key changes for every result-affecting input', () => {
   for (const variant of variants) {
     assert.notEqual(createGenerationCacheKey({ ...keyInput, ...variant }), baseline);
   }
+});
+
+// Policy text and version both feed cache identity: ai-client.mjs assembles
+// cacheKnobs with policyVersion: GENERATION_POLICY_VERSION and passes the
+// policy-bearing system prompt into createGenerationCacheKey, whose key
+// material canonicalizes systemPrompt and knobs. Bumping the policy to v2
+// therefore auto-invalidates every v1 cached result on both identity paths.
+test('policy v2 bump invalidates v1 cache keys via knobs.policyVersion and the system prompt', () => {
+  assert.equal(GENERATION_POLICY_VERSION, 'playwright-generation-policy/v2');
+
+  const v1Knobs = createGenerationCacheKey({
+    ...keyInput,
+    knobs: { ...keyInput.knobs, policyVersion: 'playwright-generation-policy/v1' }
+  });
+  const v2Knobs = createGenerationCacheKey({
+    ...keyInput,
+    knobs: { ...keyInput.knobs, policyVersion: GENERATION_POLICY_VERSION }
+  });
+  assert.notEqual(v2Knobs, v1Knobs);
+
+  const v1Prompt = createGenerationCacheKey({
+    ...keyInput,
+    systemPrompt: PLAYWRIGHT_GENERATION_POLICY.replace(GENERATION_POLICY_VERSION, 'playwright-generation-policy/v1')
+  });
+  const v2Prompt = createGenerationCacheKey({ ...keyInput, systemPrompt: PLAYWRIGHT_GENERATION_POLICY });
+  assert.notEqual(v2Prompt, v1Prompt);
 });
 
 test('cache key rejects missing and unsafe-to-canonicalize values', () => {

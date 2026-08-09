@@ -1209,12 +1209,24 @@ export async function healSingleTest({
     return sanitizePublicResult({ status: 'already-green', target, attemptsUsed: 0 });
   }
   if (execution.stage === 'runtime-environment') {
-    cleanupFailedRunDir(execution, runRoot);
+    // The abort must still see the sanitized baseline evidence: the iteration-4
+    // audit (run 1786274346166) found a compile-broken test file labeled
+    // environment/GATE_ENVIRONMENT_FAILURE because triage ran on empty
+    // evidence. Evidence collection is best-effort — the fail-closed abort
+    // must survive an unreadable report.
+    let environmentEvidence = [];
+    try {
+      environmentEvidence = sanitizedEvidenceList(collectEvidence(execution, target, { secretValues }), secretValues);
+    } catch {
+      environmentEvidence = [];
+    } finally {
+      cleanupFailedRunDir(execution, runRoot);
+    }
     // An environment abort must still leave archived evidence: the audit found
     // aborts that wrote nothing at all, leaving no status, classification, or
     // timing trail. Only sanitized structural fields are written here.
     const environmentTriage = timeStage({ stage: 'triage' }, () => triageRuntimeFailure({
-      evidence: [],
+      evidence: environmentEvidence,
       stage: execution.stage
     }));
     const environmentResult = {

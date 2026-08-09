@@ -1275,7 +1275,9 @@ test('verified healing is proposal-only by default', async () => {
   assert.equal(summary.status, 'proposal-ready');
   assert.equal(summary.mode.apply, false);
   assert.equal(summary.contractKind, 'handwritten');
-  assert.equal(summary.triage.classification, 'synchronization');
+  // Iteration-4 vocabulary fix: this evidence carries a locator-shaped subject
+  // (getByRole) inside the actionability timeout, so the label is locator-drift.
+  assert.equal(summary.triage.classification, 'locator-drift');
   assert.equal(summary.promptSchema, 'playwright-test-heal/v1');
   assert.deepEqual(summary.providerAttempts, [{
     attempt: 1,
@@ -2931,6 +2933,42 @@ test('a baseline environment abort still archives a heal summary with class and 
   for (const entry of summary.timings) {
     assert.equal(Number.isSafeInteger(entry.durationMs) && entry.durationMs >= 0, true, JSON.stringify(entry));
   }
+});
+
+test('a compile-broken test file aborts fail-closed but carries the compile-breakage class', async () => {
+  // Audited heal run 1786274346166 (c4c): a broken import aborted the baseline
+  // as runtime-environment and the archive said environment/GATE_ENVIRONMENT_FAILURE
+  // although nothing environmental was broken. The abort must stay fail-closed
+  // (no provider, status unchanged) while the triage vocabulary points at the
+  // broken test file instead of suggesting an infrastructure investigation.
+  const { webRoot, target } = makeHealWorkspace();
+  const { run } = executionSequence([{
+    ...ENV_EXECUTION,
+    issues: [
+      'Playwright JSON report contains 1 top-level setup, teardown, or configuration error(s).',
+      "top-level report error: Error: Cannot find module '../../fixtures/nonexistent-test' imported from tests/smoke/complex-feed-lazyload-comments.spec.ts"
+    ]
+  }]);
+  const result = await healSingleTest({
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true' },
+    webRoot,
+    log: () => {},
+    discoverSpec: () => null,
+    typecheck: PASSING_TYPECHECK,
+    executeStandalone: run,
+    heal: async () => {
+      assert.fail('a compile-broken baseline must never invoke the provider');
+    }
+  });
+  assert.equal(result.status, 'environment-failure');
+  assert.equal(result.attemptsUsed, 0);
+  const summary = JSON.parse(fs.readFileSync(path.join(result.archiveDir, 'heal-summary.json'), 'utf8'));
+  assert.equal(summary.status, 'environment-failure');
+  assert.equal(summary.triage.classification, 'compile-breakage');
+  assert.equal(summary.triage.repairable, false);
+  assert.deepEqual(summary.triage.reasonCodes, ['COMPILE_FAILURE']);
+  assert.deepEqual(summary.providerAttempts, []);
 });
 
 test('an environment abort whose archive cannot be created still returns the environment failure', async () => {

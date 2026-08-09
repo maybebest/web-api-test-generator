@@ -766,7 +766,7 @@ test('runBrain openai pins snapshot model, structured output, cache key, and usa
     { role: 'system', content: STRUCTURED_REST_OUTPUT_CONTRACT },
     { role: 'user', content: 'TASK CONTENT' }
   ]);
-  assert.match(body.messages[0].content, /Policy playwright-generation-policy\/v1/);
+  assert.match(body.messages[0].content, /Policy playwright-generation-policy\/v2/);
   assert.deepEqual(body.response_format, {
     type: 'json_schema',
     json_schema: {

@@ -5,7 +5,7 @@
 | Field | Value |
 |---|---|
 | Flow ID | FLOW-CX-WIZARD-001 |
-| Spec Version | 1.0.0 |
+| Spec Version | 1.1.0 |
 | Owner | aqa-team@example.com |
 | Priority | P1 |
 | Test Type | smoke |
@@ -56,7 +56,7 @@ So that the stateful wizard proves validation, dynamic fields, and async submiss
 | RULE-001 | Blurring an invalid email surfaces the inline error in the `role=alert` region and keeps Next disabled. | invalid email + blur => alert contains "Enter a valid email address." AND Next disabled | A silent invalid email blocks the validation flow. |
 | RULE-002 | Valid step-1 fields enable Next; steps preserve state client-side. | name>=2 chars AND valid email AND password>=8 with digit => Next enabled | A disabled Next blocks progression. |
 | RULE-003 | Choosing the Business plan reveals the company-name field on step 2. | plan=business => company field visible | A hidden dynamic field blocks step 2 completion. |
-| RULE-004 | Submitting with consent shows a spinner phase and then a deterministic confirmation code. | submit => busy status, then code CFX-01798 for the pinned inputs | A missing confirmation code fails the final business assertion. |
+| RULE-004 | Submitting with consent shows a spinner phase and then a deterministic confirmation code. | submit => busy status, then code CFX-01871 for the pinned inputs | A missing confirmation code fails the final business assertion. |
 
 ## Includes
 
@@ -66,7 +66,7 @@ So that the stateful wizard proves validation, dynamic fields, and async submiss
 
 | Case ID | Inputs | Expected Result | Notes |
 |---|---|---|---|
-| DC-001 | fullName `Wizard User`, bad email `wizard.user`, good email `wizard.user@example.com`, password `fixture-pass-1`, plan `business`, company `Fixture Works Ltd`, startDate `2026-09-01` | The email error appears once and clears; the success panel shows confirmation code `CFX-01798` | Code is a deterministic function of the pinned inputs |
+| DC-001 | fullName `Wizard User`, bad email `wizard.user`, good email `wizard.user@example.com`, password `fixture-pass-1`, plan `business`, company `Fixture Works Ltd`, startDate `2026-09-01` | The email error appears once and clears; the success panel shows confirmation code `CFX-01871` | Code is a deterministic function of the pinned inputs |
 
 ## Data Cases as JSON
 
@@ -86,7 +86,7 @@ So that the stateful wizard proves validation, dynamic fields, and async submiss
     "expected": {
       "emailError": "Enter a valid email address.",
       "reviewShowsEmail": true,
-      "confirmationCode": "CFX-01798"
+      "confirmationCode": "CFX-01871"
     },
     "notes": "The wizard derives the confirmation code deterministically from the submitted state."
   }
@@ -104,7 +104,7 @@ So that the stateful wizard proves validation, dynamic fields, and async submiss
 | plan | business | Reveals the company-name dynamic field |
 | company | Fixture Works Ltd | Business-branch dynamic field |
 | startDate | 2026-09-01 | Step 2 date input |
-| confirmationCode | CFX-01798 | Deterministic code for the pinned inputs |
+| confirmationCode | CFX-01871 | Deterministic code for the pinned inputs |
 
 ## Mocks
 
@@ -129,7 +129,7 @@ So that the stateful wizard proves validation, dynamic fields, and async submiss
 | 5 | AC-004 | Complete step 2 with company and start date | Company and Start date inputs | `Fixture Works Ltd`, `2026-09-01` | Next becomes enabled for step 2 | The date input uses label `Start date` |
 | 6 | AC-005 | Advance to step 3 and review the summary | Next button, review summary | none | The review summary shows the submitted email address | Summary is testid `review-summary`; progress reads `Step 3 of 3` |
 | 7 | AC-006 | Confirm consent and submit | Consent checkbox, Create account button | none | A busy spinner status appears, then the success panel | Submit is testid `wizard-submit`; the async delay is a fixed 1100 ms |
-| 8 | AC-006 | Inspect the confirmation code | Success panel | none | The confirmation code reads `CFX-01798` | Final assertion only: testid `confirmation-code` has text `CFX-01798` |
+| 8 | AC-006 | Inspect the confirmation code | Success panel | none | The confirmation code reads `CFX-01871` | Final assertion only: testid `confirmation-code` has text `CFX-01871` |
 
 ## Negative Cases
 
@@ -144,7 +144,7 @@ So that the stateful wizard proves validation, dynamic fields, and async submiss
 - AC-003: Valid step-1 values clear the alert region's text content — the region stays attached and visible (assert empty text, never wait for it to hide) — and enable Next.
 - AC-004: Step 2 reveals the company-name field for the Business plan and accepts the start date.
 - AC-005: The step-3 review summary reflects the entered email address.
-- AC-006: Submitting with consent passes the spinner phase and shows confirmation code `CFX-01798`.
+- AC-006: Submitting with consent passes the spinner phase and shows confirmation code `CFX-01871`.
 
 ## Locator Hints
 
@@ -165,10 +165,10 @@ So that the stateful wizard proves validation, dynamic fields, and async submiss
 - Must use `test.step`, and every step title must carry at least one `AC-###` token.
 - Must declare a `covered-ac-ids` annotation whose set equals AC-001 through AC-006.
 - Must place `expect(...)` only in the final assertion step.
-- Must title that final step `Assert AC-006: confirmation code is CFX-01798` and assert only the visible confirmation code text.
+- Must title that final step `Assert AC-006: confirmation code is CFX-01871` and assert only the visible confirmation code text.
 - Must not use hard waits, XPath, focused tests, skipped tests, or direct Playwright locators in the generated test body.
 
 ## Notes
 
 - The wizard keeps all step fieldsets in the DOM and toggles visibility, so Back/Next preserve state without storage.
-- The confirmation code is computed as `(email.length * 73 + fullName.length * 17 + teamSize) % 100000`, zero-padded to five digits; the pinned inputs yield `CFX-01798` with the default team size of 5.
+- The confirmation code is computed as `(email.length * 73 + fullName.length * 17 + teamSize) % 100000`, zero-padded to five digits; the pinned inputs (email `wizard.user@example.com` length 23, full name `Wizard User` length 11, default team size 5) yield `(23 * 73 + 11 * 17 + 5) % 100000 = 1871`, i.e. `CFX-01871`.

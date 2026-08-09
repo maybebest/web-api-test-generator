@@ -129,6 +129,164 @@ test('triage keeps synchronization evidence repairable even when it mentions aut
   assert.deepEqual(verdict.reasonCodes, ['ACTIONABILITY_TIMEOUT']);
 });
 
+// Iteration-4 vocabulary fixes. The audit ledger overturned every
+// synchronization label whose actionability/wait evidence carried a
+// locator-shaped subject (c2 waitFor-on-missing-testid, c3 role-name drift +
+// container-scope drift, c4a role-name drift, c4b renamed testid): the true
+// class is locator-drift manifesting as a timeout. Both classes are
+// repairable, so only the label moves — never the routing.
+
+test('waitFor timeout on a missing testid classifies as locator-drift, not synchronization', () => {
+  // Shape from audited heal run 1786268365120 (c2 seeded testid rename):
+  // the missing testid surfaced via waitFor state:visible, not element(s) not found.
+  const verdict = triageRuntimeFailure({
+    stage: 'runtime-test',
+    evidence: [
+      `feed shows unread badge: locator.waitFor: Timeout 5000ms exceeded.
+Call log:
+  - waiting for getByTestId('feed-item-1').getByTestId('unread-badge') to be visible`
+    ]
+  });
+  assert.equal(verdict.classification, 'locator-drift');
+  assert.equal(verdict.repairable, true);
+  assert.deepEqual(verdict.reasonCodes, ['LOCATOR_ACTIONABILITY_DRIFT', 'ACTIONABILITY_WAIT']);
+});
+
+test('click timeout on a drifted role name classifies as locator-drift, not synchronization', () => {
+  // Shape from audited heal run 1786274147829 (c4a: Details -> Story details):
+  // the wrong accessible name manifests as a click actionability timeout.
+  const verdict = triageRuntimeFailure({
+    stage: 'runtime-test',
+    evidence: [
+      `AC-004 opens story details: locator.click: Timeout 15000ms exceeded.
+Call log:
+  - waiting for getByTestId('feed-item-1').getByRole('button', { name: 'Details', exact: true })`
+    ]
+  });
+  assert.equal(verdict.classification, 'locator-drift');
+  assert.equal(verdict.repairable, true);
+  assert.deepEqual(verdict.reasonCodes, ['LOCATOR_ACTIONABILITY_DRIFT', 'ACTIONABILITY_TIMEOUT']);
+});
+
+test('reclassified locator-subject shapes keep repairable parity with plain synchronization', () => {
+  // Routing must not move: the ledger shapes that flip to locator-drift and a
+  // locator-free actionability timeout must agree on repairable=true.
+  const plainSync = triageRuntimeFailure({
+    stage: 'runtime-test',
+    evidence: ['locator.click: Timeout 30000ms exceeded.']
+  });
+  assert.equal(plainSync.classification, 'synchronization');
+  assert.equal(plainSync.repairable, true);
+  for (const evidence of [
+    ["waiting for getByTestId('feed-load-more') to be visible after locator.click: Timeout 15000ms exceeded"],
+    [`DC-001 loads more stories: locator.click: Timeout 15000ms exceeded.
+Call log:
+  - waiting for getByTestId('feed-load-more')`]
+  ]) {
+    const reclassified = triageRuntimeFailure({ stage: 'runtime-test', evidence });
+    assert.equal(reclassified.classification, 'locator-drift');
+    assert.equal(reclassified.repairable, plainSync.repairable);
+  }
+});
+
+test('the locator subject must ride in the same evidence item as the actionability signal', () => {
+  const verdict = triageRuntimeFailure({
+    stage: 'runtime-test',
+    evidence: [
+      'locator.click: Timeout 30000ms exceeded.',
+      "an unrelated step mentioned getByRole('button', { name: 'Save' }) earlier"
+    ]
+  });
+  assert.equal(verdict.classification, 'synchronization');
+  assert.equal(verdict.repairable, true);
+  assert.deepEqual(verdict.reasonCodes, ['ACTIONABILITY_TIMEOUT']);
+});
+
+test('test-file compile breakage gets its own non-repairable class distinct from environment', () => {
+  // Shape from audited heal run 1786274346166 (c4c seeded broken import): the
+  // baseline aborts as runtime-environment, but the test file itself cannot
+  // compile — nothing environmental is broken.
+  const verdict = triageRuntimeFailure({
+    stage: 'runtime-environment',
+    evidence: [
+      "top-level report error: Error: Cannot find module '../../fixtures/nonexistent-test' imported from tests/smoke/complex-feed-lazyload-comments.spec.ts"
+    ]
+  });
+  assert.equal(verdict.classification, 'compile-breakage');
+  assert.equal(verdict.repairable, false);
+  assert.deepEqual(verdict.reasonCodes, ['COMPILE_FAILURE']);
+});
+
+test('a transform SyntaxError in the test file classifies as compile-breakage', () => {
+  const verdict = triageRuntimeFailure({
+    stage: 'runtime-environment',
+    evidence: [
+      'top-level report error: SyntaxError: tests/smoke/complex-feed-lazyload-comments.spec.ts: Unexpected token (12:5)'
+    ]
+  });
+  assert.equal(verdict.classification, 'compile-breakage');
+  assert.equal(verdict.repairable, false);
+  assert.deepEqual(verdict.reasonCodes, ['COMPILE_FAILURE']);
+});
+
+test('TypeScript diagnostics against the test file classify as compile-breakage', () => {
+  const verdict = triageRuntimeFailure({
+    stage: 'runtime-test',
+    evidence: ["tests/smoke/complex-wizard-happy-path.spec.ts(3,1): error TS2307: Cannot find module '../../fixtures/test'."]
+  });
+  assert.equal(verdict.classification, 'compile-breakage');
+  assert.equal(verdict.repairable, false);
+  assert.deepEqual(verdict.reasonCodes, ['COMPILE_FAILURE']);
+});
+
+test('compile-breakage survives the heal evidence sanitizer redacting file paths', () => {
+  // heal-test.mjs sanitizedDiagnosticText replaces 20+ character path runs
+  // with <redacted>, so the archived c4c evidence names no file at all. The
+  // marker alone must stay decisive at the runtime-environment stage.
+  const verdict = triageRuntimeFailure({
+    stage: 'runtime-environment',
+    evidence: ["top-level report error: Error: Cannot find module '<redacted>' imported from <redacted>"]
+  });
+  assert.equal(verdict.classification, 'compile-breakage');
+  assert.equal(verdict.repairable, false);
+  assert.deepEqual(verdict.reasonCodes, ['COMPILE_FAILURE']);
+});
+
+test('a bare SyntaxError in ordinary runtime evidence does not classify as compile-breakage', () => {
+  const verdict = triageRuntimeFailure({
+    stage: 'runtime-test',
+    evidence: ['response parse step: SyntaxError: Unexpected token < in JSON at position 0']
+  });
+  assert.equal(verdict.classification, 'unclassified');
+  assert.equal(verdict.repairable, false);
+});
+
+test('a webServer module-resolution failure stays environment, never compile-breakage', () => {
+  // Shape from audited heal run 1786271113005 (c3 corrupted fixture
+  // dependency), whose environment label the audit CONFIRMED: the webServer
+  // process cannot start; the test file compiles fine.
+  const verdict = triageRuntimeFailure({
+    stage: 'runtime-environment',
+    evidence: [
+      `top-level report error: Error: Process from config.webServer was not able to start. Exit code: 1
+[WebServer] Error [ERR_MODULE_NOT_FOUND]: Cannot find module './fixture-data/feed-seed.mjs' imported from local-fixture/server.mjs`
+    ]
+  });
+  assert.equal(verdict.classification, 'environment');
+  assert.equal(verdict.repairable, false);
+  assert.deepEqual(verdict.reasonCodes, ['GATE_ENVIRONMENT_FAILURE']);
+});
+
+test('an environment abort with no compile evidence keeps the environment gate label', () => {
+  const verdict = triageRuntimeFailure({
+    stage: 'runtime-environment',
+    evidence: ['Playwright did not produce a readable JSON report.']
+  });
+  assert.equal(verdict.classification, 'environment');
+  assert.equal(verdict.repairable, false);
+  assert.deepEqual(verdict.reasonCodes, ['GATE_ENVIRONMENT_FAILURE']);
+});
+
 test('triage keeps assertion-value mismatches non-repairable', () => {
   const verdict = triageRuntimeFailure({
     stage: 'runtime-test',

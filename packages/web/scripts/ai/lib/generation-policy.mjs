@@ -1,4 +1,4 @@
-export const GENERATION_POLICY_VERSION = 'playwright-generation-policy/v1';
+export const GENERATION_POLICY_VERSION = 'playwright-generation-policy/v2';
 
 // Stable rules shared by every Playwright REST generation. Dynamic prompts
 // carry only the versioned behavioral IR and bounded repository evidence.
@@ -24,4 +24,4 @@ Locators:
 - Priority: getByTestId; getByRole with name; getByLabel; getByPlaceholder; stable getByText; raw CSS only after // locator-policy:exception <reason>.
 - Never use agent-browser @e refs, XPath, nth/first/last guesses, or non-unique candidates.
 
-Forbidden: page.waitForTimeout, networkidle, test.only/describe.only/it.only, skips, shell commands, commentary, weakened assertions, production credentials, passwords, cookies, tokens, session IDs, storage state, or sensitive artifacts. Return complete source only; promotion requires static review, compilation, Playwright listing, and executed acceptance.`;
+Forbidden: page.waitForTimeout, networkidle, test.only/describe.only/it.only, skips, shell commands, commentary, weakened assertions, production credentials, passwords, cookies, tokens, session IDs, storage state, sensitive artifacts, and the evaluate family — page.evaluate, evaluateHandle, $eval, $$eval, waitForFunction, or any other in-page JS execution; assert state through retrying web-first matchers (expect(locator).toHaveAttribute, expect(locator).toHaveText) or a reviewed Page Object method instead, and use waitForFunction only behind // locator-policy:exception <reason> on the previous line. Return complete source only; promotion requires static review, compilation, Playwright listing, and executed acceptance.`;

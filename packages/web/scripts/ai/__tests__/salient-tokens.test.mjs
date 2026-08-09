@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 
-import { PLAYWRIGHT_GENERATION_POLICY } from '../lib/generation-policy.mjs';
+import { GENERATION_POLICY_VERSION, PLAYWRIGHT_GENERATION_POLICY } from '../lib/generation-policy.mjs';
 import { buildGenerationInput } from '../lib/generation-input.mjs';
 import { collectSpecSalientTokens, salientExpectedTokens } from '../lib/salient-tokens.mjs';
 import { parseFlowSpec } from '../lib/spec-parser.mjs';
@@ -57,6 +57,33 @@ test('policy requires every supplied salient token verbatim', () => {
       'appear verbatim in an assertion, a step/test title, or an iterated data row'
     ),
     'policy must state where each salient token must appear'
+  );
+});
+
+// Iteration-4: the browser-eval fault class recurred twice in two iterations
+// while the policy's Forbidden line never mentioned the evaluate family at
+// all. Policy v2 must name the whole family, the sanctioned web-first
+// alternative, and the single reviewed waitForFunction exception marker.
+test('policy v2 forbids the full browser-evaluate family on the Forbidden line', () => {
+  assert.equal(GENERATION_POLICY_VERSION, 'playwright-generation-policy/v2');
+  const forbiddenLine = PLAYWRIGHT_GENERATION_POLICY
+    .split('\n')
+    .find((line) => line.startsWith('Forbidden:'));
+  assert.ok(forbiddenLine, 'policy must keep a single Forbidden: line');
+  for (const phrase of ['page.evaluate', 'evaluateHandle', '$eval', '$$eval', 'waitForFunction', 'in-page JS execution']) {
+    assert.ok(forbiddenLine.includes(phrase), `Forbidden line must name: ${phrase}`);
+  }
+  assert.ok(
+    forbiddenLine.includes('expect(locator).toHaveAttribute') && forbiddenLine.includes('toHaveText'),
+    'Forbidden line must spell out the retrying web-first matcher alternative'
+  );
+  assert.ok(
+    forbiddenLine.includes('reviewed Page Object method'),
+    'Forbidden line must offer the reviewed Page Object method alternative'
+  );
+  assert.ok(
+    forbiddenLine.includes('// locator-policy:exception <reason>'),
+    'Forbidden line must mirror the reviewer gate waitForFunction exception marker'
   );
 });
 
