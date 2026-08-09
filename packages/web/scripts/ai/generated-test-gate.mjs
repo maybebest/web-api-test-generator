@@ -1031,6 +1031,7 @@ function runCli() {
     mode: generationMode,
     validation
   });
+  const staticReviewWarningCount = review.warnings.length;
   for (const warning of review.warnings) {
     console.warn(`- ${warning}`);
   }
@@ -1132,7 +1133,7 @@ function runCli() {
 
   console.log('');
   console.log('Generated test gate passed.');
-  return finishCli(args, acceptedGeneratedGateVerdict(), 0);
+  return finishCli(args, acceptedGeneratedGateVerdict({ staticReviewWarningCount }), 0);
 }
 
 function finishCli(args, verdict, exitCode) {

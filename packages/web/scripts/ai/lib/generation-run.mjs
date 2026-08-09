@@ -103,7 +103,10 @@ function normalizedQuality(value) {
     promotionGatePolicy: safeLabel(source.promotionGatePolicy),
     promotionGateRepeatEach: normalizedPromotionGateRepeatEach(source.promotionGateRepeatEach),
     qualityFingerprint: fingerprint,
-    repairCount: nonNegativeInteger(source.repairCount) ?? 0
+    repairCount: nonNegativeInteger(source.repairCount) ?? 0,
+    // Reviewer non-blocking warnings observed by the accepting gate. null
+    // means unknown (legacy runs and non-accepted paths), never zero.
+    staticReviewWarningCount: nonNegativeInteger(source.staticReviewWarningCount)
   };
 }
 

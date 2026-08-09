@@ -1010,6 +1010,12 @@ export async function runVerifiedGeneration({
         reviewPassed: true,
         fastGatePassed: true,
         fullGatePassed: null,
+        // Non-blocking reviewer warnings reported by the accepting gate
+        // verdict; null (unknown) when the gate predates this telemetry.
+        staticReviewWarningCount: Number.isSafeInteger(verdict?.staticReviewWarningCount)
+          && verdict.staticReviewWarningCount >= 0
+          ? verdict.staticReviewWarningCount
+          : null,
         promotionGatePolicy: PROMOTION_GATE_POLICY,
         promotionGateRepeatEach: PROMOTION_GATE_REPEAT_EACH,
         qualityFingerprint,

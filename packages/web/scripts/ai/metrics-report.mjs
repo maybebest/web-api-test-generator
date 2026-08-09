@@ -4,6 +4,10 @@
 // deterministic aggregation: no provider calls, no generation semantics.
 // Token accounting is delegated to token-usage-report.mjs so both reports
 // always reconcile on the same artifacts.
+//
+// Snapshots are ai-efficiency-snapshot/v2. Existing v1 history rows are never
+// rewritten; readHistory and renderTrend render mixed v1+v2 history and v1
+// rows show '-' for fields v1 did not record.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -14,22 +18,63 @@ import { nearestRank, readGenerationUsage } from './token-usage-report.mjs';
 
 const webRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const DEFAULT_HISTORY_PATH = path.join(webRoot, '.ai-metrics', 'metrics-history.jsonl');
-const SNAPSHOT_SCHEMA = 'ai-efficiency-snapshot/v1';
+const DEFAULT_AUDITS_PATH = path.join(webRoot, '.ai-metrics', 'triage-audits.jsonl');
+const SNAPSHOT_SCHEMA_V1 = 'ai-efficiency-snapshot/v1';
+const SNAPSHOT_SCHEMA_V2 = 'ai-efficiency-snapshot/v2';
+const SNAPSHOT_SCHEMAS = new Set([SNAPSHOT_SCHEMA_V1, SNAPSHOT_SCHEMA_V2]);
 const CACHE_LOOKUP_STATUSES = new Set(['miss', 'hit', 'single-flight-join']);
 const STATIC_PASSED_FAILURE_STAGES = new Set([
   'runtime-environment', 'runtime-test', 'full-gate', 'promotion', 'promotion-conflict'
 ]);
 const SUCCESSFUL_HEAL_STATUSES = new Set(['healed', 'proposal-ready']);
+const TRIAGE_AUDIT_VERDICTS = new Set(['confirmed', 'overturned']);
+
+// Versioned display-classification rule for failure facts. Snapshots store
+// raw {stage, reasonCode, terminalOutcome, runs, tokens} rows only; buckets
+// are computed at render time so history reclassifies consistently when the
+// rule evolves. The version recorded in a snapshot is informational: it names
+// the rule that was current when the snapshot was taken.
+export const WASTE_CLASS_RULE_VERSION = 'waste-class/v1';
+
+// waste-class/v1: stage vocabulary observed in generation-run/v1 manifests
+// (failureStage): environment-preflight, static-review, test-generation,
+// runtime-environment, runtime-test, plus rarer terminal stages
+// (candidate-integrity, promotion-conflict, ...) which classify as 'other'.
+export function classifyWasteStage(stage) {
+  if (stage === 'environment-preflight') return 'environment';
+  if (stage === 'static-review') return 'staticReview';
+  if (stage === 'runtime-environment' || stage === 'runtime-test') return 'runtime';
+  return 'other';
+}
+
+export function classifyFailureFacts(failureFacts) {
+  const tokensByBucket = { environment: 0, staticReview: 0, runtime: 0, other: 0 };
+  let wastedTokens = 0;
+  for (const fact of Array.isArray(failureFacts) ? failureFacts : []) {
+    const tokens = typeof fact?.tokens === 'number' && Number.isFinite(fact.tokens) ? fact.tokens : 0;
+    tokensByBucket[classifyWasteStage(fact?.stage)] += tokens;
+    wastedTokens += tokens;
+  }
+  const view = { wastedTokens };
+  for (const [bucket, tokens] of Object.entries(tokensByBucket)) {
+    view[bucket] = { tokens, share: ratioOrNull(tokens, wastedTokens) };
+  }
+  return view;
+}
 
 export function parseMetricsArgs(args) {
   const parsed = {
     mode: 'report',
     dir: path.join(webRoot, '.ai-runs'),
     historyPath: DEFAULT_HISTORY_PATH,
+    auditsPath: DEFAULT_AUDITS_PATH,
     label: null,
     since: null,
     until: null,
     runIds: null,
+    auditHealRunId: null,
+    verdict: null,
+    notes: null,
     json: false
   };
   let snapshot = false;
@@ -42,9 +87,13 @@ export function parseMetricsArgs(args) {
     else if (arg === '--json') parsed.json = true;
     else if (arg === '--dir') parsed.dir = requiredValue(args, ++index, '--dir');
     else if (arg === '--history') parsed.historyPath = requiredValue(args, ++index, '--history');
+    else if (arg === '--audits') parsed.auditsPath = requiredValue(args, ++index, '--audits');
     else if (arg === '--label') parsed.label = requiredValue(args, ++index, '--label');
     else if (arg === '--since') parsed.since = isoTimestamp(requiredValue(args, ++index, '--since'), '--since');
     else if (arg === '--until') parsed.until = isoTimestamp(requiredValue(args, ++index, '--until'), '--until');
+    else if (arg === '--audit-triage') parsed.auditHealRunId = requiredValue(args, ++index, '--audit-triage');
+    else if (arg === '--verdict') parsed.verdict = requiredValue(args, ++index, '--verdict');
+    else if (arg === '--notes') parsed.notes = requiredValue(args, ++index, '--notes');
     else if (arg === '--run-ids') {
       parsed.runIds = requiredValue(args, ++index, '--run-ids')
         .split(',').map((value) => value.trim()).filter(Boolean);
@@ -53,12 +102,19 @@ export function parseMetricsArgs(args) {
     }
   }
 
-  if (snapshot && trend) throw new Error('Use only one of --snapshot or --trend.');
+  const modeFlags = [snapshot, trend, parsed.auditHealRunId !== null].filter(Boolean).length;
+  if (modeFlags > 1) throw new Error('Use only one of --snapshot, --trend, or --audit-triage.');
   if (snapshot) {
     if (!parsed.label) throw new Error('--snapshot requires --label <text>.');
     parsed.mode = 'snapshot';
   } else if (trend) {
     parsed.mode = 'trend';
+  } else if (parsed.auditHealRunId !== null) {
+    if (!parsed.verdict) throw new Error('--audit-triage requires --verdict confirmed|overturned.');
+    if (!TRIAGE_AUDIT_VERDICTS.has(parsed.verdict)) {
+      throw new Error(`--verdict must be one of: confirmed, overturned. Got: ${parsed.verdict}`);
+    }
+    parsed.mode = 'audit-triage';
   }
   return parsed;
 }
@@ -85,12 +141,16 @@ function epochMsOrNull(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function readManifestStartedAt(manifestPath) {
+function readManifestFacts(manifestPath) {
   try {
     const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-    return epochMsOrNull(manifest.startedAt) ?? epochMsOrNull(manifest?.generation?.completedAt);
+    const warningCount = manifest?.quality?.staticReviewWarningCount;
+    return {
+      startedAtMs: epochMsOrNull(manifest.startedAt) ?? epochMsOrNull(manifest?.generation?.completedAt),
+      staticReviewWarningCount: Number.isSafeInteger(warningCount) && warningCount >= 0 ? warningCount : null
+    };
   } catch {
-    return null;
+    return { startedAtMs: null, staticReviewWarningCount: null };
   }
 }
 
@@ -124,13 +184,60 @@ function readHealRuns(healRoot) {
   return healRuns.sort((left, right) => left.epochMs - right.epochMs);
 }
 
-export function readMetricsInputs(dir) {
-  const usage = readGenerationUsage(dir);
-  const startedAtByRun = new Map();
-  for (const run of usage.runs) {
-    startedAtByRun.set(run.runId, readManifestStartedAt(run.manifestPath));
+function validTriageAudit(row) {
+  return typeof row?.healRunId === 'string' && row.healRunId.length > 0
+    && TRIAGE_AUDIT_VERDICTS.has(row?.verdict)
+    && epochMsOrNull(row?.auditedAt) !== null
+    && (row.notes === undefined || typeof row.notes === 'string');
+}
+
+export function readTriageAudits(auditsPath) {
+  if (!auditsPath || !fs.existsSync(auditsPath)) return [];
+  const rows = [];
+  for (const line of fs.readFileSync(auditsPath, 'utf8').split('\n')) {
+    if (!line.trim()) continue;
+    let row;
+    try {
+      row = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (validTriageAudit(row)) rows.push(row);
   }
-  return { usage, startedAtByRun, healRuns: readHealRuns(path.join(dir, 'heal')) };
+  return rows;
+}
+
+export function appendTriageAudit(auditsPath, { healRunId, verdict, auditedAt, notes }) {
+  const row = {
+    healRunId,
+    verdict,
+    auditedAt,
+    ...(typeof notes === 'string' && notes.length > 0 ? { notes } : {})
+  };
+  if (typeof healRunId !== 'string' || healRunId.length === 0 || path.basename(healRunId) !== healRunId) {
+    throw new Error('Triage audit healRunId must be a non-empty heal run directory name.');
+  }
+  if (!validTriageAudit(row)) {
+    throw new Error('Triage audit rows require verdict confirmed|overturned and an ISO auditedAt.');
+  }
+  fs.mkdirSync(path.dirname(auditsPath), { recursive: true });
+  // Single-line O_APPEND write: valid JSONL even when two audits race.
+  fs.appendFileSync(auditsPath, `${JSON.stringify(row)}\n`);
+  return row;
+}
+
+export function readMetricsInputs(dir, { auditsPath = null } = {}) {
+  const usage = readGenerationUsage(dir);
+  const manifestFactsByRun = new Map();
+  for (const run of usage.runs) {
+    manifestFactsByRun.set(run.runId, readManifestFacts(run.manifestPath));
+  }
+  return {
+    usage,
+    manifestFactsByRun,
+    healRuns: readHealRuns(path.join(dir, 'heal')),
+    triageAudits: readTriageAudits(auditsPath)
+  };
 }
 
 function inWindow(epochMs, window) {
@@ -150,13 +257,6 @@ function sumTokens(rows) {
   return rows.reduce((total, row) => total + (row.totalTokens ?? 0), 0);
 }
 
-function wasteBucket(failureStage) {
-  if (failureStage === 'environment-preflight') return 'environment';
-  if (failureStage === 'static-review') return 'staticReview';
-  if (failureStage === 'runtime-environment' || failureStage === 'runtime-test') return 'runtime';
-  return 'other';
-}
-
 function reachedStaticReview(run) {
   return run.failureStage === 'static-review' || passedStaticReview(run);
 }
@@ -167,13 +267,13 @@ function passedStaticReview(run) {
     || STATIC_PASSED_FAILURE_STAGES.has(run.failureStage);
 }
 
-export function computeMetrics({ usage, startedAtByRun, healRuns }, window = {}) {
+export function computeMetrics({ usage, manifestFactsByRun, healRuns, triageAudits = [] }, window = {}) {
   const explicitRunIds = Array.isArray(window.runIds) && window.runIds.length > 0
     ? new Set(window.runIds)
     : null;
   const runs = usage.runs.filter((run) => (explicitRunIds
     ? explicitRunIds.has(run.runId)
-    : inWindow(startedAtByRun.get(run.runId) ?? null, window)));
+    : inWindow(manifestFactsByRun.get(run.runId)?.startedAtMs ?? null, window)));
   const runIds = new Set(runs.map((run) => run.runId));
   const rows = usage.rows.filter((row) => runIds.has(row.runId));
   const cacheRows = usage.cacheRows.filter((row) => runIds.has(row.runId));
@@ -183,14 +283,15 @@ export function computeMetrics({ usage, startedAtByRun, healRuns }, window = {})
     if (!rowsByRun.has(row.runId)) rowsByRun.set(row.runId, []);
     rowsByRun.get(row.runId).push(row);
   }
-  const cacheRunIds = new Set(cacheRows.map((row) => row.runId));
 
   const promotedRuns = runs.filter((run) => run.status === 'succeeded');
-  // A run "spawned" the provider path when it recorded a paid attempt or a
-  // result-cache lookup that intercepted one. Runs rejected before that
-  // point (for example environment-preflight) never reached the provider.
-  const providerSpawningRuns = runs.filter((run) =>
-    (rowsByRun.get(run.runId) ?? []).length > 0 || cacheRunIds.has(run.runId));
+  // Unambiguous counters:
+  // - started: every generation run in the window;
+  // - providerCalledRuns: runs with at least one provider attempt event
+  //   (a result-cache-hit promotion is started + promoted, NOT provider-called);
+  // - providerCalls: total provider attempts, so retries stay visible.
+  const providerCalledRuns = runs.filter((run) => (rowsByRun.get(run.runId) ?? []).length > 0);
+  const providerCalls = rows.reduce((total, row) => total + (row.attemptCount ?? 1), 0);
 
   const billedTokens = sumTokens(rows);
   const savedTokens = cacheRows.reduce((total, row) => total + (row.savedTokens ?? 0), 0);
@@ -199,33 +300,65 @@ export function computeMetrics({ usage, startedAtByRun, healRuns }, window = {})
   const staticFirstPass = staticReached.filter((run) =>
     passedStaticReview(run) && (run.quality.repairCount ?? 0) === 0);
 
-  const wasteTokensByBucket = { environment: 0, staticReview: 0, runtime: 0, other: 0 };
-  let wastedTokens = 0;
+  // Raw failure facts: grouped, unclassified rows straight from the runs.
+  // Display buckets are derived later via classifyFailureFacts.
+  const factGroups = new Map();
   for (const run of runs) {
     if (run.status !== 'failed') continue;
-    const runTokens = sumTokens(rowsByRun.get(run.runId) ?? []);
-    wasteTokensByBucket[wasteBucket(run.failureStage)] += runTokens;
-    wastedTokens += runTokens;
+    const stage = run.failureStage ?? 'unknown';
+    const reasonCode = run.failureReason ?? 'unknown';
+    const terminalOutcome = run.status;
+    const key = `${stage} ${reasonCode} ${terminalOutcome}`;
+    const group = factGroups.get(key) ?? { stage, reasonCode, terminalOutcome, runs: 0, tokens: 0 };
+    group.runs += 1;
+    group.tokens += sumTokens(rowsByRun.get(run.runId) ?? []);
+    factGroups.set(key, group);
   }
-  const wasteByStage = { wastedTokens };
-  for (const [bucket, tokens] of Object.entries(wasteTokensByBucket)) {
-    wasteByStage[bucket] = { tokens, share: ratioOrNull(tokens, wastedTokens) };
-  }
+  const failureFacts = [...factGroups.values()].sort((left, right) =>
+    right.tokens - left.tokens
+    || left.stage.localeCompare(right.stage)
+    || left.reasonCode.localeCompare(right.reasonCode));
 
   const cacheLookupRows = [...rows, ...cacheRows]
     .filter((row) => CACHE_LOOKUP_STATUSES.has(row.resultCacheStatus));
   const cacheHits = cacheLookupRows.filter((row) => row.resultCacheStatus === 'hit').length;
+
+  // Accepted split: warning counts come from manifest quality written by the
+  // accepting gate. Runs that predate the telemetry stay 'unknown' (null),
+  // never silently 'clean'. Every category still counts as promoted.
+  const accepted = { clean: 0, withWarning: 0, unknown: 0 };
+  for (const run of promotedRuns) {
+    const warningCount = manifestFactsByRun.get(run.runId)?.staticReviewWarningCount ?? null;
+    if (warningCount === null) accepted.unknown += 1;
+    else if (warningCount > 0) accepted.withWarning += 1;
+    else accepted.clean += 1;
+  }
 
   const selectedHealRuns = healRuns.filter((healRun) => inWindow(healRun.epochMs, window));
   const frugalHealRuns = selectedHealRuns.filter((healRun) => healRun.providerAttemptCount === 0);
   const successfulHealRuns = selectedHealRuns.filter((healRun) => SUCCESSFUL_HEAL_STATUSES.has(healRun.status));
   const healTokens = selectedHealRuns.reduce((total, healRun) => total + healRun.totalTokens, 0);
 
+  // Triage audit coverage over zero-provider-call heal runs. The latest audit
+  // row per heal run wins, so a re-audit supersedes an earlier verdict.
+  const auditByHealRun = new Map();
+  for (const audit of triageAudits) auditByHealRun.set(audit.healRunId, audit);
+  const auditedFrugalRuns = frugalHealRuns.filter((healRun) => auditByHealRun.has(healRun.runId));
+  const overturnedRuns = auditedFrugalRuns.filter((healRun) =>
+    auditByHealRun.get(healRun.runId).verdict === 'overturned');
+  const healTriage = {
+    zeroCallRuns: frugalHealRuns.length,
+    audited: auditedFrugalRuns.length,
+    overturned: overturnedRuns.length,
+    coverage: ratioOrNull(auditedFrugalRuns.length, frugalHealRuns.length)
+  };
+
   return {
-    yield: ratioOrNull(promotedRuns.length, providerSpawningRuns.length),
+    yieldStarted: ratioOrNull(promotedRuns.length, runs.length),
+    yieldProviderCalled: ratioOrNull(promotedRuns.length, providerCalledRuns.length),
     tokensPerAccepted: ratioOrNull(billedTokens, promotedRuns.length),
     firstPassStaticRate: ratioOrNull(staticFirstPass.length, staticReached.length),
-    wasteByStage,
+    failureFacts,
     cache: {
       hits: cacheHits,
       lookups: cacheLookupRows.length,
@@ -237,11 +370,14 @@ export function computeMetrics({ usage, startedAtByRun, healRuns }, window = {})
       p95Ms: nearestRank(promotedRuns.map((run) => run.endToEndLatencyMs), 0.95)
     },
     healFrugality: ratioOrNull(frugalHealRuns.length, selectedHealRuns.length),
+    healTriage,
     tokensPerSuccessfulHeal: ratioOrNull(healTokens, successfulHealRuns.length),
+    accepted,
     totals: {
-      runs: runs.length,
+      started: runs.length,
+      providerCalledRuns: providerCalledRuns.length,
+      providerCalls,
       promoted: promotedRuns.length,
-      providerSpawning: providerSpawningRuns.length,
       billedTokens,
       savedTokens,
       healRuns: selectedHealRuns.length
@@ -257,10 +393,13 @@ function isoOrNull(epochMs) {
 
 export function createSnapshot({ metrics, label, window = {}, now, gitSha }) {
   return {
-    schemaVersion: SNAPSHOT_SCHEMA,
+    schemaVersion: SNAPSHOT_SCHEMA_V2,
     generatedAt: now.toISOString(),
     gitSha: typeof gitSha === 'string' && gitSha.length > 0 ? gitSha : null,
     label,
+    // Informational: the classification rule current at snapshot time. Trend
+    // rendering always classifies with the CURRENT rule, not this one.
+    wasteClassRuleVersion: WASTE_CLASS_RULE_VERSION,
     window: {
       since: isoOrNull(window.since ?? null),
       until: isoOrNull(window.until ?? null),
@@ -283,7 +422,7 @@ export function readHistory(historyPath) {
   for (const line of fs.readFileSync(historyPath, 'utf8').split('\n')) {
     if (!line.trim()) continue;
     const row = JSON.parse(line);
-    if (row?.schemaVersion === SNAPSHOT_SCHEMA) rows.push(row);
+    if (SNAPSHOT_SCHEMAS.has(row?.schemaVersion)) rows.push(row);
   }
   return rows;
 }
@@ -294,6 +433,14 @@ function formatPercent(value) {
 
 function formatInteger(value) {
   return value === null || value === undefined ? '-' : String(Math.round(value));
+}
+
+// Waste view for any history row: v2 rows classify their raw failure facts
+// with the current rule; v1 rows fall back to their stored buckets.
+function wasteView(metrics) {
+  return Array.isArray(metrics?.failureFacts)
+    ? classifyFailureFacts(metrics.failureFacts)
+    : metrics?.wasteByStage ?? null;
 }
 
 function formatWaste(wasteByStage) {
@@ -321,12 +468,23 @@ function formatDelta(previous, current, { percent = false } = {}) {
     : `${sign}${Math.abs(Math.round(difference))}`;
 }
 
+export function renderHealFrugality(metrics) {
+  const triage = metrics.healTriage ?? null;
+  const overturnText = triage && triage.audited > 0
+    ? formatPercent(triage.overturned / triage.audited)
+    : 'n/a - unaudited';
+  const coverageText = triage ? `${triage.audited}/${triage.zeroCallRuns}` : '-';
+  return `Heal frugality: ${formatPercent(metrics.healFrugality)} of ${metrics.totals.healRuns} heal runs `
+    + `(overturn ${overturnText}, audit coverage ${coverageText})`;
+}
+
 const TREND_COLUMNS = [
   { header: 'label', width: 26, value: (row) => row.label ?? '-' },
-  { header: 'yield', width: 8, value: (row) => formatPercent(row.metrics.yield), delta: (a, b) => formatDelta(a.yield, b.yield, { percent: true }) },
+  { header: 'yieldStart', width: 11, value: (row) => formatPercent(row.metrics.yieldStarted), delta: (a, b) => formatDelta(a.yieldStarted, b.yieldStarted, { percent: true }) },
+  { header: 'yieldProv', width: 10, value: (row) => formatPercent(row.metrics.yieldProviderCalled), delta: (a, b) => formatDelta(a.yieldProviderCalled, b.yieldProviderCalled, { percent: true }) },
   { header: 'tokens/acc', width: 11, value: (row) => formatInteger(row.metrics.tokensPerAccepted), delta: (a, b) => formatDelta(a.tokensPerAccepted, b.tokensPerAccepted) },
   { header: 'firstPass', width: 10, value: (row) => formatPercent(row.metrics.firstPassStaticRate), delta: (a, b) => formatDelta(a.firstPassStaticRate, b.firstPassStaticRate, { percent: true }) },
-  { header: 'waste e/s/r', width: 12, value: (row) => formatWaste(row.metrics.wasteByStage) },
+  { header: 'waste e/s/r', width: 12, value: (row) => formatWaste(wasteView(row.metrics)) },
   { header: 'cache h/l/saved', width: 16, value: (row) => formatCache(row.metrics.cache), delta: (a, b) => formatDelta(a.cache?.savedTokens, b.cache?.savedTokens) },
   { header: 'tta p50/p95 ms', width: 15, value: (row) => formatLatency(row.metrics.timeToAccepted), delta: (a, b) => formatDelta(a.timeToAccepted?.p50Ms, b.timeToAccepted?.p50Ms) },
   { header: 'healFrugal', width: 11, value: (row) => formatPercent(row.metrics.healFrugality), delta: (a, b) => formatDelta(a.healFrugality, b.healFrugality, { percent: true }) },
@@ -369,39 +527,106 @@ function printHumanReport(metrics, options) {
   const windowText = options.runIds
     ? `run-ids=${options.runIds.join(',')}`
     : `${isoOrNull(options.since) ?? 'beginning'} .. ${isoOrNull(options.until) ?? 'now'}`;
+  const classified = classifyFailureFacts(metrics.failureFacts);
   console.log(`AI efficiency metrics (${windowText})`);
-  console.log(`- Yield (promoted/provider-spawning): ${formatPercent(metrics.yield)} (${metrics.totals.promoted}/${metrics.totals.providerSpawning})`);
+  console.log(`- Yield (promoted/started): ${formatPercent(metrics.yieldStarted)} (${metrics.totals.promoted}/${metrics.totals.started})`);
+  console.log(`- Yield (promoted/provider-called): ${formatPercent(metrics.yieldProviderCalled)} (${metrics.totals.promoted}/${metrics.totals.providerCalledRuns})`);
+  console.log(`- Provider calls (attempts incl. retries): ${metrics.totals.providerCalls} across ${metrics.totals.providerCalledRuns} runs`);
   console.log(`- Tokens per accepted test: ${formatInteger(metrics.tokensPerAccepted)}`);
+  console.log(
+    `- Accepted split: clean=${metrics.accepted.clean}, with-warning=${metrics.accepted.withWarning}, `
+    + `unknown=${metrics.accepted.unknown}`
+  );
   console.log(`- First-pass static-review rate: ${formatPercent(metrics.firstPassStaticRate)}`);
   console.log(
-    `- Waste by stage (tokens on failed runs): total=${metrics.wasteByStage.wastedTokens}, ` +
-    `environment=${metrics.wasteByStage.environment.tokens}, ` +
-    `static-review=${metrics.wasteByStage.staticReview.tokens}, ` +
-    `runtime=${metrics.wasteByStage.runtime.tokens}, other=${metrics.wasteByStage.other.tokens}`
+    `- Waste by class [${WASTE_CLASS_RULE_VERSION}] (tokens on failed runs): total=${classified.wastedTokens}, ` +
+    `environment=${classified.environment.tokens}, ` +
+    `static-review=${classified.staticReview.tokens}, ` +
+    `runtime=${classified.runtime.tokens}, other=${classified.other.tokens}`
   );
+  if (metrics.failureFacts.length > 0) {
+    console.log('- Failure facts (stage/reason/outcome):');
+    for (const fact of metrics.failureFacts) {
+      console.log(`    ${fact.stage}/${fact.reasonCode}/${fact.terminalOutcome}: runs=${fact.runs}, tokens=${fact.tokens}`);
+    }
+  }
   console.log(
     `- Result cache: hits=${metrics.cache.hits}/${metrics.cache.lookups} lookups, ` +
     `saved=${metrics.cache.savedTokens} tokens, saved-share=${formatPercent(metrics.cache.savedShare)}`
   );
   console.log(`- Time to accepted p50/p95: ${formatLatency(metrics.timeToAccepted)} ms`);
-  console.log(`- Heal frugality (zero-attempt heals): ${formatPercent(metrics.healFrugality)} of ${metrics.totals.healRuns} heal runs`);
+  console.log(`- ${renderHealFrugality(metrics)}`);
   console.log(`- Tokens per successful heal: ${formatInteger(metrics.tokensPerSuccessfulHeal)}`);
-  console.log(`- Window totals: runs=${metrics.totals.runs}, billed=${metrics.totals.billedTokens} tokens, saved=${metrics.totals.savedTokens} tokens`);
+  console.log(
+    `- Window totals: started=${metrics.totals.started}, provider-called=${metrics.totals.providerCalledRuns}, ` +
+    `provider-calls=${metrics.totals.providerCalls}, promoted=${metrics.totals.promoted}, ` +
+    `billed=${metrics.totals.billedTokens} tokens, saved=${metrics.totals.savedTokens} tokens`
+  );
 }
 
 function printHelp() {
   console.log(`Usage:
   node scripts/ai/metrics-report.mjs [--dir <runs>] [--since <iso>] [--until <iso>]
-    [--run-ids <id,id,...>] [--json]
-  node scripts/ai/metrics-report.mjs --snapshot --label <text> [window flags] [--history <path>]
+    [--run-ids <id,id,...>] [--audits <path>] [--json]
+  node scripts/ai/metrics-report.mjs --snapshot --label <text> [window flags]
+    [--history <path>] [--audits <path>]
   node scripts/ai/metrics-report.mjs --trend [--history <path>]
+  node scripts/ai/metrics-report.mjs --audit-triage <healRunId>
+    --verdict confirmed|overturned [--notes <text>] [--dir <runs>] [--audits <path>]
 
-Computes eight efficiency metrics from .ai-runs artifacts (generation + heal).
---snapshot appends one JSONL row to .ai-metrics/metrics-history.jsonl (committable).
---trend prints a fixed-width table of all snapshots with deltas between rows.
+Computes efficiency metrics from .ai-runs artifacts (generation + heal) using
+unambiguous window counters: started (all generation runs), providerCalledRuns
+(runs with >=1 provider attempt; a result-cache hit is started+promoted but
+not provider-called), providerCalls (total attempts, retries visible), and
+promoted (acceptedClean + acceptedWithWarning). Both yields are reported:
+promoted/started and promoted/provider-called.
+
+Failed runs are stored as raw failure facts {stage, reasonCode,
+terminalOutcome, runs, tokens}; display buckets (environment/static-review/
+runtime/other) are classified at render time by the versioned rule
+${WASTE_CLASS_RULE_VERSION}, so history reclassifies consistently.
+
+--snapshot appends one ai-efficiency-snapshot/v2 JSONL row to
+.ai-metrics/metrics-history.jsonl (committable). Existing v1 rows are never
+rewritten; --trend renders mixed v1+v2 history ('-' for fields v1 lacks).
+
+--audit-triage appends a manual triage-audit row {healRunId, verdict,
+auditedAt, notes?} to .ai-metrics/triage-audits.jsonl after validating the
+heal run exists under <runs>/heal. Audit rows feed healTriage coverage and
+the overturn annotation on the heal-frugality line ('n/a - unaudited' while
+coverage is zero).
+
 Windows filter generation runs by manifest startedAt and heal runs by the
 epoch-ms prefix of their run directory names. --run-ids bypasses timestamps
 for generation runs when batteries interleave.`);
+}
+
+function runAuditTriage(options) {
+  const healRunId = options.auditHealRunId;
+  if (path.basename(healRunId) !== healRunId || healRunId.includes('..')) {
+    console.error(`Invalid heal run id: ${healRunId}`);
+    process.exitCode = 1;
+    return;
+  }
+  const summaryPath = path.join(options.dir, 'heal', healRunId, 'heal-summary.json');
+  let summary = null;
+  try {
+    summary = JSON.parse(fs.readFileSync(summaryPath, 'utf8'));
+  } catch {
+    summary = null;
+  }
+  if (summary?.schema !== 'test-heal-run/v1') {
+    console.error(`Heal run not found (no valid heal-summary.json): ${healRunId} under ${path.join(options.dir, 'heal')}`);
+    process.exitCode = 1;
+    return;
+  }
+  const row = appendTriageAudit(options.auditsPath, {
+    healRunId,
+    verdict: options.verdict,
+    auditedAt: new Date().toISOString(),
+    ...(options.notes ? { notes: options.notes } : {})
+  });
+  console.log(`Recorded triage audit for ${row.healRunId} (${row.verdict}) to ${options.auditsPath}`);
 }
 
 function runCli() {
@@ -424,8 +649,16 @@ function runCli() {
     return;
   }
 
+  if (options.mode === 'audit-triage') {
+    runAuditTriage(options);
+    return;
+  }
+
   const window = { since: options.since, until: options.until, runIds: options.runIds };
-  const metrics = computeMetrics(readMetricsInputs(options.dir), window);
+  const metrics = computeMetrics(
+    readMetricsInputs(options.dir, { auditsPath: options.auditsPath }),
+    window
+  );
 
   if (options.mode === 'snapshot') {
     const snapshot = createSnapshot({

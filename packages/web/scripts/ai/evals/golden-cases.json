@@ -38,7 +38,7 @@
     "scripts/ai/validate-flow-spec.mjs",
     "scripts/ai/verified-generate.mjs"
   ],
-  "pipelineFingerprintSha256": "014d2d9c9964b17cad40df9a6510283de451dee218f5a7a629df07e36ffbbe33",
+  "pipelineFingerprintSha256": "aa87ffd730af312d9c72eec6ac9cab04a7c77d9019b4ab69acb00a0c96abe7bb",
   "cases": [
     {
       "id": "single-checkout",
