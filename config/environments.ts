@@ -3,13 +3,13 @@ import './load-dotenv';
 /**
  * All environments live here. To switch, set TEST_ENV (see .env.example):
  *
- *   TEST_ENV=stage npm run test:api
+ *   TEST_ENV=stage npx playwright test --project=api
  *
  * Nothing else in the project should hard-code a host name. If a test or a
  * page needs a URL, it takes it from `environment` below.
  */
 
-export type EnvironmentName = 'stage';
+export type EnvironmentName = 'stage' | 'dev';
 
 export type Environment = {
   name: EnvironmentName;
@@ -33,6 +33,15 @@ const environments: Record<EnvironmentName, Environment> = {
     apiUrl: 'https://api.stage.psychicbook.net',
     helpdeskUrl: 'https://helpdesk.stage.psychicbook.net',
     generationApiUrl: 'https://agpt.stage.psychicbook.net/api',
+    emailCode: '1234',
+    smsCode: '1234'
+  },
+  dev: {
+    name: 'dev',
+    webUrl: 'https://user.dev.psychicbook.net',
+    apiUrl: 'https://api.dev.psychicbook.net',
+    helpdeskUrl: 'https://helpdesk.dev.psychicbook.net',
+    generationApiUrl: 'https://agpt.dev.psychicbook.net/api',
     emailCode: '1234',
     smsCode: '1234'
   }

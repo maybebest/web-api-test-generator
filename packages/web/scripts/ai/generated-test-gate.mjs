@@ -6,6 +6,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
+import ts from 'typescript';
+
 import { GENERATION_MODES, resolveGenerationMode, specGenerationMode, specSha256 } from './lib/spec-parser.mjs';
 import { verifyGlobalChecksReceipt } from './lib/generated-gate-fingerprint.mjs';
 import {
@@ -436,8 +438,8 @@ export function normalizePlaywrightTarget(value) {
   return normalizePlaywrightTargets([value])[0];
 }
 
-function tscCommand(packageManager) {
-  const args = ['tsc', '--noEmit', '--pretty', 'false', '-p', 'tsconfig.json'];
+function tscCommand(packageManager, projectName = 'tsconfig.json') {
+  const args = ['tsc', '--noEmit', '--pretty', 'false', '-p', projectName];
 
   if (packageManager === 'pnpm') {
     return ['pnpm', ['exec', ...args]];
@@ -448,6 +450,63 @@ function tscCommand(packageManager) {
   }
 
   return ['npx', args];
+}
+
+// Staged candidates are dot-prefixed (tests/smoke/.NAME.<runId>.candidate.spec.ts)
+// and TypeScript wildcard matching skips dotfiles, so the project tsconfig's
+// include globs never see them: iteration 3 promoted a candidate with a
+// TS18047 strict-null fault that `tsc -p tsconfig.json` could not observe,
+// breaking the committed tree's typecheck and cascade-rejecting the next
+// review-clean candidate. Every gate typecheck therefore runs a short-lived
+// project that extends the package tsconfig and appends the explicit staged
+// paths — explicit include entries are matched even when dotted, and the
+// derived `include` replaces the base one, so the project globs must be
+// carried over verbatim. The temp file lives next to tsconfig.json (include
+// globs resolve relative to the config's directory) and is always removed by
+// cleanup(). This is deliberately cheaper and safer than re-staging the
+// candidate in a mirror directory: no source copies, one extra file, zero
+// changes to how Playwright receives the candidate path.
+export function createGateTypecheckProject({ rootDir = '.', testPaths = [] } = {}) {
+  const root = path.resolve(rootDir);
+  const projectConfigPath = path.join(root, 'tsconfig.json');
+  const loaded = ts.readConfigFile(projectConfigPath, ts.sys.readFile);
+  if (loaded.error) {
+    throw new Error(
+      `Gate typecheck project cannot read tsconfig.json: ${ts.flattenDiagnosticMessageText(loaded.error.messageText, ' ')}`
+    );
+  }
+  const baseInclude = Array.isArray(loaded.config?.include) ? loaded.config.include : ['**/*'];
+  const explicitPaths = [];
+  const seen = new Set();
+  for (const value of testPaths) {
+    const raw = String(value ?? '').trim();
+    if (!raw) throw new Error('Gate typecheck targets must be non-empty paths.');
+    const absolute = path.resolve(root, raw);
+    const relative = path.relative(root, absolute).split(path.sep).join('/');
+    if (!relative || relative.startsWith('../') || path.posix.isAbsolute(relative)) {
+      throw new Error(`Gate typecheck target escapes the package root: ${raw}`);
+    }
+    if (!seen.has(relative)) {
+      seen.add(relative);
+      explicitPaths.push(relative);
+    }
+  }
+  const include = [...baseInclude, ...explicitPaths];
+  const configName = `tsconfig.gate-${process.pid}-${randomUUID()}.json`;
+  const configPath = path.join(root, configName);
+  fs.writeFileSync(
+    configPath,
+    `${JSON.stringify({ extends: './tsconfig.json', include }, null, 2)}\n`,
+    { flag: 'wx', mode: 0o600 }
+  );
+  return {
+    configPath,
+    configName,
+    include,
+    cleanup() {
+      fs.rmSync(configPath, { force: true });
+    }
+  };
 }
 
 export function projectPlanForSpec(metadata, { allProjects = false, projects = [], env = {} } = {}) {
@@ -997,9 +1056,7 @@ function runCli() {
   const packageManager = detectPackageManager();
   const resolvedEnvironment = resolveEnv(process.env).env;
   const staticEnvironment = buildGateEnvironment(resolvedEnvironment, { profile: 'static' });
-  const staticCommands = args.globalChecksComplete
-    ? []
-    : [packageRunCommand(packageManager, 'test:e2e:list', [args.test]), tscCommand(packageManager)];
+  const runStaticCommands = !args.globalChecksComplete;
 
   if (args.globalChecksComplete) {
     const specDir = inferSpecDirectory(args.spec);
@@ -1031,6 +1088,7 @@ function runCli() {
     mode: generationMode,
     validation
   });
+  const staticReviewWarningCount = review.warnings.length;
   for (const warning of review.warnings) {
     console.warn(`- ${warning}`);
   }
@@ -1045,13 +1103,35 @@ function runCli() {
     }), 1);
   }
 
-  for (const [command, commandArgs] of staticCommands) {
-    const status = runCommand(command, commandArgs, staticEnvironment);
-    if (status !== 0) {
+  if (runStaticCommands) {
+    // The typecheck must observe the staged (possibly dot-prefixed) candidate,
+    // which the project include globs cannot match; see createGateTypecheckProject.
+    let gateTypecheckProject;
+    try {
+      gateTypecheckProject = createGateTypecheckProject({ rootDir: '.', testPaths: [args.test] });
+    } catch (error) {
+      console.error(error.message);
       return finishCli(args, classifyGeneratedGateFailure({
         stage: 'global-static',
-        issues: [`Global static command failed: ${command} ${commandArgs.join(' ')} (exit ${status}).`]
-      }), status);
+        issues: [`Gate typecheck project could not be created: ${error.message}`]
+      }), 1);
+    }
+    try {
+      const staticCommands = [
+        packageRunCommand(packageManager, 'test:e2e:list', [args.test]),
+        tscCommand(packageManager, gateTypecheckProject.configName)
+      ];
+      for (const [command, commandArgs] of staticCommands) {
+        const status = runCommand(command, commandArgs, staticEnvironment);
+        if (status !== 0) {
+          return finishCli(args, classifyGeneratedGateFailure({
+            stage: 'global-static',
+            issues: [`Global static command failed: ${command} ${commandArgs.join(' ')} (exit ${status}).`]
+          }), status);
+        }
+      }
+    } finally {
+      gateTypecheckProject.cleanup();
     }
   }
 
@@ -1132,7 +1212,7 @@ function runCli() {
 
   console.log('');
   console.log('Generated test gate passed.');
-  return finishCli(args, acceptedGeneratedGateVerdict(), 0);
+  return finishCli(args, acceptedGeneratedGateVerdict({ staticReviewWarningCount }), 0);
 }
 
 function finishCli(args, verdict, exitCode) {

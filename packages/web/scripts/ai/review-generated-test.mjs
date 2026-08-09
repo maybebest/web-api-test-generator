@@ -35,9 +35,11 @@ import {
   parseSourceFile,
   propertyName,
   stringValue,
+  stringValueWithTemplatePlaceholders,
   walk
 } from './lib/ts-ast.mjs';
 import { validateSpecFile } from './validate-flow-spec.mjs';
+import { collectSpecSalientTokens, primitiveMockValues } from './lib/salient-tokens.mjs';
 import { containsSecretLikeValue } from './lib/secret-safety.mjs';
 import { checkGeneratedRuntimeCapabilities } from './lib/generated-capability-policy.mjs';
 
@@ -75,7 +77,13 @@ const PAGE_STRING_SELECTOR_ACTION_APIS = new Set([
   '$',
   '$$'
 ]);
-export function reviewGeneratedTest({ specPath, testPath, mode = undefined, validation: providedValidation = undefined }) {
+export function reviewGeneratedTest({
+  specPath,
+  testPath,
+  mode = undefined,
+  validation: providedValidation = undefined,
+  domCandidateNames = undefined
+}) {
   const issues = [];
   const warnings = [];
   const validation = providedValidation ?? validateSpecFile(specPath);
@@ -116,6 +124,7 @@ export function reviewGeneratedTest({ specPath, testPath, mode = undefined, vali
   const constStringIdentifiers = collectConstStringIdentifiers(sourceFile);
   const stringIdentifiers = collectStringIdentifiers(sourceFile);
   const locatorIdentifiers = collectLocatorIdentifiers(sourceFile);
+  const pageObjectLocatorAliases = collectPageObjectLocatorAliasIdentifiers(sourceFile);
   const expectCalls = collectExpectCalls(sourceFile);
   const stepCalls = collectTestStepCalls(sourceFile);
   const testCases = collectTestCaseCalls(sourceFile);
@@ -128,22 +137,25 @@ export function reviewGeneratedTest({ specPath, testPath, mode = undefined, vali
   checkGeneratedRuntimeCapabilities(sourceFile, issues, { constStringIdentifiers });
   checkGenerationModeShape(generationMode, parsedSpec, testCases, sourceFile, locatorIdentifiers, issues, warnings);
   if (generationMode === 'suite') {
-    checkPerAcceptanceCriteria(parsedSpec, stepCalls, sourceFile, locatorIdentifiers, constLiteralIdentifiers, issues);
+    checkPerAcceptanceCriteria(parsedSpec, stepCalls, sourceFile, locatorIdentifiers, constLiteralIdentifiers, pageObjectLocatorAliases, issues);
     checkPerNegativeCase(parsedSpec.negativeCases, stepCalls, sourceFile, issues);
     checkDataCaseAssertionStrength(sourceFile, issues);
   }
   checkSpecTagDeclarations(parsedSpec, sourceFile, constStringIdentifiers, issues);
   checkDataCaseCoverage(parsedSpec.dataCasesJson.value, countableStringLiterals, issues);
   checkSingleResponsibilityAssertions(testCases, sourceFile, issues);
-  checkExpectCalls(expectCalls, sourceFile, locatorIdentifiers, constLiteralIdentifiers, issues);
+  checkExpectCalls(expectCalls, sourceFile, locatorIdentifiers, constLiteralIdentifiers, pageObjectLocatorAliases, issues);
   checkForbiddenRuntimePatterns(sourceFile, issues);
   checkUnimplementedTestDataHelpers(sourceFile, issues);
   checkForbiddenAgentBrowserRefs(content, issues);
   checkPomLocatorOwnership(sourceFile, content, issues);
+  checkBrowserWaitForFunction(sourceFile, issues, warnings);
   checkStringSelectorActionApis(sourceFile, issues);
   checkLocatorSelectors(sourceFile, stringIdentifiers, locatorIdentifiers, issues, warnings);
   checkSemanticLocatorPresence(sourceFile, content, issues);
   checkLocatorHints(parsedSpec.locatorHints, sourceFile, content, issues);
+  checkAccessibleNameGrounding(parsedSpec, sourceFile, warnings, { domCandidateNames });
+  checkNonRetryingAttributeAssertions(sourceFile, warnings);
   checkMockContract(parsedSpec.mocksJson.value, sourceFile, countableStringLiterals, constStringIdentifiers, issues);
   checkExpectedTokens(parsedSpec, countableStringLiterals, issues);
   checkSecretAndUrlLiterals(sourceFile, constStringIdentifiers, issues);
@@ -209,7 +221,7 @@ function checkFixtureImport(sourceFile, issues) {
   }
 }
 
-function checkPerAcceptanceCriteria(parsedSpec, stepCalls, sourceFile, locatorIdentifiers, constLiteralIdentifiers, issues) {
+function checkPerAcceptanceCriteria(parsedSpec, stepCalls, sourceFile, locatorIdentifiers, constLiteralIdentifiers, pageObjectLocatorAliases, issues) {
   const acStepRegistry = new Map();
   for (const step of stepCalls) {
     const dedicatedAcIds = extractDedicatedAcIds(step.title);
@@ -244,7 +256,7 @@ function checkPerAcceptanceCriteria(parsedSpec, stepCalls, sourceFile, locatorId
       const expects = collectExpectCalls(step.body);
       return expects.some((expectCall) =>
         isExpectPollCall(expectCall) ||
-        isValidExpectReceiver(expectCall.arguments[0], sourceFile, locatorIdentifiers, constLiteralIdentifiers)
+        isValidExpectReceiver(expectCall.arguments[0], sourceFile, locatorIdentifiers, constLiteralIdentifiers, pageObjectLocatorAliases)
       );
     });
 
@@ -668,7 +680,7 @@ function checkSingleResponsibilityAssertions(testCases, sourceFile, issues) {
   }
 }
 
-function checkExpectCalls(expectCalls, sourceFile, locatorIdentifiers, constLiteralIdentifiers, issues) {
+function checkExpectCalls(expectCalls, sourceFile, locatorIdentifiers, constLiteralIdentifiers, pageObjectLocatorAliases, issues) {
   if (expectCalls.length === 0) {
     issues.push('Generated test must contain meaningful expect assertions.');
     return;
@@ -701,7 +713,7 @@ function checkExpectCalls(expectCalls, sourceFile, locatorIdentifiers, constLite
       continue;
     }
 
-    if (!isValidExpectReceiver(argument, sourceFile, locatorIdentifiers, constLiteralIdentifiers)) {
+    if (!isValidExpectReceiver(argument, sourceFile, locatorIdentifiers, constLiteralIdentifiers, pageObjectLocatorAliases)) {
       issues.push(`expect(${nodeText(sourceFile, argument)}) must target a Page or Page Object locator expression.`);
     }
 
@@ -1270,6 +1282,32 @@ function checkForbiddenAgentBrowserRefs(content, issues) {
   }
 }
 
+// waitForFunction completes the blocking browser-evaluation rule owned by
+// checkGeneratedRuntimeCapabilities (evaluate/evaluateAll/evaluateHandle/
+// $eval/$$eval): iteration 3 promoted a catalog candidate whose strict-null
+// fault rode inside a waitForFunction callback the reviewer never flagged.
+// Unlike the evaluate family, the repository's committed generated tests
+// sanction waitForFunction for collection-count waits behind the existing
+// // locator-policy:exception annotation, so an annotated call downgrades to
+// a warning while a bare call stays blocking.
+function checkBrowserWaitForFunction(sourceFile, issues, warnings) {
+  const sourceText = sourceFile.getFullText();
+  walk(sourceFile, (node) => {
+    if (!ts.isCallExpression(node) || propertyName(node.expression) !== 'waitForFunction') {
+      return;
+    }
+    if (hasLocatorPolicyException(sourceText, sourceFile, node.getStart(sourceFile))) {
+      warnings.push(
+        'Browser-evaluation exception accepted for .waitForFunction(...). Keep the justification current.'
+      );
+      return;
+    }
+    issues.push(
+      'Browser evaluation is forbidden in generated tests: .waitForFunction(...) requires // locator-policy:exception <reason> on the previous line. Put browser logic behind a reviewed Page Object method.'
+    );
+  });
+}
+
 function hasLocatorPolicyException(sourceText, sourceFile, position) {
   const line = sourceFile.getLineAndCharacterOfPosition(position).line;
   const lines = sourceText.split(/\r?\n/);
@@ -1300,9 +1338,97 @@ function checkSemanticLocatorPresence(sourceFile, content, issues) {
   }
 }
 
+// AST-grounded locator-hint matching (iteration-2). The previous
+// normalized-substring match compared formatted text, so a candidate that
+// honored a pinned 46-char accessible name but emitted the options object
+// multiline with a trailing comma ('{ name: '...', }') could never equal the
+// hint — a deterministic FALSE rejection for exactly what pin-the-name hints
+// produce. Instead, parse the hint's expected locator with the TS compiler
+// API and compare method name + folded arguments against every getBy*/locator
+// call in the candidate and its Page Object corpus. Formatting (line breaks,
+// trailing commas, quote style) cannot matter; a genuinely different name or
+// method still fails.
+const HINT_LOCATOR_METHOD_NAMES = new Set([...SEMANTIC_LOCATOR_NAMES, 'locator']);
+
+function foldedLocatorArgumentText(node, hintSourceFile, constStringIdentifiers) {
+  const folded = foldStringExpression(node, constStringIdentifiers);
+  if (folded !== undefined) {
+    return JSON.stringify(folded);
+  }
+  if (ts.isObjectLiteralExpression(node)) {
+    const entries = [];
+    for (const property of node.properties) {
+      if (!ts.isPropertyAssignment(property)) {
+        return normalizeCode(node.getText(hintSourceFile));
+      }
+      const key = objectLiteralPropertyName(property);
+      if (key === undefined) {
+        return normalizeCode(node.getText(hintSourceFile));
+      }
+      entries.push(`${key}:${foldedLocatorArgumentText(property.initializer, hintSourceFile, constStringIdentifiers)}`);
+    }
+    entries.sort();
+    return `{${entries.join(',')}}`;
+  }
+  return normalizeCode(node.getText(hintSourceFile));
+}
+
+function locatorCallSignature(callExpression, callSourceFile, constStringIdentifiers) {
+  const method = propertyName(callExpression.expression);
+  if (!method || !HINT_LOCATOR_METHOD_NAMES.has(method)) {
+    return undefined;
+  }
+  const argumentTexts = callExpression.arguments.map((argument) =>
+    foldedLocatorArgumentText(argument, callSourceFile, constStringIdentifiers)
+  );
+  return `${method}(${argumentTexts.join(',')})`;
+}
+
+function collectLocatorCallSignatures(rootSourceFile, signatures) {
+  const constStringIdentifiers = collectConstStringIdentifiers(rootSourceFile);
+  walk(rootSourceFile, (node) => {
+    if (!ts.isCallExpression(node)) {
+      return;
+    }
+    const signature = locatorCallSignature(node, rootSourceFile, constStringIdentifiers);
+    if (signature !== undefined) {
+      signatures.add(signature);
+    }
+  });
+}
+
+function parseHintLocatorSignature(locatorText) {
+  const hintSourceFile = ts.createSourceFile(
+    'locator-hint.ts',
+    `page.${locatorText};`,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS
+  );
+  let signature;
+  walk(hintSourceFile, (node) => {
+    if (signature === undefined && ts.isCallExpression(node)) {
+      signature = locatorCallSignature(node, hintSourceFile, new Map());
+    }
+  });
+  return signature;
+}
+
 function checkLocatorHints(locatorHints, sourceFile, content, issues) {
-  const searchCorpus = `${content}\n${readPageObjectCorpus()}`;
-  const normalizedCorpus = normalizeCode(searchCorpus);
+  const pageObjectCorpus = readPageObjectCorpus();
+  const corpusSignatures = new Set();
+  collectLocatorCallSignatures(sourceFile, corpusSignatures);
+  if (pageObjectCorpus) {
+    const corpusSourceFile = ts.createSourceFile(
+      'page-object-corpus.ts',
+      pageObjectCorpus,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS
+    );
+    collectLocatorCallSignatures(corpusSourceFile, corpusSignatures);
+  }
+  const normalizedCorpus = normalizeCode(`${content}\n${pageObjectCorpus}`);
 
   for (const hint of locatorHints) {
     const expectedLocators = [...hint.matchAll(/(getBy(?:Role|Label|Placeholder|Text|TestId)\([^`]+?\))/g)].map(
@@ -1310,11 +1436,206 @@ function checkLocatorHints(locatorHints, sourceFile, content, issues) {
     );
 
     for (const locator of expectedLocators) {
-      if (!normalizedCorpus.includes(normalizeCode(locator))) {
+      const expectedSignature = parseHintLocatorSignature(locator);
+      // Fall back to the legacy normalized-substring match only for hint
+      // fragments the parser cannot resolve into a locator call.
+      const matched = expectedSignature !== undefined
+        ? corpusSignatures.has(expectedSignature)
+        : normalizedCorpus.includes(normalizeCode(locator));
+      if (!matched) {
         issues.push(`Locator hint requires exact locator usage or Page Object wrapper: ${locator}`);
       }
     }
   }
+}
+
+// --- Non-blocking grounding warnings (iteration-1 runtime-rejection shapes) ---
+//
+// Iteration-1 evidence: 2 of 3 runtime gate rejections came from accessible
+// names the model invented instead of observed ('Consent' vs the real label
+// 'I confirm the details above are correct'; exact-true 'Price' broken by a
+// CSS ::after sort arrow rendering 'Price ↑'), plus a hand-rolled
+// getAttribute+throw that raced the UI where toHaveAttribute would have
+// auto-retried. Both checks warn only — they never block — and their counts
+// surface through staticReviewWarningCount telemetry.
+
+function quotedSegments(text) {
+  const segments = [];
+  for (const match of String(text ?? '').matchAll(/'([^']+)'|"([^"]+)"|`([^`]+)`/g)) {
+    segments.push(match[1] ?? match[2] ?? match[3]);
+  }
+  return segments;
+}
+
+// The grounded-name vocabulary: quoted fragments from the spec's Locator
+// Hints, the spec's salient expected values, and (when the caller has one) a
+// DOM-artifact candidate name list. Prose words in hints deliberately do NOT
+// ground a name: "the consent checkbox" must not legitimize a literal
+// 'Consent' accessible name nobody observed.
+function collectGroundedNameVocabulary(parsedSpec, domCandidateNames) {
+  const vocabulary = new Set();
+  const add = (value) => {
+    const normalized = String(value ?? '').trim().toLowerCase();
+    if (normalized) vocabulary.add(normalized);
+  };
+  for (const hint of parsedSpec.locatorHints ?? []) {
+    for (const segment of quotedSegments(hint)) add(segment);
+  }
+  for (const token of collectSpecSalientTokens(parsedSpec)) add(token);
+  for (const name of Array.isArray(domCandidateNames) ? domCandidateNames : []) add(name);
+  return vocabulary;
+}
+
+function isGroundedName(literal, vocabulary) {
+  const normalized = String(literal ?? '').trim().toLowerCase();
+  if (!normalized) return true;
+  for (const entry of vocabulary) {
+    if (entry === normalized || entry.includes(normalized)) return true;
+  }
+  return false;
+}
+
+function objectLiteralPropertyName(property) {
+  const name = property.name;
+  if (!name) return undefined;
+  if (ts.isIdentifier(name) || ts.isStringLiteral(name)) return name.text;
+  return undefined;
+}
+
+function checkAccessibleNameGrounding(parsedSpec, sourceFile, warnings, { domCandidateNames } = {}) {
+  const vocabulary = collectGroundedNameVocabulary(parsedSpec, domCandidateNames);
+  walk(sourceFile, (node) => {
+    if (!ts.isCallExpression(node) || !ts.isPropertyAccessExpression(node.expression)) return;
+    const method = node.expression.name.text;
+    let nameLiteral;
+    let describedCall;
+    if (method === 'getByRole') {
+      const options = node.arguments[1];
+      if (!options || !ts.isObjectLiteralExpression(options)) return;
+      let exact = false;
+      for (const property of options.properties) {
+        if (!ts.isPropertyAssignment(property)) continue;
+        const key = objectLiteralPropertyName(property);
+        if (key === 'name' && isStringLiteralLike(property.initializer)) {
+          nameLiteral = property.initializer.text;
+        }
+        if (key === 'exact' && property.initializer.kind === ts.SyntaxKind.TrueKeyword) exact = true;
+      }
+      if (nameLiteral === undefined) return;
+      describedCall = `getByRole(..., { name: '${nameLiteral}'${exact ? ', exact: true' : ''} })`;
+    } else if (method === 'getByLabel') {
+      const first = node.arguments[0];
+      if (!first || !isStringLiteralLike(first)) return;
+      nameLiteral = first.text;
+      describedCall = `getByLabel('${nameLiteral}')`;
+    } else {
+      return;
+    }
+    if (isGroundedName(nameLiteral, vocabulary)) return;
+    warnings.push(
+      `Ungrounded accessible name (non-blocking): ${describedCall} uses '${nameLiteral}', which is not traceable to the spec's Locator Hints, salient expected values, or a DOM candidate list. Verify the literal against the real page (rendered text can differ, e.g. CSS-injected sort arrows) or pin it in Locator Hints.`
+    );
+  });
+}
+
+function containsThrowStatement(node) {
+  if (!node) return false;
+  let found = false;
+  const visit = (candidate) => {
+    if (found) return;
+    if (ts.isThrowStatement(candidate)) {
+      found = true;
+      return;
+    }
+    if (ts.isFunctionLike(candidate)) return;
+    ts.forEachChild(candidate, visit);
+  };
+  visit(node);
+  return found;
+}
+
+function referencesIdentifier(node, identifierName) {
+  let found = false;
+  const visit = (candidate) => {
+    if (found) return;
+    if (ts.isIdentifier(candidate) && candidate.text === identifierName) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(candidate, visit);
+  };
+  visit(node);
+  return found;
+}
+
+function enclosingFunctionLike(node) {
+  let cursor = node.parent;
+  while (cursor && !ts.isFunctionLike(cursor)) cursor = cursor.parent;
+  return cursor;
+}
+
+// True when a getAttribute() read feeds a hand-rolled `if (...) throw` guard:
+// either the call sits directly inside an if condition whose branch throws, or
+// its result is bound to a variable that such an if condition references.
+function isGetAttributeGuardedByThrow(callNode) {
+  let cursor = callNode;
+  while (cursor.parent) {
+    const parent = cursor.parent;
+    if (ts.isIfStatement(parent) && parent.expression === cursor) {
+      return containsThrowStatement(parent.thenStatement) || containsThrowStatement(parent.elseStatement);
+    }
+    if (ts.isAwaitExpression(parent)
+      || ts.isParenthesizedExpression(parent)
+      || ts.isBinaryExpression(parent)
+      || ts.isPrefixUnaryExpression(parent)
+      || ts.isNonNullExpression(parent)) {
+      cursor = parent;
+      continue;
+    }
+    break;
+  }
+  let declaration = callNode.parent;
+  while (declaration && (ts.isAwaitExpression(declaration) || ts.isParenthesizedExpression(declaration))) {
+    declaration = declaration.parent;
+  }
+  if (!declaration || !ts.isVariableDeclaration(declaration) || !ts.isIdentifier(declaration.name)) {
+    return false;
+  }
+  const variableName = declaration.name.text;
+  const enclosing = enclosingFunctionLike(callNode);
+  if (!enclosing?.body) return false;
+  let guarded = false;
+  const visit = (candidate) => {
+    if (guarded) return;
+    if (ts.isIfStatement(candidate)
+      && referencesIdentifier(candidate.expression, variableName)
+      && (containsThrowStatement(candidate.thenStatement) || containsThrowStatement(candidate.elseStatement))) {
+      guarded = true;
+      return;
+    }
+    if (ts.isFunctionLike(candidate)) return;
+    ts.forEachChild(candidate, visit);
+  };
+  ts.forEachChild(enclosing.body, visit);
+  return guarded;
+}
+
+function checkNonRetryingAttributeAssertions(sourceFile, warnings) {
+  walk(sourceFile, (node) => {
+    if (!ts.isCallExpression(node)
+      || !ts.isPropertyAccessExpression(node.expression)
+      || node.expression.name.text !== 'getAttribute') {
+      return;
+    }
+    if (!isGetAttributeGuardedByThrow(node)) return;
+    const attributeArgument = node.arguments[0];
+    const attribute = attributeArgument && isStringLiteralLike(attributeArgument)
+      ? `getAttribute('${attributeArgument.text}')`
+      : 'a getAttribute(...) read';
+    warnings.push(
+      `Non-retrying attribute assertion (non-blocking): ${attribute} is verified with a manual throw, which reads the state once and races the UI. Use await expect(locator).toHaveAttribute(...) so the assertion auto-retries.`
+    );
+  });
 }
 
 function checkDataCaseCoverage(dataCases, stringLiterals, issues) {
@@ -1552,78 +1873,16 @@ function collectMockRegistrations(sourceFile, constStringIdentifiers) {
   return { urls, statuses };
 }
 
+// Salient token derivation lives in lib/salient-tokens.mjs so the reviewer and
+// the provider input (which advertises the list to the model) cannot diverge.
 function checkExpectedTokens(parsedSpec, countableLiterals, issues) {
-  const extracted = [
-    ...parsedSpec.flowSteps.map((step) => step.expectedResult ?? ''),
-    ...primitiveExpectedValues(parsedSpec.dataCasesJson.value)
-  ].flatMap((value) => salientExpectedTokens(String(value)));
-
-  // The spec author can declare exactly which salient values must be asserted
-  // via a "Must assert the salient expected values ..." requirement. That
-  // explicit contract is authoritative and harder to game than heuristics.
-  const declared = parseDeclaredSalientValues(parsedSpec);
-
-  const tokens = [...new Set([...extracted, ...declared])];
-
-  for (const token of tokens) {
+  for (const token of collectSpecSalientTokens(parsedSpec)) {
     if (!countableLiterals.some((literal) => literal.includes(token))) {
       issues.push(
         `Salient expected value must be asserted in the test (inside an assertion, a step/test title, or an iterated data row): ${token}`
       );
     }
   }
-}
-
-// Reads "Must assert the salient expected values A, B, and C." from the spec's
-// Generated Test Requirements and returns the listed phrases verbatim.
-function parseDeclaredSalientValues(parsedSpec) {
-  const requirements = parsedSpec.sections?.['Generated Test Requirements'] ?? '';
-  const match = requirements.match(/must assert the salient expected values?\s+(.+?)\.?$/im);
-  if (!match) {
-    return [];
-  }
-
-  return match[1]
-    .split(/\s*,\s*|\s+and\s+/i)
-    .map((part) => part.replace(/^["'`]|["'`]$/g, '').trim())
-    .filter((part) => part.length > 0 && !/^and$/i.test(part));
-}
-
-function primitiveExpectedValues(dataCases) {
-  if (!Array.isArray(dataCases)) {
-    return [];
-  }
-
-  return dataCases.flatMap((dataCase) => primitiveMockValues(dataCase.expected));
-}
-
-// Conservative: only genuinely salient fragments — IDs (REQ-1001), "N days",
-// "must be at least/most" phrases, and quoted substrings. The previous
-// blanket "any capitalized word" rule was satisfiable by token-stuffing a dead
-// constant, so it has been removed in favor of the explicit declared list above.
-function salientExpectedTokens(value) {
-  if (!value || /NEEDS_REVIEW/i.test(value)) {
-    return [];
-  }
-
-  const tokens = new Set();
-  for (const match of value.matchAll(/\b[A-Z]{2,}-\d+\b/g)) {
-    tokens.add(match[0]);
-  }
-  for (const match of value.matchAll(/\b\d+\s+days?\b/gi)) {
-    tokens.add(match[0]);
-  }
-  if (/must be at least/i.test(value)) {
-    tokens.add('must be at least');
-  }
-  if (/must be at most/i.test(value)) {
-    tokens.add('must be at most');
-  }
-  for (const match of value.matchAll(/["'`]([^"'`]{3,})["'`]/g)) {
-    tokens.add(match[1].trim());
-  }
-
-  return [...tokens];
 }
 
 // String literals that count as "really used": those reachable without passing
@@ -1716,26 +1975,6 @@ function collectCountableStringLiterals(sourceFile, constStringIdentifiers) {
   });
 
   return values;
-}
-
-function primitiveMockValues(value) {
-  if (value === null || value === undefined) {
-    return [];
-  }
-
-  if (['string', 'number', 'boolean'].includes(typeof value)) {
-    return [value];
-  }
-
-  if (Array.isArray(value)) {
-    return value.flatMap((entry) => primitiveMockValues(entry));
-  }
-
-  if (typeof value === 'object') {
-    return Object.values(value).flatMap((entry) => primitiveMockValues(entry));
-  }
-
-  return [];
 }
 
 function checkSecretAndUrlLiterals(sourceFile, constStringIdentifiers, issues) {
@@ -1961,7 +2200,11 @@ function collectTestStepCalls(node, sourceFile = node.getSourceFile()) {
       return;
     }
 
-    const title = stringValue(child.arguments[0]) ?? '';
+    // Template-literal titles are legitimate generated output (`Act AC-002:
+    // submit ${dataCase.email}`): fold the static spans so the AC-id and
+    // token checks see them; interpolations become a neutral wildcard that
+    // can never satisfy an AC-### check by itself.
+    const title = stringValueWithTemplatePlaceholders(child.arguments[0]) ?? '';
     const callback = child.arguments[1];
     if (!callback || !(ts.isArrowFunction(callback) || ts.isFunctionExpression(callback))) {
       return;
@@ -2021,7 +2264,7 @@ function isNodeInside(node, parent, sourceFile) {
   return nodeStart >= parentStart && nodeEnd <= parentEnd;
 }
 
-function isValidExpectReceiver(argument, sourceFile, locatorIdentifiers, constLiteralIdentifiers) {
+function isValidExpectReceiver(argument, sourceFile, locatorIdentifiers, constLiteralIdentifiers, pageObjectLocatorAliases = new Set()) {
   if (!argument) {
     return false;
   }
@@ -2034,7 +2277,50 @@ function isValidExpectReceiver(argument, sourceFile, locatorIdentifiers, constLi
     return false;
   }
 
+  // `const badgeObject = somePageObject.badgeObject(); expect(badgeObject)`:
+  // a bare identifier is an accepted receiver only when it provably aliases a
+  // Page-Object locator expression (see collectPageObjectLocatorAliasIdentifiers).
+  if (ts.isIdentifier(argument) && pageObjectLocatorAliases.has(argument.text)) {
+    return true;
+  }
+
   return isLocatorLikeExpression(argument, locatorIdentifiers) || isPageObjectLocatorExpression(argument);
+}
+
+// Identifiers bound (const/let) to a valid Page-Object locator expression per
+// isPageObjectLocatorExpression. Fail-closed on ambiguity: any declaration of
+// the same name with a missing or non-PO initializer, and any later plain
+// reassignment (`alias = ...`), disqualifies the name entirely — a reassigned
+// or shadowed alias never counts, even when the new value is itself a PO
+// locator, because the binding is no longer provably one expression.
+function collectPageObjectLocatorAliasIdentifiers(sourceFile) {
+  const aliases = new Set();
+  const disqualified = new Set();
+
+  walk(sourceFile, (node) => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
+      if (node.initializer && isPageObjectLocatorExpression(node.initializer)) {
+        aliases.add(node.name.text);
+      } else {
+        disqualified.add(node.name.text);
+      }
+      return;
+    }
+
+    if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      ts.isIdentifier(node.left)
+    ) {
+      disqualified.add(node.left.text);
+    }
+  });
+
+  for (const name of disqualified) {
+    aliases.delete(name);
+  }
+
+  return aliases;
 }
 
 function isPageObjectLocatorExpression(argument) {

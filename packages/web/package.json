@@ -5,7 +5,7 @@
   "description": "AI-assisted Playwright AQA framework for deterministic web automated testing.",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "lint": "eslint playwright.config.ts tests tests-dev pages fixtures data automation --max-warnings=0",
+    "lint": "eslint playwright.config.ts tests pages fixtures data automation --max-warnings=0",
     "fixture:start": "node local-fixture/server.mjs",
     "test:e2e": "playwright test",
     "test:e2e:local": "node scripts/ai/run-local-playwright.mjs",
@@ -62,6 +62,7 @@
     "ai:brain:generate:raw": "node scripts/ai/ai-generate.mjs",
     "ai:brain:generate": "node scripts/ai/verified-generate.mjs",
     "ai:tokens:report": "node scripts/ai/token-usage-report.mjs",
+    "ai:metrics:report": "node scripts/ai/metrics-report.mjs",
     "verify:static": "npm run typecheck && npm run lint && npm run ai:test:self && npm run ai:eval && npm run ai:clean:check:tracked && npm run ai:spec:validate -- --dir specs --strict && npm run ai:spec:drift && npm run ai:recording:validate -- --dir recordings && npm run ai:recording:drift",
     "verify:quality": "npm run verify:static && npm run ai:test:review:all && npm run ai:recording:review:all && npm run test:e2e:local && npm run ai:test:gate:local-generated && npm run ai:recording:gate:all",
     "ai:pw:help": "playwright --help",

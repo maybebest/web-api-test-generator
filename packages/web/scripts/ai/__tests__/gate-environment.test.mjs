@@ -38,6 +38,79 @@ test('suite-root selection reaches static and runtime subprocesses', () => {
   );
 });
 
+test('PsychicBook credentials reach only external runtime and remain redactable', () => {
+  const source = {
+    TEST_ENV: 'dev',
+    WEB_BASIC_AUTH_USER: 'basic-user',
+    WEB_BASIC_AUTH_PASSWORD: 'basic-password',
+    AGENT_PASSWORD: 'agent-password',
+    ADMIN_EMAIL: 'admin@example.test',
+    ADMIN_PASSWORD: 'admin-password'
+  };
+
+  const external = buildGateEnvironment(source, { profile: 'external-runtime' });
+  const staticEnvironment = buildGateEnvironment(source, { profile: 'static' });
+
+  assert.equal(external.TEST_ENV, 'dev');
+  assert.equal(staticEnvironment.TEST_ENV, 'dev');
+  assert.equal(external.WEB_BASIC_AUTH_USER, 'basic-user');
+  assert.equal(external.WEB_BASIC_AUTH_PASSWORD, 'basic-password');
+  assert.equal(external.AGENT_PASSWORD, 'agent-password');
+  assert.equal(external.ADMIN_EMAIL, 'admin@example.test');
+  assert.equal(external.ADMIN_PASSWORD, 'admin-password');
+  assert.notEqual(staticEnvironment.WEB_BASIC_AUTH_USER, 'basic-user');
+  assert.notEqual(staticEnvironment.WEB_BASIC_AUTH_PASSWORD, 'basic-password');
+  assert.notEqual(staticEnvironment.AGENT_PASSWORD, 'agent-password');
+  assert.notEqual(staticEnvironment.ADMIN_EMAIL, 'admin@example.test');
+  assert.notEqual(staticEnvironment.ADMIN_PASSWORD, 'admin-password');
+  assert.deepEqual(knownSecretEnvValues(source), [
+    'basic-user',
+    'basic-password',
+    'agent-password',
+    'admin@example.test',
+    'admin-password'
+  ]);
+});
+
+test('local runtime blanks every root PsychicBook identity and credential value', () => {
+  const source = {
+    TEST_ENV: 'dev',
+    WEB_BASIC_AUTH_USER: 'basic-user',
+    WEB_BASIC_AUTH_PASSWORD: 'basic-password',
+    AGENT_PASSWORD: 'agent-password',
+    ADMIN_EMAIL: 'admin@example.test',
+    ADMIN_PASSWORD: 'admin-password'
+  };
+
+  const local = buildGateEnvironment(source, { profile: 'local-runtime' });
+
+  assert.equal(local.TEST_ENV, 'dev');
+  for (const name of [
+    'WEB_BASIC_AUTH_USER',
+    'WEB_BASIC_AUTH_PASSWORD',
+    'AGENT_PASSWORD',
+    'ADMIN_EMAIL',
+    'ADMIN_PASSWORD'
+  ]) {
+    assert.equal(local[name], '', `${name} must be blank in local-runtime gates`);
+  }
+});
+
+test('known sensitive values shorter than four characters fail closed', () => {
+  for (const value of ['q', 'qa', 'qax']) {
+    const source = { WEB_BASIC_AUTH_USER: value };
+    assert.equal(
+      buildGateEnvironment(source, { profile: 'external-runtime' }).WEB_BASIC_AUTH_USER,
+      value,
+      'ordinary external Playwright runtime must keep accepting short identities'
+    );
+    assert.throws(
+      () => knownSecretEnvValues(source),
+      /cannot be safely redacted/i
+    );
+  }
+});
+
 test('generic user email reaches external gates but not static subprocesses', () => {
   const source = {
     PATH: '/usr/bin',

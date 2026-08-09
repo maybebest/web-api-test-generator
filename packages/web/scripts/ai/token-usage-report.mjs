@@ -14,12 +14,14 @@ const REPORTABLE_STATUSES = new Set([
 const REPORTABLE_RETRY_STATUSES = new Set(['retrying', 'retryable', 'exhausted', 'not-retried']);
 const REPORTABLE_FAILURE_STAGES = new Set([
   'provider', 'candidate-integrity', 'promotion-conflict', 'input-assembly', 'preflight',
+  'environment-preflight',
   'test-generation', 'recording-generation', 'fast-gate', 'repair', 'promotion', 'input-validation', 'global-static',
   'static-review', 'runtime-environment', 'runtime-test', 'full-gate', 'spec-fit'
 ]);
 const REPORTABLE_FAILURE_REASONS = new Set([
   'cli-failed', 'malformed-output', 'malformed-response', 'network-error',
   'single-flight-leader-failed', 'retry-usage-unknown', 'generation-readiness-failed',
+  'environment-preflight',
   'gate-rejected', 'candidate-integrity', 'promotion-conflict', 'truncated', 'refused',
   'generation-failed', 'input-assembly-failed', 'preflight-failed', 'test-generation-failed',
   'recording-generation-failed',
@@ -214,8 +216,15 @@ function generationHistoryIssues(manifest, events) {
     issues.push('a nonterminal manifest must not contain run-finished');
   }
 
+  // A --replay-rejected run succeeds without any provider attempt or cache
+  // hit by design: the archived candidate is the generation output and the
+  // completed replay stage is its zero-token execution evidence.
+  const replayed = events.some(
+    (event) => event.type === 'stage' && event.stage === 'replay' && event.status === 'completed'
+  );
   if (
     manifest.status === 'succeeded'
+    && !replayed
     && !events.some((event) => event.type === 'provider-attempt' || event.type === 'result-cache')
   ) {
     issues.push('succeeded generation has no provider-attempt or result-cache evidence');
@@ -451,7 +460,7 @@ function sum(rows, field) {
   return rows.reduce((total, row) => total + (row[field] ?? 0), 0);
 }
 
-function nearestRank(values, percentile) {
+export function nearestRank(values, percentile) {
   const sorted = values.filter((value) => value !== null).slice().sort((a, b) => a - b);
   if (sorted.length === 0) return null;
   return sorted[Math.max(0, Math.ceil(percentile * sorted.length) - 1)];

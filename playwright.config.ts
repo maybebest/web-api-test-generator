@@ -3,18 +3,21 @@ import { defineConfig, devices } from '@playwright/test';
 // These two read .env themselves, see docs/environment-variables.md.
 import { credentials } from './config/credentials';
 import { environment } from './config/environments';
+import { resolveRootTestDir } from './config/test-suite-root.mjs';
+
+const selectedRoot = resolveRootTestDir(process.env);
 
 /**
  * Suites:
- *   npm run test:api  - API tests only        (tests/api)
- *   npm run test:ui   - UI tests only         (tests/ui)
- *   npm test          - everything, API first (both projects)
+ *   npx playwright test --project=api  - API tests only (tests/api)
+ *   npx playwright test --project=ui   - UI tests only  (tests/ui)
+ *   npx playwright test                - both projects
  *
  * Every URL comes from config/environments.ts, so switching environment is
  * TEST_ENV=<name> and nothing else.
  */
 export default defineConfig({
-  testDir: './tests',
+  testDir: selectedRoot,
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
@@ -43,13 +46,13 @@ export default defineConfig({
   projects: [
     {
       name: 'api',
-      testDir: './tests/api',
+      testDir: `${selectedRoot}/api`,
       timeout: 120_000,
       use: { ...devices['Desktop Chrome'] }
     },
     {
       name: 'ui',
-      testDir: './tests/ui',
+      testDir: `${selectedRoot}/ui`,
       // UI tests book real sessions and wait for real chat delivery.
       timeout: 600_000,
       use: { ...devices['Desktop Chrome'] }

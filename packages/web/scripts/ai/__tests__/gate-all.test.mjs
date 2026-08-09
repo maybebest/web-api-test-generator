@@ -325,6 +325,36 @@ test('batch gate never lists an expected-red malicious sentinel or an unmapped t
   assert.doesNotMatch(listedPaths.join('\n'), /malicious-sentinel|unmapped/);
 });
 
+test('global checks typecheck dot-prefixed staged candidates through a temp gate tsconfig project', () => {
+  const directoryResult = directoryFixture();
+  const stagedCandidate = 'tests/smoke/.two.run-1.candidate.spec.ts';
+  let typecheckStage;
+  let configDuringRun;
+
+  const globalChecks = runGlobalGeneratedChecks({
+    specDir: 'specs',
+    testPaths: [stagedCandidate],
+    validateDirectory: () => directoryResult,
+    commandRunner(stage) {
+      if (stage.kind === 'typescript') {
+        typecheckStage = stage;
+        const projectFlag = stage.args[stage.args.indexOf('-p') + 1];
+        configDuringRun = JSON.parse(fs.readFileSync(projectFlag, 'utf8'));
+      }
+      return 0;
+    }
+  });
+
+  assert.equal(globalChecks.passed, true, globalChecks.issues.join('\n'));
+  assert.notEqual(typecheckStage, undefined);
+  const projectFlag = typecheckStage.args[typecheckStage.args.indexOf('-p') + 1];
+  assert.match(projectFlag, /^tsconfig\.gate-.+\.json$/);
+  assert.equal(fs.existsSync(projectFlag), false, 'temp gate tsconfig must be cleaned up');
+  assert.equal(configDuringRun.extends, './tsconfig.json');
+  assert.ok(configDuringRun.include.includes('tests/**/*.ts'), configDuringRun.include.join(','));
+  assert.ok(configDuringRun.include.includes(stagedCandidate), configDuringRun.include.join(','));
+});
+
 test('batch gate validates the directory, lists Playwright tests, and typechecks once for multiple pairs', () => {
   const calls = [];
   const directoryResult = directoryFixture();

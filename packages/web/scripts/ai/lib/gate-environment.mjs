@@ -6,6 +6,7 @@ const BASE_ENVIRONMENT_NAMES = new Set([
   'E2E_LOGIN_PATH', 'E2E_LOGIN_EMAIL_SELECTOR', 'E2E_LOGIN_PASSWORD_SELECTOR',
   'E2E_LOGIN_SUBMIT_SELECTOR', 'E2E_AUTH_SUCCESS_SELECTOR', 'E2E_AUTH_SUCCESS_URL_REGEX',
   'E2E_ALLOW_PERSISTENT_TEST_DATA',
+  'TEST_ENV',
   'E2E_MP_ADVERTISER', 'E2E_MP_BRAND', 'E2E_MP_OBJECTIVE', 'E2E_MP_PRODUCT_SEARCH', 'E2E_MP_SKU',
   'E2E_MP_ONSITE_CHANNEL', 'E2E_MP_OFFSITE_CHANNEL', 'E2E_MP_ATHOME_CHANNEL', 'E2E_MP_INSTORE_CHANNEL',
   'E2E_MP_OFFSITE_PUBMATIC_CHANNEL', 'E2E_MP_CHANNEL_BOOKING_DEADLINE_DAYS',
@@ -30,7 +31,8 @@ const BASE_ENVIRONMENT_NAMES = new Set([
 
 const AUTH_SECRET_NAMES = new Set([
   'E2E_USER_EMAIL', 'E2E_USER_PASSWORD', 'E2E_ADMIN_EMAIL', 'E2E_ADMIN_PASSWORD',
-  'E2E_HTTP_BASIC_PASSWORD'
+  'E2E_HTTP_BASIC_PASSWORD',
+  'WEB_BASIC_AUTH_USER', 'WEB_BASIC_AUTH_PASSWORD', 'AGENT_PASSWORD', 'ADMIN_EMAIL', 'ADMIN_PASSWORD'
 ]);
 const AUTH_RUNTIME_NAMES = new Set([...AUTH_SECRET_NAMES, 'E2E_HTTP_BASIC_USERNAME']);
 const API_SECRET_NAMES = new Set(['API_AUTHORIZATION', 'API_TOKEN', 'CHANNEL_BEARER_TOKEN']);
@@ -40,6 +42,21 @@ const KNOWN_SECRET_NAMES = new Set([
   'ANTHROPIC_API_KEY', 'OPENAI_API_KEY'
 ]);
 export const GATE_ENVIRONMENT_PROFILES = ['static', 'local-runtime', 'external-runtime'];
+const MIN_REDACTABLE_SECRET_LENGTH = 4;
+
+export function assertRedactableSecretValues(secretValues = []) {
+  const hasUnsafeShortValue = Array.isArray(secretValues)
+    && secretValues.some((value) => (
+      typeof value === 'string'
+      && value.length > 0
+      && value.length < MIN_REDACTABLE_SECRET_LENGTH
+    ));
+  if (hasUnsafeShortValue) {
+    throw new Error(
+      'Sensitive environment values shorter than four characters cannot be safely redacted for AI provider use.'
+    );
+  }
+}
 
 // Actual secret VALUES present in the runner's environment, for value-based
 // redaction of text that may echo them (e.g. Playwright error messages).
@@ -47,8 +64,9 @@ export function knownSecretEnvValues(source = process.env) {
   const values = [];
   for (const name of KNOWN_SECRET_NAMES) {
     const value = String(source[name] ?? '').trim();
-    if (value.length >= 4) values.push(value);
+    if (value) values.push(value);
   }
+  assertRedactableSecretValues(values);
   return values;
 }
 

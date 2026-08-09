@@ -10,11 +10,13 @@ import {
   DEFAULT_AUTOHEAL_VERIFY_RUNS,
   MAX_AUTOHEAL_MAX_ATTEMPTS,
   MAX_HEAL_EVIDENCE_ITEMS,
+  MAX_HEAL_NOTES,
   analyzeHealSource,
   autoHealEnabled,
   autoHealMaxAttempts,
   autoHealSourceByteLimit,
   autoHealVerifyRuns,
+  buildHealRejectionDigest,
   buildTestHealPrompt,
   extractRuntimeFailureEvidence,
   healTestSource,
@@ -507,22 +509,46 @@ test('CLI arg parsing and standalone project inference', () => {
   assert.equal(authCandidate, '/web/tests/regression/.foo.heal-run-a1.candidate.authenticated.spec.ts');
 });
 
-test('default candidate lint uses each package manager with the static gate environment', () => {
+function eslintReport(filePath, messages = []) {
+  return {
+    filePath,
+    messages,
+    errorCount: messages.filter((message) => message.severity === 2).length,
+    warningCount: messages.filter((message) => message.severity === 1).length,
+    fatalErrorCount: messages.filter((message) => message.fatal).length
+  };
+}
+
+function eslintComparisonResult(targetPath, candidatePath, targetMessages = [], candidateMessages = []) {
+  const hasFindings = targetMessages.length > 0 || candidateMessages.length > 0;
+  return {
+    status: hasFindings ? 1 : 0,
+    stdout: JSON.stringify([
+      eslintReport(targetPath, targetMessages),
+      eslintReport(candidatePath, candidateMessages)
+    ]),
+    stderr: ''
+  };
+}
+
+test('default candidate lint compares target and candidate with each package manager in the static gate environment', () => {
+  const targetPath = '/web/tests/flow.spec.ts';
   const candidatePath = '/web/tests/.flow.candidate.spec.ts';
   for (const [packageManager, expectedCommand, expectedArgs] of [
-    ['npm', 'npx', ['eslint', candidatePath, '--max-warnings=0']],
-    ['pnpm', 'pnpm', ['exec', 'eslint', candidatePath, '--max-warnings=0']],
-    ['yarn', 'yarn', ['eslint', candidatePath, '--max-warnings=0']]
+    ['npm', 'npx', ['eslint', targetPath, candidatePath, '--format=json', '--max-warnings=0']],
+    ['pnpm', 'pnpm', ['exec', 'eslint', targetPath, candidatePath, '--format=json', '--max-warnings=0']],
+    ['yarn', 'yarn', ['eslint', targetPath, candidatePath, '--format=json', '--max-warnings=0']]
   ]) {
     const calls = [];
     const result = lintCandidate({
+      targetPath,
       candidatePath,
       webRoot: '/web',
       packageManager,
       env: { PATH: '/tools', API_TOKEN: 'private-token', UNRELATED_CANARY: 'must-not-pass' },
       commandRunner: (command, args, options) => {
         calls.push({ command, args, options });
-        return { status: 0, stdout: '', stderr: '' };
+        return eslintComparisonResult(targetPath, candidatePath);
       }
     });
     assert.deepEqual(result, { passed: true, issues: [] });
@@ -537,12 +563,120 @@ test('default candidate lint uses each package manager with the static gate envi
   }
 
   const rejected = lintCandidate({
+    targetPath,
     candidatePath,
     webRoot: '/web',
     packageManager: 'npm',
     commandRunner: () => ({ status: null, signal: 'SIGTERM', stderr: 'PRIVATE_LINT_CANARY' })
   });
   assert.deepEqual(rejected, { passed: false, issues: ['ESLint did not accept the heal candidate.'] });
+});
+
+test('differential lint accepts unchanged inherited findings on a current root-style target', () => {
+  const webRoot = path.resolve(import.meta.dirname, '../../../../..');
+  let reports;
+  const result = lintCandidate({
+    targetPath: 'tests/ui/navigation/site-navigation.spec.ts',
+    candidatePath: 'tests-dev/ui/navigation/site-navigation.spec.ts',
+    webRoot,
+    packageManager: 'npm',
+    commandRunner: (command, args, options) => {
+      const execution = spawnSync(command, args, options);
+      reports = JSON.parse(execution.stdout);
+      return execution;
+    }
+  });
+
+  assert.equal(reports.length, 2);
+  assert.ok(
+    reports.every((report) => report.messages.some((message) => (
+      message.ruleId === '@typescript-eslint/no-unused-vars'
+    ))),
+    'the real target and mirror must both exercise inherited root lint debt'
+  );
+  assert.deepEqual(result, { passed: true, issues: [] });
+});
+
+test('differential lint rejects a newly introduced candidate finding', () => {
+  const targetPath = '/web/tests/flow.spec.ts';
+  const candidatePath = '/web/tests/.flow.candidate.spec.ts';
+  const inherited = {
+    ruleId: '@typescript-eslint/no-unused-vars',
+    severity: 2,
+    message: "'page' is defined but never used."
+  };
+  const introduced = {
+    ruleId: 'playwright/no-wait-for-timeout',
+    severity: 2,
+    message: 'Unexpected use of page.waitForTimeout().'
+  };
+  const result = lintCandidate({
+    targetPath,
+    candidatePath,
+    webRoot: '/web',
+    packageManager: 'npm',
+    commandRunner: () => eslintComparisonResult(
+      targetPath,
+      candidatePath,
+      [inherited],
+      [inherited, introduced]
+    )
+  });
+
+  assert.equal(result.passed, false);
+  assert.match(result.issues.join(' '), /new or increased candidate finding/i);
+});
+
+test('differential lint rejects an increased occurrence of an inherited finding', () => {
+  const targetPath = '/web/tests/flow.spec.ts';
+  const candidatePath = '/web/tests/.flow.candidate.spec.ts';
+  const inherited = {
+    ruleId: '@typescript-eslint/no-unused-vars',
+    severity: 2,
+    message: "'page' is defined but never used."
+  };
+  const result = lintCandidate({
+    targetPath,
+    candidatePath,
+    webRoot: '/web',
+    packageManager: 'npm',
+    commandRunner: () => eslintComparisonResult(
+      targetPath,
+      candidatePath,
+      [inherited],
+      [inherited, inherited]
+    )
+  });
+
+  assert.equal(result.passed, false);
+  assert.match(result.issues.join(' '), /new or increased candidate finding/i);
+});
+
+test('differential lint rejects malformed or fatal ESLint results', () => {
+  const targetPath = '/web/tests/flow.spec.ts';
+  const candidatePath = '/web/tests/.flow.candidate.spec.ts';
+  const malformed = lintCandidate({
+    targetPath,
+    candidatePath,
+    webRoot: '/web',
+    packageManager: 'npm',
+    commandRunner: () => ({ status: 1, stdout: 'not json', stderr: '' })
+  });
+  const fatal = lintCandidate({
+    targetPath,
+    candidatePath,
+    webRoot: '/web',
+    packageManager: 'npm',
+    commandRunner: () => eslintComparisonResult(targetPath, candidatePath, [], [{
+      ruleId: null,
+      severity: 2,
+      fatal: true,
+      message: 'Parsing error'
+    }])
+  });
+
+  assert.deepEqual(malformed, { passed: false, issues: ['ESLint did not accept the heal candidate.'] });
+  assert.deepEqual(fatal, { passed: false, issues: ['ESLint did not accept the heal candidate.'] });
 });
 
 function makeHealWorkspace() {
@@ -1141,7 +1275,9 @@ test('verified healing is proposal-only by default', async () => {
   assert.equal(summary.status, 'proposal-ready');
   assert.equal(summary.mode.apply, false);
   assert.equal(summary.contractKind, 'handwritten');
-  assert.equal(summary.triage.classification, 'synchronization');
+  // Iteration-4 vocabulary fix: this evidence carries a locator-shaped subject
+  // (getByRole) inside the actionability timeout, so the label is locator-drift.
+  assert.equal(summary.triage.classification, 'locator-drift');
   assert.equal(summary.promptSchema, 'playwright-test-heal/v1');
   assert.deepEqual(summary.providerAttempts, [{
     attempt: 1,
@@ -2582,6 +2718,38 @@ test('known secret values are removed from evidence by value, not just by shape'
   assert.doesNotMatch(evidence[0], /hunter2-pass/);
 });
 
+test('short known secret values are rejected instead of partially redacted', () => {
+  for (const value of ['q', 'qa', 'qax']) {
+    assert.throws(
+      () => redactKnownSecretValues(`login failed for ${value}`, [value]),
+      /cannot be safely redacted/i
+    );
+  }
+});
+
+test('short sensitive values stop healing before the provider is called', async () => {
+  for (const value of ['q', 'qa', 'qax']) {
+    let providerCalls = 0;
+    await assert.rejects(
+      healTestSource({
+        testPath: 'tests/regression/flow.spec.ts',
+        source: CLEAN_SOURCE,
+        evidence: ['flow works: locator timeout'],
+        attempt: 1,
+        maxAttempts: 3,
+        repositoryContext: { importedSources: [], manualChangeRequired: false },
+        env: { AI_AUTOHEAL_ENABLED: 'true', WEB_BASIC_AUTH_USER: value },
+        runBrainImpl: async () => {
+          providerCalls += 1;
+          return { text: '```typescript\nconst healed = true;\n```' };
+        }
+      }),
+      /cannot be safely redacted/i
+    );
+    assert.equal(providerCalls, 0);
+  }
+});
+
 test('healSingleTest canonicalizes absolute --test paths to repo-relative targets', async () => {
   const { webRoot, targetPath, target } = makeHealWorkspace();
   const seenTargets = [];
@@ -2684,6 +2852,202 @@ test('healSingleTest ratchets policy against the ORIGINAL source across attempts
     ['still-failing', 'still-failing']
   );
   assert.ok(result.attemptTrail[1].policyIssueCodes.includes('POSITIONAL_LOCATOR_EXCEPTION_MISSING'));
+});
+
+test('heal summary persists per-stage durations for baseline, triage, provider, and verify', async () => {
+  const { webRoot, target } = makeHealWorkspace();
+  const healedSource = CLEAN_SOURCE.replace("getByRole('button', { name: 'Save' })", "getByTestId('save-button')");
+  const { run } = executionSequence([FAILED_EXECUTION, PASSED_EXECUTION]);
+  const result = await healSingleTest({
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true' },
+    webRoot,
+    log: () => {},
+    resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+    reviewContract: () => ({ passed: true, issues: [] }),
+    typecheck: PASSING_TYPECHECK,
+    lint: PASSING_LINT,
+    targetDirty: () => false,
+    executeStandalone: run,
+    heal: async () => ({ code: healedSource })
+  });
+  assert.equal(result.status, 'proposal-ready');
+  const summary = JSON.parse(fs.readFileSync(path.join(result.archiveDir, 'heal-summary.json'), 'utf8'));
+  assert.deepEqual(summary.timings.map((entry) => entry.stage), ['baseline', 'triage', 'provider', 'verify']);
+  for (const entry of summary.timings) {
+    assert.equal(Number.isSafeInteger(entry.durationMs) && entry.durationMs >= 0, true, JSON.stringify(entry));
+  }
+  assert.equal(summary.timings.find((entry) => entry.stage === 'provider').attempt, 1);
+  assert.equal(summary.timings.find((entry) => entry.stage === 'verify').attempt, 1);
+});
+
+test('a thrown heal brain is recorded in providerAttempts with an error kind and null usage', async () => {
+  const { webRoot, target } = makeHealWorkspace();
+  const { run } = executionSequence([FAILED_EXECUTION]);
+  const result = await healSingleTest({
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true' },
+    webRoot,
+    maxAttempts: 1,
+    log: () => {},
+    resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+    reviewContract: () => ({ passed: true, issues: [] }),
+    typecheck: PASSING_TYPECHECK,
+    lint: PASSING_LINT,
+    executeStandalone: run,
+    heal: async () => {
+      throw new Error('cli-failed: provider over quota');
+    }
+  });
+  assert.equal(result.status, 'brain-error');
+  const summary = JSON.parse(fs.readFileSync(path.join(result.archiveDir, 'heal-summary.json'), 'utf8'));
+  assert.deepEqual(summary.providerAttempts, [{ attempt: 1, kind: 'brain-error', usage: null }]);
+  assert.deepEqual(summary.timings.map((entry) => entry.stage), ['baseline', 'triage', 'provider']);
+});
+
+test('a baseline environment abort still archives a heal summary with class and timings', async () => {
+  const { webRoot, target } = makeHealWorkspace();
+  const { run } = executionSequence([ENV_EXECUTION]);
+  const result = await healSingleTest({
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true' },
+    webRoot,
+    log: () => {},
+    discoverSpec: () => null,
+    typecheck: PASSING_TYPECHECK,
+    executeStandalone: run,
+    heal: async () => {
+      assert.fail('an environment abort must never invoke the provider');
+    }
+  });
+  assert.equal(result.status, 'environment-failure');
+  assert.ok(result.archiveDir, 'environment aborts must return their archive directory');
+  const summary = JSON.parse(fs.readFileSync(path.join(result.archiveDir, 'heal-summary.json'), 'utf8'));
+  assert.equal(summary.schema, 'test-heal-run/v1');
+  assert.equal(summary.status, 'environment-failure');
+  assert.equal(summary.attemptsUsed, 0);
+  assert.equal(summary.triage.classification, 'environment');
+  assert.deepEqual(summary.issues, ['Playwright did not produce a readable JSON report.']);
+  assert.deepEqual(summary.providerAttempts, []);
+  assert.deepEqual(summary.timings.map((entry) => entry.stage), ['baseline', 'triage']);
+  for (const entry of summary.timings) {
+    assert.equal(Number.isSafeInteger(entry.durationMs) && entry.durationMs >= 0, true, JSON.stringify(entry));
+  }
+});
+
+test('a compile-broken test file aborts fail-closed but carries the compile-breakage class', async () => {
+  // Audited heal run 1786274346166 (c4c): a broken import aborted the baseline
+  // as runtime-environment and the archive said environment/GATE_ENVIRONMENT_FAILURE
+  // although nothing environmental was broken. The abort must stay fail-closed
+  // (no provider, status unchanged) while the triage vocabulary points at the
+  // broken test file instead of suggesting an infrastructure investigation.
+  const { webRoot, target } = makeHealWorkspace();
+  const { run } = executionSequence([{
+    ...ENV_EXECUTION,
+    issues: [
+      'Playwright JSON report contains 1 top-level setup, teardown, or configuration error(s).',
+      "top-level report error: Error: Cannot find module '../../fixtures/nonexistent-test' imported from tests/smoke/complex-feed-lazyload-comments.spec.ts"
+    ]
+  }]);
+  const result = await healSingleTest({
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true' },
+    webRoot,
+    log: () => {},
+    discoverSpec: () => null,
+    typecheck: PASSING_TYPECHECK,
+    executeStandalone: run,
+    heal: async () => {
+      assert.fail('a compile-broken baseline must never invoke the provider');
+    }
+  });
+  assert.equal(result.status, 'environment-failure');
+  assert.equal(result.attemptsUsed, 0);
+  const summary = JSON.parse(fs.readFileSync(path.join(result.archiveDir, 'heal-summary.json'), 'utf8'));
+  assert.equal(summary.status, 'environment-failure');
+  assert.equal(summary.triage.classification, 'compile-breakage');
+  assert.equal(summary.triage.repairable, false);
+  assert.deepEqual(summary.triage.reasonCodes, ['COMPILE_FAILURE']);
+  assert.deepEqual(summary.providerAttempts, []);
+});
+
+test('an environment abort whose archive cannot be created still returns the environment failure', async () => {
+  const { webRoot, target } = makeHealWorkspace();
+  const { run } = executionSequence([ENV_EXECUTION]);
+  const result = await healSingleTest({
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true' },
+    webRoot,
+    log: () => {},
+    discoverSpec: () => null,
+    typecheck: PASSING_TYPECHECK,
+    executeStandalone: run,
+    archiveFactory: () => {
+      throw new Error('audit archive unavailable');
+    },
+    heal: async () => {
+      assert.fail('an environment abort must never invoke the provider');
+    }
+  });
+  assert.equal(result.status, 'environment-failure');
+  assert.equal(result.attemptsUsed, 0);
+  assert.equal(Object.hasOwn(result, 'archiveDir'), false);
+  assert.deepEqual(result.auditIssues, ['HEAL_AUDIT_FAILURE: Audit details were omitted.']);
+});
+
+test('a retry prompt embeds a digest of the previous rejection and differs from the first prompt', async () => {
+  const { webRoot, target } = makeHealWorkspace();
+  const healedSource = CLEAN_SOURCE.replace("getByRole('button', { name: 'Save' })", "getByTestId('save-button')");
+  const { run } = executionSequence([FAILED_EXECUTION, PASSED_EXECUTION]);
+  const prompts = [];
+  let typecheckCalls = 0;
+  const result = await healSingleTest({
+    testPath: target,
+    env: { AI_AUTOHEAL_ENABLED: 'true' },
+    webRoot,
+    maxAttempts: 2,
+    log: () => {},
+    resolveContract: () => ({ kind: 'handwritten', testPath: target }),
+    reviewContract: () => ({ passed: true, issues: [] }),
+    typecheck: () => {
+      typecheckCalls += 1;
+      return typecheckCalls === 1
+        ? { passed: false, issues: ["TS2304 at 4:9: Cannot find name 'pageX'."] }
+        : { passed: true, issues: [] };
+    },
+    lint: PASSING_LINT,
+    targetDirty: () => false,
+    executeStandalone: run,
+    collectEvidence: () => ['locator.click: Timeout 30000ms exceeded while waiting for getByRole("button")'],
+    heal: async (input) => {
+      // Reconstruct the exact provider prompt the healer inputs would produce.
+      prompts.push(buildTestHealPrompt(input));
+      return { code: healedSource };
+    }
+  });
+  assert.equal(result.status, 'proposal-ready');
+  assert.equal(prompts.length, 2);
+  assert.notEqual(prompts[1], prompts[0]);
+  const firstNotes = JSON.parse(prompts[0]).reviewerNotes;
+  const retryNotes = JSON.parse(prompts[1]).reviewerNotes;
+  assert.deepEqual(firstNotes, []);
+  const digest = retryNotes.join('\n');
+  assert.match(digest, /Attempt 1 candidate was rejected by typecheck/);
+  assert.match(digest, /Cannot find name 'pageX'/);
+  assert.match(digest, /materially different/);
+  assert.doesNotMatch(prompts[0], /materially different/);
+});
+
+test('the rejection digest sanitizes and filters findings before bounding them', () => {
+  const realFindings = Array.from({ length: MAX_HEAL_NOTES - 2 }, (_, index) => `finding-${index + 1}`);
+  const digest = buildHealRejectionDigest({
+    attempt: 2,
+    gate: 'policy review',
+    findings: ['', '   ', ...realFindings]
+  });
+  // Blank findings must never consume bounded slots ahead of real ones.
+  assert.equal(digest.length, MAX_HEAL_NOTES);
+  assert.deepEqual(digest.slice(1, -1), realFindings);
 });
 
 test('healSingleTest sweeps stale crash-orphaned candidates before running', async () => {

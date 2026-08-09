@@ -117,6 +117,40 @@ test('token usage report aggregates provider, retry, compaction, and exact-cache
   assert.equal(summary.compactionSavedChars, 600);
 });
 
+// A --replay-rejected run succeeds with zero provider calls: its execution
+// evidence is the completed replay stage, not a provider attempt or cache hit.
+test('a zero-provider replay run is a valid succeeded history with zero tokens', (t) => {
+  const directory = tempDirectory(t);
+  const replayStage = (status, sequenceHint) => ({
+    schemaVersion: 'generation-run-event/v1',
+    runId: 'replay-run',
+    type: 'stage',
+    timestamp: `2026-08-02T10:00:00.${sequenceHint}Z`,
+    stage: 'replay',
+    status
+  });
+  writeGenerationRun(directory, 'replay-run', {
+    attempts: [],
+    cacheEvents: [replayStage('started', '200'), replayStage('completed', '300')]
+  });
+  writeGenerationRun(directory, 'evidence-less-run', { attempts: [] });
+
+  const collected = readGenerationUsage(directory);
+
+  assert.deepEqual(
+    collected.invalidEvents.filter((entry) => entry.eventsPath.includes('replay-run')),
+    []
+  );
+  assert.equal(
+    collected.invalidEvents.some((entry) => entry.eventsPath.includes('evidence-less-run')
+      && /no provider-attempt or result-cache/.test(entry.error)),
+    true,
+    'a succeeded run without replay evidence must stay invalid'
+  );
+  const summary = summarizeGenerationUsage(collected);
+  assert.equal(summary.totalTokens, 0);
+});
+
 test('token usage report enforces per-generation token and retry budgets', (t) => {
   const directory = tempDirectory(t);
   writeManifest(directory, 'over-budget', { totalTokens: 501, retryCount: 2 });
@@ -841,4 +875,25 @@ test('unallowlisted and prototype-like event stages remain unknown without leaki
     JSON.stringify({ rows: collected.rows, summary }),
     /ARBITRARY_STAGE|providerBody|__proto__|constructor|PRIVATE_PROVIDER_BODY/
   );
+});
+
+test('environment-preflight failures stay visible in the failure-stage buckets with their reason', (t) => {
+  const directory = tempDirectory(t);
+  writeGenerationRun(directory, 'environment-preflight-run', {
+    manifest: {
+      status: 'failed',
+      failureStage: 'environment-preflight',
+      failureReason: 'environment-preflight'
+    },
+    attempts: []
+  });
+
+  const collected = readGenerationUsage(directory);
+  const summary = summarizeGenerationUsage(collected);
+
+  const run = collected.runs.find((entry) => entry.runId === 'environment-preflight-run');
+  assert.equal(run.failureStage, 'environment-preflight');
+  assert.equal(run.failureReason, 'environment-preflight');
+  assert.deepEqual(summary.failureStages, { 'environment-preflight': 1 });
+  assert.equal(summary.attempts, 0, 'a preflight-failed run must record zero provider attempts');
 });

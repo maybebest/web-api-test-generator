@@ -19,6 +19,7 @@
     "components/**/*.ts",
     "flows/**/*.ts",
     "fixtures/**/*.ts",
-    "tests/**/*.ts"
+    "tests/**/*.ts",
+    "tests-dev/**/*.ts"
   ]
 }

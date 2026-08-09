@@ -4,12 +4,12 @@
     "definition": "Every explicit atomic case row in the four YAML case catalogs and two Markdown case tables, plus formal flow data/negative cases that are not already linked by sourceCaseId. Composite journeys are retained but not counted as additional atomic coverage.",
     "handling": "Internal QA material derived from NUP project sources. Keep within authorized project access; do not publish externally.",
     "explicitSourceRows": 662,
-    "normalizedCaseCount": 822,
+    "normalizedCaseCount": 836,
     "compositeJourneyCount": 8,
-    "strictFlowCount": 25,
-    "formalDataCaseCount": 194,
-    "formalNegativeCaseCount": 40,
-    "acceptanceCriteriaCount": 135,
+    "strictFlowCount": 32,
+    "formalDataCaseCount": 201,
+    "formalNegativeCaseCount": 47,
+    "acceptanceCriteriaCount": 166,
     "exactTitleDuplicateGroups": 32,
     "sourceCounts": {
       "specs/test-cases.yaml": 200,
@@ -27,18 +27,19 @@
     "limitation": "Page-load access does not prove role, API authorization, disposable ownership, mutation-policy eligibility, cleanup, or downstream access."
   },
   "statusCounts": {
-    "automatable": 48,
+    "automatable": 50,
     "automatable-execution-blocked": 322,
-    "automated-live-unverified": 9,
-    "blocked-observability-or-contract": 111,
+    "automated-live-unverified": 11,
+    "blocked-observability-or-contract": 113,
     "blocked-product-decision": 25,
     "blocked-production-or-integration-policy": 41,
-    "blocked-test-data": 266,
+    "blocked-test-data": 274,
     "duplicate-or-composite": 8
   },
   "implementationCounts": {
-    "implemented-contract-bound": 233,
-    "not-implemented": 573,
+    "implemented-contract-bound": 235,
+    "not-generated-by-contract": 10,
+    "not-implemented": 575,
     "referenced-in-unbound-test": 24
   },
   "preconditionBundles": {
@@ -126,6 +127,53 @@
   "missingFlowSpecs": [],
   "flows": [
     {
+      "flowId": "FLOW-CX-CATALOG-001",
+      "specPath": "specs/complex-catalog-filter-sort-modal.md",
+      "targetTestFile": "tests/smoke/complex-catalog-filter-sort-modal.spec.ts",
+      "generationStatus": "pending-generation",
+      "acceptanceCriteria": [
+        "AC-001",
+        "AC-002",
+        "AC-003",
+        "AC-004",
+        "AC-005",
+        "AC-006"
+      ],
+      "dataCaseCount": 1,
+      "negativeCaseCount": 1
+    },
+    {
+      "flowId": "FLOW-CX-FEED-001",
+      "specPath": "specs/complex-feed-lazyload-comments.md",
+      "targetTestFile": "tests/smoke/complex-feed-lazyload-comments.spec.ts",
+      "generationStatus": "pending-generation",
+      "acceptanceCriteria": [
+        "AC-001",
+        "AC-002",
+        "AC-003",
+        "AC-004",
+        "AC-005"
+      ],
+      "dataCaseCount": 1,
+      "negativeCaseCount": 1
+    },
+    {
+      "flowId": "FLOW-CX-WIZARD-001",
+      "specPath": "specs/complex-wizard-happy-path.md",
+      "targetTestFile": "tests/smoke/complex-wizard-happy-path.spec.ts",
+      "generationStatus": "pending-generation",
+      "acceptanceCriteria": [
+        "AC-001",
+        "AC-002",
+        "AC-003",
+        "AC-004",
+        "AC-005",
+        "AC-006"
+      ],
+      "dataCaseCount": 1,
+      "negativeCaseCount": 1
+    },
+    {
       "flowId": "FLOW-MP-020",
       "specPath": "specs/media-plan-save-via-nectar-ai.md",
       "targetTestFile": "tests/regression/media-plan-save-via-nectar-ai.authenticated.spec.ts",
@@ -169,6 +217,60 @@
         "AC-005"
       ],
       "dataCaseCount": 7,
+      "negativeCaseCount": 1
+    },
+    {
+      "flowId": "FLOW-PSY-001",
+      "specPath": "specs/psychicbook-account-menu.md",
+      "targetTestFile": "tests/regression/psychicbook-account-menu.spec.ts",
+      "generationStatus": "generated",
+      "acceptanceCriteria": [
+        "AC-001",
+        "AC-002",
+        "AC-003",
+        "AC-004"
+      ],
+      "dataCaseCount": 1,
+      "negativeCaseCount": 1
+    },
+    {
+      "flowId": "FLOW-PSY-FAQ-001",
+      "specPath": "specs/psychicbook-faq-catalog.md",
+      "targetTestFile": "tests/regression/psychicbook-faq-catalog.spec.ts",
+      "generationStatus": "pending-generation",
+      "acceptanceCriteria": [
+        "AC-001",
+        "AC-002",
+        "AC-003"
+      ],
+      "dataCaseCount": 1,
+      "negativeCaseCount": 1
+    },
+    {
+      "flowId": "FLOW-PSY-FOOTER-001",
+      "specPath": "specs/psychicbook-footer-about.md",
+      "targetTestFile": "tests/regression/psychicbook-footer-about.spec.ts",
+      "generationStatus": "pending-generation",
+      "acceptanceCriteria": [
+        "AC-001",
+        "AC-002",
+        "AC-003"
+      ],
+      "dataCaseCount": 1,
+      "negativeCaseCount": 1
+    },
+    {
+      "flowId": "FLOW-PSY-HEAL-001",
+      "specPath": "specs/psychicbook-healing-experiment.md",
+      "targetTestFile": "tests/regression/psychicbook-healing-experiment.spec.ts",
+      "generationStatus": "generated",
+      "acceptanceCriteria": [
+        "AC-001",
+        "AC-002",
+        "AC-003",
+        "AC-004"
+      ],
+      "dataCaseCount": 1,
       "negativeCaseCount": 1
     },
     {
@@ -7521,6 +7623,441 @@
           "[MUTATION_POLICY] Exact machine allowlist for non-production mutation targets plus bounded ownership checks.",
           "[VERIFIED_CLEANUP] Idempotent cleanup/restore with ownership checks for every created or changed record.",
           "[SOURCE] Plan incomplete or unsaved"
+        ]
+      }
+    },
+    {
+      "id": "FLOW-CX-CATALOG-001:DC-001",
+      "title": "Complex catalog filtering, sorting, and quick-view modal purchase — DC-001",
+      "kind": "atomic",
+      "declaredType": "smoke",
+      "priority": "P1",
+      "area": "Complex catalog filtering, sorting, and quick-view modal purchase",
+      "preconditions": [
+        "The local fixture server is started automatically by the Playwright `webServer` configuration (`node local-fixture/server.mjs`).",
+        "The flow runs in the `local-chromium` project, whose `baseURL` is the local fixture origin `http://127.0.0.1:3000`.",
+        "No authentication and no external network access are required."
+      ],
+      "steps": [
+        "AC-001 Open the complex catalog page",
+        "AC-002 Check the Lighting category filter and activate Apply",
+        "AC-003 Sort the product table by Price",
+        "AC-004 Go to page 2 of the product table",
+        "AC-005 Open the quick view for the first featured product",
+        "AC-006 Add the product to the basket from the modal",
+        "AC-006 Inspect the sticky-header basket badge"
+      ],
+      "expected": [
+        "filterStatusText=Filters applied: 1 active",
+        "priceHeaderAriaSort=ascending",
+        "pageIndicatorText=Page 2 of 3",
+        "basketBadgeText=1"
+      ],
+      "assumptions": [],
+      "openQuestions": [],
+      "sourceReferences": [
+        {
+          "path": "specs/complex-catalog-filter-sort-modal.md",
+          "line": 76,
+          "kind": "strict-flow-data-case"
+        }
+      ],
+      "formalMappings": [
+        {
+          "flowId": "FLOW-CX-CATALOG-001",
+          "dataCaseId": "DC-001",
+          "specPath": "specs/complex-catalog-filter-sort-modal.md",
+          "targetTestFile": "tests/smoke/complex-catalog-filter-sort-modal.spec.ts",
+          "generationStatus": "pending-generation"
+        }
+      ],
+      "composedCaseIds": [],
+      "duplicateTitleCandidates": [],
+      "implementation": {
+        "status": "not-generated-by-contract",
+        "testFiles": []
+      },
+      "automation": {
+        "status": "blocked-test-data",
+        "blockerCodes": [
+          "BASE_URL",
+          "DISPOSABLE_SESSION",
+          "MUTATION_POLICY",
+          "ROLE_SESSIONS",
+          "UI_AUTH",
+          "VERIFIED_CLEANUP"
+        ],
+        "missingCodes": [
+          "DISPOSABLE_SESSION",
+          "MUTATION_POLICY",
+          "ROLE_SESSIONS",
+          "VERIFIED_CLEANUP"
+        ],
+        "blockerDetails": [],
+        "requiredPreconditions": [
+          "[BASE_URL] Exact allowlisted HTTPS non-production Pollen URL.",
+          "[UI_AUTH] Fresh owner-only Playwright storage state for the exact non-production origin.",
+          "[ROLE_SESSIONS] Separate stable internal, external, and admin/Channel Management auth states.",
+          "[DISPOSABLE_SESSION] QA-owned NECTAR_PLANNING_SESSION_ID or a verified conversation create/read/delete lifecycle.",
+          "[MUTATION_POLICY] Exact machine allowlist for non-production mutation targets plus bounded ownership checks.",
+          "[VERIFIED_CLEANUP] Idempotent cleanup/restore with ownership checks for every created or changed record.",
+          "[SOURCE] The local fixture server is started automatically by the Playwright `webServer` configuration (`node local-fixture/server.mjs`).",
+          "[SOURCE] The flow runs in the `local-chromium` project, whose `baseURL` is the local fixture origin `http://127.0.0.1:3000`.",
+          "[SOURCE] No authentication and no external network access are required."
+        ]
+      }
+    },
+    {
+      "id": "FLOW-CX-CATALOG-001:NEG-001",
+      "title": "Complex catalog filtering, sorting, and quick-view modal purchase — The modal Add to cart action fails to update the basket badge",
+      "kind": "negative",
+      "declaredType": "smoke",
+      "priority": "P1",
+      "area": "Complex catalog filtering, sorting, and quick-view modal purchase",
+      "preconditions": [
+        "The local fixture server is started automatically by the Playwright `webServer` configuration (`node local-fixture/server.mjs`).",
+        "The flow runs in the `local-chromium` project, whose `baseURL` is the local fixture origin `http://127.0.0.1:3000`.",
+        "No authentication and no external network access are required."
+      ],
+      "steps": [
+        "The modal Add to cart action fails to update the basket badge"
+      ],
+      "expected": [
+        "The badge does not show `1` and the flow fails its final assertion."
+      ],
+      "assumptions": [],
+      "openQuestions": [],
+      "sourceReferences": [
+        {
+          "path": "specs/complex-catalog-filter-sort-modal.md",
+          "line": 131,
+          "kind": "strict-flow-negative-case"
+        }
+      ],
+      "formalMappings": [
+        {
+          "flowId": "FLOW-CX-CATALOG-001",
+          "negativeCaseId": "NEG-001",
+          "specPath": "specs/complex-catalog-filter-sort-modal.md",
+          "targetTestFile": "tests/smoke/complex-catalog-filter-sort-modal.spec.ts",
+          "generationStatus": "pending-generation"
+        }
+      ],
+      "composedCaseIds": [],
+      "duplicateTitleCandidates": [],
+      "implementation": {
+        "status": "not-generated-by-contract",
+        "testFiles": []
+      },
+      "automation": {
+        "status": "blocked-observability-or-contract",
+        "blockerCodes": [
+          "BASE_URL",
+          "DISPOSABLE_SESSION",
+          "FAILURE_INJECTION",
+          "MUTATION_POLICY",
+          "ROLE_SESSIONS",
+          "UI_AUTH",
+          "VERIFIED_CLEANUP"
+        ],
+        "missingCodes": [
+          "DISPOSABLE_SESSION",
+          "FAILURE_INJECTION",
+          "MUTATION_POLICY",
+          "ROLE_SESSIONS",
+          "VERIFIED_CLEANUP"
+        ],
+        "blockerDetails": [],
+        "requiredPreconditions": [
+          "[BASE_URL] Exact allowlisted HTTPS non-production Pollen URL.",
+          "[UI_AUTH] Fresh owner-only Playwright storage state for the exact non-production origin.",
+          "[ROLE_SESSIONS] Separate stable internal, external, and admin/Channel Management auth states.",
+          "[FAILURE_INJECTION] Run-scoped clock, cache flush, network/backend fault, latency, and autosave-failure controls with cleanup.",
+          "[DISPOSABLE_SESSION] QA-owned NECTAR_PLANNING_SESSION_ID or a verified conversation create/read/delete lifecycle.",
+          "[MUTATION_POLICY] Exact machine allowlist for non-production mutation targets plus bounded ownership checks.",
+          "[VERIFIED_CLEANUP] Idempotent cleanup/restore with ownership checks for every created or changed record.",
+          "[SOURCE] The local fixture server is started automatically by the Playwright `webServer` configuration (`node local-fixture/server.mjs`).",
+          "[SOURCE] The flow runs in the `local-chromium` project, whose `baseURL` is the local fixture origin `http://127.0.0.1:3000`.",
+          "[SOURCE] No authentication and no external network access are required."
+        ]
+      }
+    },
+    {
+      "id": "FLOW-CX-FEED-001:DC-001",
+      "title": "Complex feed lazy loading, story expansion, and nested comments — DC-001",
+      "kind": "atomic",
+      "declaredType": "smoke",
+      "priority": "P1",
+      "area": "Complex feed lazy loading, story expansion, and nested comments",
+      "preconditions": [
+        "The local fixture server is started automatically by the Playwright `webServer` configuration (`node local-fixture/server.mjs`).",
+        "The flow runs in the `local-chromium` project, whose `baseURL` is the local fixture origin `http://127.0.0.1:3000`.",
+        "No authentication and no external network access are required; skeletons resolve after a fixed 600 ms and Load more after a fixed 500 ms."
+      ],
+      "steps": [
+        "AC-001 Open the feed page",
+        "AC-002 Load one more batch",
+        "AC-003 Expand the first story's details",
+        "AC-004 Open the first story's comments",
+        "AC-005 Inspect the unread badge"
+      ],
+      "expected": [
+        "storyCountAfterLoadMore=20",
+        "deepCommentText=Comment C-1-1-1-1 on story 1",
+        "unreadBadgeText=19"
+      ],
+      "assumptions": [],
+      "openQuestions": [],
+      "sourceReferences": [
+        {
+          "path": "specs/complex-feed-lazyload-comments.md",
+          "line": 76,
+          "kind": "strict-flow-data-case"
+        }
+      ],
+      "formalMappings": [
+        {
+          "flowId": "FLOW-CX-FEED-001",
+          "dataCaseId": "DC-001",
+          "specPath": "specs/complex-feed-lazyload-comments.md",
+          "targetTestFile": "tests/smoke/complex-feed-lazyload-comments.spec.ts",
+          "generationStatus": "pending-generation"
+        }
+      ],
+      "composedCaseIds": [],
+      "duplicateTitleCandidates": [],
+      "implementation": {
+        "status": "not-generated-by-contract",
+        "testFiles": []
+      },
+      "automation": {
+        "status": "blocked-test-data",
+        "blockerCodes": [
+          "BASE_URL",
+          "ROLE_SESSIONS",
+          "UI_AUTH"
+        ],
+        "missingCodes": [
+          "ROLE_SESSIONS"
+        ],
+        "blockerDetails": [],
+        "requiredPreconditions": [
+          "[BASE_URL] Exact allowlisted HTTPS non-production Pollen URL.",
+          "[UI_AUTH] Fresh owner-only Playwright storage state for the exact non-production origin.",
+          "[ROLE_SESSIONS] Separate stable internal, external, and admin/Channel Management auth states.",
+          "[SOURCE] The local fixture server is started automatically by the Playwright `webServer` configuration (`node local-fixture/server.mjs`).",
+          "[SOURCE] The flow runs in the `local-chromium` project, whose `baseURL` is the local fixture origin `http://127.0.0.1:3000`.",
+          "[SOURCE] No authentication and no external network access are required; skeletons resolve after a fixed 600 ms and Load more after a fixed 500 ms."
+        ]
+      }
+    },
+    {
+      "id": "FLOW-CX-FEED-001:NEG-001",
+      "title": "Complex feed lazy loading, story expansion, and nested comments — Expanding the same story's details a second time",
+      "kind": "negative",
+      "declaredType": "smoke",
+      "priority": "P1",
+      "area": "Complex feed lazy loading, story expansion, and nested comments",
+      "preconditions": [
+        "The local fixture server is started automatically by the Playwright `webServer` configuration (`node local-fixture/server.mjs`).",
+        "The flow runs in the `local-chromium` project, whose `baseURL` is the local fixture origin `http://127.0.0.1:3000`.",
+        "No authentication and no external network access are required; skeletons resolve after a fixed 600 ms and Load more after a fixed 500 ms."
+      ],
+      "steps": [
+        "Expanding the same story's details a second time"
+      ],
+      "expected": [
+        "The unread badge does not decrement below `19`; a double decrement fails the final assertion."
+      ],
+      "assumptions": [],
+      "openQuestions": [],
+      "sourceReferences": [
+        {
+          "path": "specs/complex-feed-lazyload-comments.md",
+          "line": 127,
+          "kind": "strict-flow-negative-case"
+        }
+      ],
+      "formalMappings": [
+        {
+          "flowId": "FLOW-CX-FEED-001",
+          "negativeCaseId": "NEG-001",
+          "specPath": "specs/complex-feed-lazyload-comments.md",
+          "targetTestFile": "tests/smoke/complex-feed-lazyload-comments.spec.ts",
+          "generationStatus": "pending-generation"
+        }
+      ],
+      "composedCaseIds": [],
+      "duplicateTitleCandidates": [],
+      "implementation": {
+        "status": "not-generated-by-contract",
+        "testFiles": []
+      },
+      "automation": {
+        "status": "blocked-observability-or-contract",
+        "blockerCodes": [
+          "BASE_URL",
+          "FAILURE_INJECTION",
+          "ROLE_SESSIONS",
+          "UI_AUTH"
+        ],
+        "missingCodes": [
+          "FAILURE_INJECTION",
+          "ROLE_SESSIONS"
+        ],
+        "blockerDetails": [],
+        "requiredPreconditions": [
+          "[BASE_URL] Exact allowlisted HTTPS non-production Pollen URL.",
+          "[UI_AUTH] Fresh owner-only Playwright storage state for the exact non-production origin.",
+          "[ROLE_SESSIONS] Separate stable internal, external, and admin/Channel Management auth states.",
+          "[FAILURE_INJECTION] Run-scoped clock, cache flush, network/backend fault, latency, and autosave-failure controls with cleanup.",
+          "[SOURCE] The local fixture server is started automatically by the Playwright `webServer` configuration (`node local-fixture/server.mjs`).",
+          "[SOURCE] The flow runs in the `local-chromium` project, whose `baseURL` is the local fixture origin `http://127.0.0.1:3000`.",
+          "[SOURCE] No authentication and no external network access are required; skeletons resolve after a fixed 600 ms and Load more after a fixed 500 ms."
+        ]
+      }
+    },
+    {
+      "id": "FLOW-CX-WIZARD-001:DC-001",
+      "title": "Complex wizard happy path with one recovered validation error — DC-001",
+      "kind": "atomic",
+      "declaredType": "smoke",
+      "priority": "P1",
+      "area": "Complex wizard happy path with one recovered validation error",
+      "preconditions": [
+        "The local fixture server is started automatically by the Playwright `webServer` configuration (`node local-fixture/server.mjs`).",
+        "The flow runs in the `local-chromium` project, whose `baseURL` is the local fixture origin `http://127.0.0.1:3000`.",
+        "No authentication and no external network access are required."
+      ],
+      "steps": [
+        "AC-001 Open the wizard page",
+        "AC-002 Enter an invalid email and blur the field",
+        "AC-003 Fill valid name, email, and password",
+        "AC-004 Advance to step 2 and choose the Business plan",
+        "AC-004 Complete step 2 with company and start date",
+        "AC-005 Advance to step 3 and review the summary",
+        "AC-006 Confirm consent and submit",
+        "AC-006 Inspect the confirmation code"
+      ],
+      "expected": [
+        "emailError=Enter a valid email address.",
+        "reviewShowsEmail=true",
+        "confirmationCode=CFX-01871"
+      ],
+      "assumptions": [],
+      "openQuestions": [],
+      "sourceReferences": [
+        {
+          "path": "specs/complex-wizard-happy-path.md",
+          "line": 76,
+          "kind": "strict-flow-data-case"
+        }
+      ],
+      "formalMappings": [
+        {
+          "flowId": "FLOW-CX-WIZARD-001",
+          "dataCaseId": "DC-001",
+          "specPath": "specs/complex-wizard-happy-path.md",
+          "targetTestFile": "tests/smoke/complex-wizard-happy-path.spec.ts",
+          "generationStatus": "pending-generation"
+        }
+      ],
+      "composedCaseIds": [],
+      "duplicateTitleCandidates": [],
+      "implementation": {
+        "status": "not-generated-by-contract",
+        "testFiles": []
+      },
+      "automation": {
+        "status": "blocked-test-data",
+        "blockerCodes": [
+          "BASE_URL",
+          "DISPOSABLE_SESSION",
+          "MUTATION_POLICY",
+          "ROLE_SESSIONS",
+          "UI_AUTH",
+          "VERIFIED_CLEANUP"
+        ],
+        "missingCodes": [
+          "DISPOSABLE_SESSION",
+          "MUTATION_POLICY",
+          "ROLE_SESSIONS",
+          "VERIFIED_CLEANUP"
+        ],
+        "blockerDetails": [],
+        "requiredPreconditions": [
+          "[BASE_URL] Exact allowlisted HTTPS non-production Pollen URL.",
+          "[UI_AUTH] Fresh owner-only Playwright storage state for the exact non-production origin.",
+          "[ROLE_SESSIONS] Separate stable internal, external, and admin/Channel Management auth states.",
+          "[DISPOSABLE_SESSION] QA-owned NECTAR_PLANNING_SESSION_ID or a verified conversation create/read/delete lifecycle.",
+          "[MUTATION_POLICY] Exact machine allowlist for non-production mutation targets plus bounded ownership checks.",
+          "[VERIFIED_CLEANUP] Idempotent cleanup/restore with ownership checks for every created or changed record.",
+          "[SOURCE] The local fixture server is started automatically by the Playwright `webServer` configuration (`node local-fixture/server.mjs`).",
+          "[SOURCE] The flow runs in the `local-chromium` project, whose `baseURL` is the local fixture origin `http://127.0.0.1:3000`.",
+          "[SOURCE] No authentication and no external network access are required."
+        ]
+      }
+    },
+    {
+      "id": "FLOW-CX-WIZARD-001:NEG-001",
+      "title": "Complex wizard happy path with one recovered validation error — The user submits without correcting the invalid email",
+      "kind": "negative",
+      "declaredType": "smoke",
+      "priority": "P1",
+      "area": "Complex wizard happy path with one recovered validation error",
+      "preconditions": [
+        "The local fixture server is started automatically by the Playwright `webServer` configuration (`node local-fixture/server.mjs`).",
+        "The flow runs in the `local-chromium` project, whose `baseURL` is the local fixture origin `http://127.0.0.1:3000`.",
+        "No authentication and no external network access are required."
+      ],
+      "steps": [
+        "The user submits without correcting the invalid email"
+      ],
+      "expected": [
+        "Next remains disabled on step 1 and the wizard cannot reach the review step."
+      ],
+      "assumptions": [],
+      "openQuestions": [],
+      "sourceReferences": [
+        {
+          "path": "specs/complex-wizard-happy-path.md",
+          "line": 138,
+          "kind": "strict-flow-negative-case"
+        }
+      ],
+      "formalMappings": [
+        {
+          "flowId": "FLOW-CX-WIZARD-001",
+          "negativeCaseId": "NEG-001",
+          "specPath": "specs/complex-wizard-happy-path.md",
+          "targetTestFile": "tests/smoke/complex-wizard-happy-path.spec.ts",
+          "generationStatus": "pending-generation"
+        }
+      ],
+      "composedCaseIds": [],
+      "duplicateTitleCandidates": [],
+      "implementation": {
+        "status": "not-generated-by-contract",
+        "testFiles": []
+      },
+      "automation": {
+        "status": "blocked-test-data",
+        "blockerCodes": [
+          "BASE_URL",
+          "ROLE_SESSIONS",
+          "UI_AUTH"
+        ],
+        "missingCodes": [
+          "ROLE_SESSIONS"
+        ],
+        "blockerDetails": [],
+        "requiredPreconditions": [
+          "[BASE_URL] Exact allowlisted HTTPS non-production Pollen URL.",
+          "[UI_AUTH] Fresh owner-only Playwright storage state for the exact non-production origin.",
+          "[ROLE_SESSIONS] Separate stable internal, external, and admin/Channel Management auth states.",
+          "[SOURCE] The local fixture server is started automatically by the Playwright `webServer` configuration (`node local-fixture/server.mjs`).",
+          "[SOURCE] The flow runs in the `local-chromium` project, whose `baseURL` is the local fixture origin `http://127.0.0.1:3000`.",
+          "[SOURCE] No authentication and no external network access are required."
         ]
       }
     },
@@ -20239,7 +20776,7 @@
       "sourceReferences": [
         {
           "path": "specs/sains/entry-shell-responsive-accessibility.md",
-          "line": 157,
+          "line": 159,
           "kind": "strict-flow-negative-case"
         }
       ],
@@ -20396,7 +20933,7 @@
       "sourceReferences": [
         {
           "path": "specs/sains/large-sku-selection-integrity.md",
-          "line": 138,
+          "line": 140,
           "kind": "strict-flow-negative-case"
         }
       ],
@@ -21052,6 +21589,544 @@
           "[SOURCE] The advertiser `N360_Unilever_MS` and brand `Unilever | Knorr | MS` are available.",
           "[SOURCE] Browser routing can intercept only the selected `planningAI_chat` GraphQL request for this page.",
           "[SOURCE] The suite creates external dev conversations; the environment currently has no conversation-delete operation."
+        ]
+      }
+    },
+    {
+      "id": "FLOW-PSY-001:DC-001",
+      "title": "PsychicBook account menu after email verification — DC-001",
+      "kind": "atomic",
+      "declaredType": "regression",
+      "priority": "P1",
+      "area": "PsychicBook account menu after email verification",
+      "preconditions": [
+        "`PLAYWRIGHT_TEST_BASE_URL` identifies the reviewed non-production PsychicBook environment.",
+        "`E2E_HTTP_BASIC_USERNAME` and `E2E_HTTP_BASIC_PASSWORD` supply browser-level authentication challenge configuration at runtime when the environment requires it.",
+        "`E2E_USER_EMAIL` identifies a returning non-production user that can complete the email-verification journey without first-time onboarding.",
+        "The deterministic verification code `1234` is accepted for that returning user."
+      ],
+      "steps": [
+        "AC-001 Open the external landing page",
+        "AC-002 Activate Get Started",
+        "AC-002 Enter the returning-user email",
+        "AC-002 Continue from email entry",
+        "AC-003 Choose verification-code entry",
+        "AC-003 Enter the verification code",
+        "AC-003 Submit the verification code",
+        "AC-004 Inspect the authenticated top menu"
+      ],
+      "expected": [
+        "authenticatedTopMenu=true",
+        "accountSettingsControlVisible=true"
+      ],
+      "assumptions": [],
+      "openQuestions": [],
+      "sourceReferences": [
+        {
+          "path": "specs/psychicbook-account-menu.md",
+          "line": 74,
+          "kind": "strict-flow-data-case"
+        }
+      ],
+      "formalMappings": [
+        {
+          "flowId": "FLOW-PSY-001",
+          "dataCaseId": "DC-001",
+          "specPath": "specs/psychicbook-account-menu.md",
+          "targetTestFile": "tests/regression/psychicbook-account-menu.spec.ts",
+          "generationStatus": "generated"
+        }
+      ],
+      "composedCaseIds": [],
+      "duplicateTitleCandidates": [],
+      "implementation": {
+        "status": "implemented-contract-bound",
+        "testFiles": [
+          "tests/regression/psychicbook-account-menu.spec.ts"
+        ]
+      },
+      "automation": {
+        "status": "blocked-test-data",
+        "blockerCodes": [
+          "BASE_URL",
+          "DISPOSABLE_SESSION",
+          "MUTATION_POLICY",
+          "ROLE_SESSIONS",
+          "UI_AUTH",
+          "VERIFIED_CLEANUP"
+        ],
+        "missingCodes": [
+          "DISPOSABLE_SESSION",
+          "MUTATION_POLICY",
+          "ROLE_SESSIONS",
+          "VERIFIED_CLEANUP"
+        ],
+        "blockerDetails": [],
+        "requiredPreconditions": [
+          "[BASE_URL] Exact allowlisted HTTPS non-production Pollen URL.",
+          "[UI_AUTH] Fresh owner-only Playwright storage state for the exact non-production origin.",
+          "[ROLE_SESSIONS] Separate stable internal, external, and admin/Channel Management auth states.",
+          "[DISPOSABLE_SESSION] QA-owned NECTAR_PLANNING_SESSION_ID or a verified conversation create/read/delete lifecycle.",
+          "[MUTATION_POLICY] Exact machine allowlist for non-production mutation targets plus bounded ownership checks.",
+          "[VERIFIED_CLEANUP] Idempotent cleanup/restore with ownership checks for every created or changed record.",
+          "[SOURCE] `PLAYWRIGHT_TEST_BASE_URL` identifies the reviewed non-production PsychicBook environment.",
+          "[SOURCE] `E2E_HTTP_BASIC_USERNAME` and `E2E_HTTP_BASIC_PASSWORD` supply browser-level authentication challenge configuration at runtime when the environment requires it.",
+          "[SOURCE] `E2E_USER_EMAIL` identifies a returning non-production user that can complete the email-verification journey without first-time onboarding.",
+          "[SOURCE] The deterministic verification code `1234` is accepted for that returning user."
+        ]
+      }
+    },
+    {
+      "id": "FLOW-PSY-001:NEG-001",
+      "title": "PsychicBook account menu after email verification — A rejected verification value is entered",
+      "kind": "negative",
+      "declaredType": "regression",
+      "priority": "P1",
+      "area": "PsychicBook account menu after email verification",
+      "preconditions": [
+        "`PLAYWRIGHT_TEST_BASE_URL` identifies the reviewed non-production PsychicBook environment.",
+        "`E2E_HTTP_BASIC_USERNAME` and `E2E_HTTP_BASIC_PASSWORD` supply browser-level authentication challenge configuration at runtime when the environment requires it.",
+        "`E2E_USER_EMAIL` identifies a returning non-production user that can complete the email-verification journey without first-time onboarding.",
+        "The deterministic verification code `1234` is accepted for that returning user."
+      ],
+      "steps": [
+        "A rejected verification value is entered"
+      ],
+      "expected": [
+        "The user remains on verification entry and the account-settings control is not shown."
+      ],
+      "assumptions": [],
+      "openQuestions": [],
+      "sourceReferences": [
+        {
+          "path": "specs/psychicbook-account-menu.md",
+          "line": 130,
+          "kind": "strict-flow-negative-case"
+        }
+      ],
+      "formalMappings": [
+        {
+          "flowId": "FLOW-PSY-001",
+          "negativeCaseId": "NEG-001",
+          "specPath": "specs/psychicbook-account-menu.md",
+          "targetTestFile": "tests/regression/psychicbook-account-menu.spec.ts",
+          "generationStatus": "generated"
+        }
+      ],
+      "composedCaseIds": [],
+      "duplicateTitleCandidates": [],
+      "implementation": {
+        "status": "not-implemented",
+        "testFiles": []
+      },
+      "automation": {
+        "status": "automatable",
+        "blockerCodes": [
+          "BASE_URL",
+          "UI_AUTH"
+        ],
+        "missingCodes": [],
+        "blockerDetails": [],
+        "requiredPreconditions": [
+          "[BASE_URL] Exact allowlisted HTTPS non-production Pollen URL.",
+          "[UI_AUTH] Fresh owner-only Playwright storage state for the exact non-production origin.",
+          "[SOURCE] `PLAYWRIGHT_TEST_BASE_URL` identifies the reviewed non-production PsychicBook environment.",
+          "[SOURCE] `E2E_HTTP_BASIC_USERNAME` and `E2E_HTTP_BASIC_PASSWORD` supply browser-level authentication challenge configuration at runtime when the environment requires it.",
+          "[SOURCE] `E2E_USER_EMAIL` identifies a returning non-production user that can complete the email-verification journey without first-time onboarding.",
+          "[SOURCE] The deterministic verification code `1234` is accepted for that returning user."
+        ]
+      }
+    },
+    {
+      "id": "FLOW-PSY-FAQ-001:DC-001",
+      "title": "PsychicBook FAQ catalog shows the first registration question — DC-001",
+      "kind": "atomic",
+      "declaredType": "regression",
+      "priority": "P2",
+      "area": "PsychicBook FAQ catalog shows the first registration question",
+      "preconditions": [
+        "`PLAYWRIGHT_TEST_BASE_URL` identifies the reviewed non-production PsychicBook environment.",
+        "`E2E_HTTP_BASIC_USERNAME` and `E2E_HTTP_BASIC_PASSWORD` supply the browser-level HTTP Basic challenge at runtime when the environment requires it.",
+        "No application sign-in is required for this anonymous navigation flow."
+      ],
+      "steps": [
+        "AC-001 Open the external landing page",
+        "AC-002 Activate the footer FAQ link",
+        "AC-003 Inspect the first registration question entry"
+      ],
+      "expected": [
+        "faqHeadingReached=true",
+        "firstRegistrationQuestionVisible=true"
+      ],
+      "assumptions": [],
+      "openQuestions": [],
+      "sourceReferences": [
+        {
+          "path": "specs/psychicbook-faq-catalog.md",
+          "line": 74,
+          "kind": "strict-flow-data-case"
+        }
+      ],
+      "formalMappings": [
+        {
+          "flowId": "FLOW-PSY-FAQ-001",
+          "dataCaseId": "DC-001",
+          "specPath": "specs/psychicbook-faq-catalog.md",
+          "targetTestFile": "tests/regression/psychicbook-faq-catalog.spec.ts",
+          "generationStatus": "pending-generation"
+        }
+      ],
+      "composedCaseIds": [],
+      "duplicateTitleCandidates": [],
+      "implementation": {
+        "status": "not-generated-by-contract",
+        "testFiles": []
+      },
+      "automation": {
+        "status": "blocked-test-data",
+        "blockerCodes": [
+          "BASE_URL",
+          "ROLE_SESSIONS",
+          "UI_AUTH"
+        ],
+        "missingCodes": [
+          "ROLE_SESSIONS"
+        ],
+        "blockerDetails": [],
+        "requiredPreconditions": [
+          "[BASE_URL] Exact allowlisted HTTPS non-production Pollen URL.",
+          "[UI_AUTH] Fresh owner-only Playwright storage state for the exact non-production origin.",
+          "[ROLE_SESSIONS] Separate stable internal, external, and admin/Channel Management auth states.",
+          "[SOURCE] `PLAYWRIGHT_TEST_BASE_URL` identifies the reviewed non-production PsychicBook environment.",
+          "[SOURCE] `E2E_HTTP_BASIC_USERNAME` and `E2E_HTTP_BASIC_PASSWORD` supply the browser-level HTTP Basic challenge at runtime when the environment requires it.",
+          "[SOURCE] No application sign-in is required for this anonymous navigation flow."
+        ]
+      }
+    },
+    {
+      "id": "FLOW-PSY-FAQ-001:NEG-001",
+      "title": "PsychicBook FAQ catalog shows the first registration question — The FAQ catalog fails to render its question entries",
+      "kind": "negative",
+      "declaredType": "regression",
+      "priority": "P2",
+      "area": "PsychicBook FAQ catalog shows the first registration question",
+      "preconditions": [
+        "`PLAYWRIGHT_TEST_BASE_URL` identifies the reviewed non-production PsychicBook environment.",
+        "`E2E_HTTP_BASIC_USERNAME` and `E2E_HTTP_BASIC_PASSWORD` supply the browser-level HTTP Basic challenge at runtime when the environment requires it.",
+        "No application sign-in is required for this anonymous navigation flow."
+      ],
+      "steps": [
+        "The FAQ catalog fails to render its question entries"
+      ],
+      "expected": [
+        "The first registration question is not visible and the flow fails its final assertion."
+      ],
+      "assumptions": [],
+      "openQuestions": [],
+      "sourceReferences": [
+        {
+          "path": "specs/psychicbook-faq-catalog.md",
+          "line": 123,
+          "kind": "strict-flow-negative-case"
+        }
+      ],
+      "formalMappings": [
+        {
+          "flowId": "FLOW-PSY-FAQ-001",
+          "negativeCaseId": "NEG-001",
+          "specPath": "specs/psychicbook-faq-catalog.md",
+          "targetTestFile": "tests/regression/psychicbook-faq-catalog.spec.ts",
+          "generationStatus": "pending-generation"
+        }
+      ],
+      "composedCaseIds": [],
+      "duplicateTitleCandidates": [],
+      "implementation": {
+        "status": "not-generated-by-contract",
+        "testFiles": []
+      },
+      "automation": {
+        "status": "automated-live-unverified",
+        "blockerCodes": [
+          "BASE_URL",
+          "UI_AUTH"
+        ],
+        "missingCodes": [],
+        "blockerDetails": [],
+        "requiredPreconditions": [
+          "[BASE_URL] Exact allowlisted HTTPS non-production Pollen URL.",
+          "[UI_AUTH] Fresh owner-only Playwright storage state for the exact non-production origin.",
+          "[SOURCE] `PLAYWRIGHT_TEST_BASE_URL` identifies the reviewed non-production PsychicBook environment.",
+          "[SOURCE] `E2E_HTTP_BASIC_USERNAME` and `E2E_HTTP_BASIC_PASSWORD` supply the browser-level HTTP Basic challenge at runtime when the environment requires it.",
+          "[SOURCE] No application sign-in is required for this anonymous navigation flow."
+        ]
+      }
+    },
+    {
+      "id": "FLOW-PSY-FOOTER-001:DC-001",
+      "title": "PsychicBook footer navigation opens the About Us page — DC-001",
+      "kind": "atomic",
+      "declaredType": "regression",
+      "priority": "P2",
+      "area": "PsychicBook footer navigation opens the About Us page",
+      "preconditions": [
+        "`PLAYWRIGHT_TEST_BASE_URL` identifies the reviewed non-production PsychicBook environment.",
+        "`E2E_HTTP_BASIC_USERNAME` and `E2E_HTTP_BASIC_PASSWORD` supply the browser-level HTTP Basic challenge at runtime when the environment requires it.",
+        "No application sign-in is required for this anonymous navigation flow."
+      ],
+      "steps": [
+        "AC-001 Open the external landing page",
+        "AC-002 Activate the footer About Us link",
+        "AC-003 Inspect the About Us page heading"
+      ],
+      "expected": [
+        "aboutUsHeadingVisible=true"
+      ],
+      "assumptions": [],
+      "openQuestions": [],
+      "sourceReferences": [
+        {
+          "path": "specs/psychicbook-footer-about.md",
+          "line": 74,
+          "kind": "strict-flow-data-case"
+        }
+      ],
+      "formalMappings": [
+        {
+          "flowId": "FLOW-PSY-FOOTER-001",
+          "dataCaseId": "DC-001",
+          "specPath": "specs/psychicbook-footer-about.md",
+          "targetTestFile": "tests/regression/psychicbook-footer-about.spec.ts",
+          "generationStatus": "pending-generation"
+        }
+      ],
+      "composedCaseIds": [],
+      "duplicateTitleCandidates": [],
+      "implementation": {
+        "status": "not-generated-by-contract",
+        "testFiles": []
+      },
+      "automation": {
+        "status": "blocked-test-data",
+        "blockerCodes": [
+          "BASE_URL",
+          "ROLE_SESSIONS",
+          "UI_AUTH"
+        ],
+        "missingCodes": [
+          "ROLE_SESSIONS"
+        ],
+        "blockerDetails": [],
+        "requiredPreconditions": [
+          "[BASE_URL] Exact allowlisted HTTPS non-production Pollen URL.",
+          "[UI_AUTH] Fresh owner-only Playwright storage state for the exact non-production origin.",
+          "[ROLE_SESSIONS] Separate stable internal, external, and admin/Channel Management auth states.",
+          "[SOURCE] `PLAYWRIGHT_TEST_BASE_URL` identifies the reviewed non-production PsychicBook environment.",
+          "[SOURCE] `E2E_HTTP_BASIC_USERNAME` and `E2E_HTTP_BASIC_PASSWORD` supply the browser-level HTTP Basic challenge at runtime when the environment requires it.",
+          "[SOURCE] No application sign-in is required for this anonymous navigation flow."
+        ]
+      }
+    },
+    {
+      "id": "FLOW-PSY-FOOTER-001:NEG-001",
+      "title": "PsychicBook footer navigation opens the About Us page — The About Us destination fails to render its page content",
+      "kind": "negative",
+      "declaredType": "regression",
+      "priority": "P2",
+      "area": "PsychicBook footer navigation opens the About Us page",
+      "preconditions": [
+        "`PLAYWRIGHT_TEST_BASE_URL` identifies the reviewed non-production PsychicBook environment.",
+        "`E2E_HTTP_BASIC_USERNAME` and `E2E_HTTP_BASIC_PASSWORD` supply the browser-level HTTP Basic challenge at runtime when the environment requires it.",
+        "No application sign-in is required for this anonymous navigation flow."
+      ],
+      "steps": [
+        "The About Us destination fails to render its page content"
+      ],
+      "expected": [
+        "The About Us heading is not visible and the flow fails its final assertion."
+      ],
+      "assumptions": [],
+      "openQuestions": [],
+      "sourceReferences": [
+        {
+          "path": "specs/psychicbook-footer-about.md",
+          "line": 120,
+          "kind": "strict-flow-negative-case"
+        }
+      ],
+      "formalMappings": [
+        {
+          "flowId": "FLOW-PSY-FOOTER-001",
+          "negativeCaseId": "NEG-001",
+          "specPath": "specs/psychicbook-footer-about.md",
+          "targetTestFile": "tests/regression/psychicbook-footer-about.spec.ts",
+          "generationStatus": "pending-generation"
+        }
+      ],
+      "composedCaseIds": [],
+      "duplicateTitleCandidates": [],
+      "implementation": {
+        "status": "not-generated-by-contract",
+        "testFiles": []
+      },
+      "automation": {
+        "status": "automated-live-unverified",
+        "blockerCodes": [
+          "BASE_URL",
+          "UI_AUTH"
+        ],
+        "missingCodes": [],
+        "blockerDetails": [],
+        "requiredPreconditions": [
+          "[BASE_URL] Exact allowlisted HTTPS non-production Pollen URL.",
+          "[UI_AUTH] Fresh owner-only Playwright storage state for the exact non-production origin.",
+          "[SOURCE] `PLAYWRIGHT_TEST_BASE_URL` identifies the reviewed non-production PsychicBook environment.",
+          "[SOURCE] `E2E_HTTP_BASIC_USERNAME` and `E2E_HTTP_BASIC_PASSWORD` supply the browser-level HTTP Basic challenge at runtime when the environment requires it.",
+          "[SOURCE] No application sign-in is required for this anonymous navigation flow."
+        ]
+      }
+    },
+    {
+      "id": "FLOW-PSY-HEAL-001:DC-001",
+      "title": "PsychicBook generated-test healing experiment — DC-001",
+      "kind": "atomic",
+      "declaredType": "regression",
+      "priority": "P1",
+      "area": "PsychicBook generated-test healing experiment",
+      "preconditions": [
+        "`PLAYWRIGHT_TEST_BASE_URL` identifies the reviewed non-production PsychicBook environment.",
+        "`E2E_HTTP_BASIC_USERNAME` and `E2E_HTTP_BASIC_PASSWORD` supply the browser-level HTTP Basic challenge at runtime.",
+        "`E2E_USER_EMAIL` identifies a returning non-production user that can complete the email-verification journey without onboarding.",
+        "The deterministic verification code `1234` is accepted for the returning user."
+      ],
+      "steps": [
+        "AC-001 Open the external landing page",
+        "AC-002 Activate Get Started",
+        "AC-002 Enter the returning-user email",
+        "AC-002 Continue from email entry",
+        "AC-003 Choose direct verification-code entry",
+        "AC-003 Enter the verification code",
+        "AC-004 Inspect the authenticated top menu"
+      ],
+      "expected": [
+        "authenticatedTopMenu=true",
+        "accountSettingsControlVisible=true"
+      ],
+      "assumptions": [],
+      "openQuestions": [],
+      "sourceReferences": [
+        {
+          "path": "specs/psychicbook-healing-experiment.md",
+          "line": 74,
+          "kind": "strict-flow-data-case"
+        }
+      ],
+      "formalMappings": [
+        {
+          "flowId": "FLOW-PSY-HEAL-001",
+          "dataCaseId": "DC-001",
+          "specPath": "specs/psychicbook-healing-experiment.md",
+          "targetTestFile": "tests/regression/psychicbook-healing-experiment.spec.ts",
+          "generationStatus": "generated"
+        }
+      ],
+      "composedCaseIds": [],
+      "duplicateTitleCandidates": [],
+      "implementation": {
+        "status": "implemented-contract-bound",
+        "testFiles": [
+          "tests/regression/psychicbook-healing-experiment.spec.ts"
+        ]
+      },
+      "automation": {
+        "status": "blocked-test-data",
+        "blockerCodes": [
+          "BASE_URL",
+          "DISPOSABLE_SESSION",
+          "MUTATION_POLICY",
+          "ROLE_SESSIONS",
+          "UI_AUTH",
+          "VERIFIED_CLEANUP"
+        ],
+        "missingCodes": [
+          "DISPOSABLE_SESSION",
+          "MUTATION_POLICY",
+          "ROLE_SESSIONS",
+          "VERIFIED_CLEANUP"
+        ],
+        "blockerDetails": [],
+        "requiredPreconditions": [
+          "[BASE_URL] Exact allowlisted HTTPS non-production Pollen URL.",
+          "[UI_AUTH] Fresh owner-only Playwright storage state for the exact non-production origin.",
+          "[ROLE_SESSIONS] Separate stable internal, external, and admin/Channel Management auth states.",
+          "[DISPOSABLE_SESSION] QA-owned NECTAR_PLANNING_SESSION_ID or a verified conversation create/read/delete lifecycle.",
+          "[MUTATION_POLICY] Exact machine allowlist for non-production mutation targets plus bounded ownership checks.",
+          "[VERIFIED_CLEANUP] Idempotent cleanup/restore with ownership checks for every created or changed record.",
+          "[SOURCE] `PLAYWRIGHT_TEST_BASE_URL` identifies the reviewed non-production PsychicBook environment.",
+          "[SOURCE] `E2E_HTTP_BASIC_USERNAME` and `E2E_HTTP_BASIC_PASSWORD` supply the browser-level HTTP Basic challenge at runtime.",
+          "[SOURCE] `E2E_USER_EMAIL` identifies a returning non-production user that can complete the email-verification journey without onboarding.",
+          "[SOURCE] The deterministic verification code `1234` is accepted for the returning user."
+        ]
+      }
+    },
+    {
+      "id": "FLOW-PSY-HEAL-001:NEG-001",
+      "title": "PsychicBook generated-test healing experiment — A rejected verification value is entered",
+      "kind": "negative",
+      "declaredType": "regression",
+      "priority": "P1",
+      "area": "PsychicBook generated-test healing experiment",
+      "preconditions": [
+        "`PLAYWRIGHT_TEST_BASE_URL` identifies the reviewed non-production PsychicBook environment.",
+        "`E2E_HTTP_BASIC_USERNAME` and `E2E_HTTP_BASIC_PASSWORD` supply the browser-level HTTP Basic challenge at runtime.",
+        "`E2E_USER_EMAIL` identifies a returning non-production user that can complete the email-verification journey without onboarding.",
+        "The deterministic verification code `1234` is accepted for the returning user."
+      ],
+      "steps": [
+        "A rejected verification value is entered"
+      ],
+      "expected": [
+        "The user remains on verification entry and the account-settings control is not shown."
+      ],
+      "assumptions": [],
+      "openQuestions": [],
+      "sourceReferences": [
+        {
+          "path": "specs/psychicbook-healing-experiment.md",
+          "line": 129,
+          "kind": "strict-flow-negative-case"
+        }
+      ],
+      "formalMappings": [
+        {
+          "flowId": "FLOW-PSY-HEAL-001",
+          "negativeCaseId": "NEG-001",
+          "specPath": "specs/psychicbook-healing-experiment.md",
+          "targetTestFile": "tests/regression/psychicbook-healing-experiment.spec.ts",
+          "generationStatus": "generated"
+        }
+      ],
+      "composedCaseIds": [],
+      "duplicateTitleCandidates": [],
+      "implementation": {
+        "status": "not-implemented",
+        "testFiles": []
+      },
+      "automation": {
+        "status": "automatable",
+        "blockerCodes": [
+          "BASE_URL",
+          "UI_AUTH"
+        ],
+        "missingCodes": [],
+        "blockerDetails": [],
+        "requiredPreconditions": [
+          "[BASE_URL] Exact allowlisted HTTPS non-production Pollen URL.",
+          "[UI_AUTH] Fresh owner-only Playwright storage state for the exact non-production origin.",
+          "[SOURCE] `PLAYWRIGHT_TEST_BASE_URL` identifies the reviewed non-production PsychicBook environment.",
+          "[SOURCE] `E2E_HTTP_BASIC_USERNAME` and `E2E_HTTP_BASIC_PASSWORD` supply the browser-level HTTP Basic challenge at runtime.",
+          "[SOURCE] `E2E_USER_EMAIL` identifies a returning non-production user that can complete the email-verification journey without onboarding.",
+          "[SOURCE] The deterministic verification code `1234` is accepted for the returning user."
         ]
       }
     },
@@ -21771,7 +22846,7 @@
       "sourceReferences": [
         {
           "path": "specs/secondary-space/nectar-ai-secondary-space-live.md",
-          "line": 178,
+          "line": 180,
           "kind": "strict-flow-negative-case"
         }
       ],

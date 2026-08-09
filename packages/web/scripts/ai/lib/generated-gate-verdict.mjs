@@ -20,8 +20,8 @@ export function classifyGeneratedGateFailure({ stage, issues = [] }) {
   };
 }
 
-export function acceptedGeneratedGateVerdict() {
-  return {
+export function acceptedGeneratedGateVerdict({ staticReviewWarningCount = null } = {}) {
+  const verdict = {
     schema: 'generated-gate-verdict/v1',
     passed: true,
     stage: 'accepted',
@@ -29,6 +29,13 @@ export function acceptedGeneratedGateVerdict() {
     diagnostics: [],
     repairable: false
   };
+  // Non-blocking reviewer warnings ride on the accepted verdict so the caller
+  // can persist an accepted-clean vs accepted-with-warning split. Invalid
+  // counts are dropped: absence means "unknown", never zero.
+  if (Number.isSafeInteger(staticReviewWarningCount) && staticReviewWarningCount >= 0) {
+    verdict.staticReviewWarningCount = staticReviewWarningCount;
+  }
+  return verdict;
 }
 
 function sanitizeDiagnostic(value) {

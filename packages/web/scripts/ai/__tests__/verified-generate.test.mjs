@@ -26,6 +26,9 @@ async function runVerifiedGeneration(options) {
     ...options,
     env: {
       PLAYWRIGHT_TEST_BASE_URL: 'https://qa.example.test',
+      // Hermetic default: the environment preflight spawns a config-load child
+      // and probes the external origin, so tests opt in explicitly instead.
+      AI_ENV_PREFLIGHT: 'false',
       ...(options.env ?? {})
     }
   });
@@ -141,6 +144,131 @@ test('verified generation gates a sibling candidate twice and promotes it atomic
       sourceSha256: 'ad86eabb9792894bae435756cb6aea5eaa0e3c3fdab3a621df938fda77df0c10',
       repairCount: 0
     })
+  );
+});
+
+// Iteration-3 salvage gap: a review-clean candidate cascade-rejected by an
+// unrelated global-static failure was preserved under .ai-runs/rejected but
+// had no path back through the gate except a full paid regeneration
+// (18,864 tokens for the feed candidate). --replay-rejected feeds the
+// preserved bytes through the same review + fast-gate + promotion path with
+// zero provider calls.
+test('replay-rejected gates and promotes the archived candidate with zero provider calls', async () => {
+  const { webRoot, target } = fixture();
+  const archived = 'const replayedCandidate = true;\n';
+  const sourceRunId = 'rejected-source-1';
+  fs.mkdirSync(path.join(webRoot, '.ai-runs', 'rejected', sourceRunId), { recursive: true });
+  fs.writeFileSync(path.join(webRoot, '.ai-runs', 'rejected', sourceRunId, 'candidate.ts'), archived);
+  const calls = [];
+
+  const result = await runVerifiedGeneration({
+    specPath: 'specs/checkout.md',
+    out: 'tests/regression/checkout.spec.ts',
+    webRoot,
+    replayRejected: sourceRunId,
+    candidateId: () => 'replay-run',
+    generate: async () => {
+      throw new Error('replay must never call the provider');
+    },
+    repair: async () => {
+      throw new Error('replay must never repair');
+    },
+    gate: async (options) => {
+      calls.push(['gate', fs.readFileSync(options.testPath, 'utf8')]);
+      return { passed: true, stage: 'accepted', reasonCode: 'PASSED', staticReviewWarningCount: 2 };
+    }
+  });
+
+  assert.equal(fs.readFileSync(target, 'utf8'), archived);
+  assert.deepEqual(calls, [['gate', archived]]);
+  assert.equal(result.runId, 'replay-run');
+  assert.equal(result.cachePromotion.promoted, false);
+  const runDir = path.join(webRoot, '.ai-runs', 'generation', 'replay-run');
+  const manifest = JSON.parse(fs.readFileSync(path.join(runDir, 'manifest.json'), 'utf8'));
+  assert.equal(manifest.status, 'succeeded');
+  assert.equal(manifest.attempts, 0, 'a replay run must record zero provider attempts');
+  assert.equal(manifest.quality.fastGatePassed, true);
+  const events = fs.readFileSync(path.join(runDir, 'events.jsonl'), 'utf8')
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
+  assert.ok(
+    events.some((event) => event.stage === 'replay' && event.status === 'completed'),
+    'telemetry must record a completed replay stage'
+  );
+  assert.equal(events.filter((event) => event.type === 'provider-attempt').length, 0);
+});
+
+test('replay-rejected fails closed when no preserved candidate exists', async () => {
+  const { webRoot, target } = fixture();
+
+  await assert.rejects(
+    runVerifiedGeneration({
+      specPath: 'specs/checkout.md',
+      out: 'tests/regression/checkout.spec.ts',
+      webRoot,
+      replayRejected: 'missing-run',
+      generate: async () => {
+        throw new Error('replay must never call the provider');
+      },
+      gate: async () => {
+        throw new Error('a missing replay source must never reach the gate');
+      }
+    }),
+    /rejected candidate/i
+  );
+
+  assert.equal(fs.readFileSync(target, 'utf8'), 'const oldTarget = true;\n');
+  const manifest = JSON.parse(fs.readFileSync(
+    path.join(webRoot, '.ai-runs', 'generation', fs.readdirSync(path.join(webRoot, '.ai-runs', 'generation'))[0], 'manifest.json'),
+    'utf8'
+  ));
+  assert.equal(manifest.status, 'failed');
+  assert.equal(manifest.failureStage, 'replay');
+  assert.equal(manifest.attempts, 0);
+});
+
+test('a rejected replay is archived again and never repaired even with repair enabled', async () => {
+  const { webRoot, target } = fixture();
+  const archived = 'const rereviewedCandidate = true;\n';
+  const sourceRunId = 'rejected-source-2';
+  fs.mkdirSync(path.join(webRoot, '.ai-runs', 'rejected', sourceRunId), { recursive: true });
+  fs.writeFileSync(path.join(webRoot, '.ai-runs', 'rejected', sourceRunId, 'candidate.ts'), archived);
+
+  await assert.rejects(
+    runVerifiedGeneration({
+      specPath: 'specs/checkout.md',
+      out: 'tests/regression/checkout.spec.ts',
+      webRoot,
+      env: { AI_REPAIR_ENABLED: 'true' },
+      replayRejected: sourceRunId,
+      candidateId: () => 'replay-run-fail',
+      generate: async () => {
+        throw new Error('replay must never call the provider');
+      },
+      repair: async () => {
+        throw new Error('replay must never repair');
+      },
+      gate: async () => ({
+        passed: false,
+        stage: 'static-review',
+        reasonCode: 'STATIC_REVIEW_FAILED',
+        diagnostics: ['replayed candidate failed static review'],
+        repairable: true
+      })
+    }),
+    /Fast acceptance gate failed/
+  );
+
+  assert.equal(fs.readFileSync(target, 'utf8'), 'const oldTarget = true;\n');
+  assert.equal(
+    fs.readFileSync(path.join(webRoot, '.ai-runs', 'rejected', 'replay-run-fail', 'candidate.ts'), 'utf8'),
+    archived
+  );
+  // The replay source archive is untouched.
+  assert.equal(
+    fs.readFileSync(path.join(webRoot, '.ai-runs', 'rejected', sourceRunId, 'candidate.ts'), 'utf8'),
+    archived
   );
 });
 
@@ -931,4 +1059,197 @@ test('a malformed or contradictory machine verdict can never override a failed g
   assert.equal(reconciled.passed, false);
   assert.equal(reconciled.stage, 'runtime-environment');
   assert.equal(reconciled.repairable, false);
+});
+
+test('a failed environment preflight rejects the run with zero provider attempts and its own failure reason', async () => {
+  const { webRoot, target } = fixture();
+  let observed;
+  let generated = false;
+
+  await assert.rejects(
+    runVerifiedGeneration({
+      specPath: 'specs/checkout.md',
+      out: 'tests/regression/checkout.spec.ts',
+      webRoot,
+      env: { AI_ENV_PREFLIGHT: 'true', E2E_USER_PASSWORD: 'hunter2secret' },
+      candidateId: () => 'environment-preflight-fails',
+      environmentPreflight: async (options) => {
+        observed = options;
+        return { passed: false, diagnostics: ['Origin https://qa.example.test is unreachable.'] };
+      },
+      generate: async () => {
+        generated = true;
+      }
+    }),
+    /Environment preflight failed: Origin https:\/\/qa\.example\.test is unreachable\./
+  );
+
+  assert.equal(generated, false);
+  assert.equal(fs.readFileSync(target, 'utf8'), 'const oldTarget = true;\n');
+  assert.equal(observed.env.AI_GATE_SANITIZED_ENV, 'true');
+  assert.equal(observed.env.PLAYWRIGHT_TEST_BASE_URL, 'https://qa.example.test');
+  // External-browser plans probe under the external-runtime profile, which
+  // keeps the auth runtime credentials the gate will also use.
+  assert.equal(observed.env.E2E_USER_PASSWORD, 'hunter2secret');
+  assert.equal(observed.webRoot, webRoot);
+  assert.equal(observed.projects.some(({ project }) => project === 'chromium'), true);
+  const runDir = path.join(webRoot, '.ai-runs', 'generation', 'environment-preflight-fails');
+  const manifest = JSON.parse(fs.readFileSync(path.join(runDir, 'manifest.json'), 'utf8'));
+  assert.equal(manifest.status, 'failed');
+  assert.equal(manifest.failureStage, 'environment-preflight');
+  assert.equal(manifest.failureReason, 'environment-preflight');
+  const events = fs.readFileSync(path.join(runDir, 'events.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
+  const rejectedEvent = events.find((event) =>
+    event.type === 'stage' && event.stage === 'environment-preflight' && event.status === 'rejected');
+  assert.equal(rejectedEvent.failureStage, 'environment-preflight');
+  assert.equal(rejectedEvent.failureReason, 'environment-preflight');
+  assert.equal(events.filter((event) => event.type === 'provider-attempt').length, 0);
+});
+
+test('environment preflight runs after readiness preflight and before generation', async () => {
+  const { webRoot, target } = fixture();
+  const order = [];
+
+  await runVerifiedGeneration({
+    specPath: 'specs/checkout.md',
+    out: 'tests/regression/checkout.spec.ts',
+    webRoot,
+    env: { AI_ENV_PREFLIGHT: 'true' },
+    candidateId: () => 'environment-preflight-passes',
+    environmentPreflight: async () => {
+      order.push('environment-preflight');
+      return { passed: true, probedOrigin: 'https://qa.example.test', diagnostics: [] };
+    },
+    generate: async () => {
+      order.push('generate');
+      return { code: 'const accepted = true;\n', result: {} };
+    },
+    gate: async () => ({ passed: true, stage: 'accepted', reasonCode: 'PASSED' })
+  });
+
+  assert.deepEqual(order, ['environment-preflight', 'generate']);
+  assert.equal(fs.readFileSync(target, 'utf8'), 'const accepted = true;\n');
+  const runDir = path.join(webRoot, '.ai-runs', 'generation', 'environment-preflight-passes');
+  const events = fs.readFileSync(path.join(runDir, 'events.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
+  const stageIndex = (stage, status) => events.findIndex((event) =>
+    event.type === 'stage' && event.stage === stage && event.status === status);
+  assert.notEqual(stageIndex('preflight', 'completed'), -1);
+  assert.notEqual(stageIndex('environment-preflight', 'completed'), -1);
+  assert.notEqual(stageIndex('test-generation', 'started'), -1);
+  assert.ok(stageIndex('preflight', 'completed') < stageIndex('environment-preflight', 'started'));
+  assert.ok(stageIndex('environment-preflight', 'completed') < stageIndex('test-generation', 'started'));
+});
+
+test('a local-fixture-only plan runs the environment preflight under the local-runtime profile', async () => {
+  const { webRoot } = fixture();
+  const specPath = path.join(webRoot, 'specs', 'checkout.md');
+  fs.writeFileSync(
+    specPath,
+    fs.readFileSync(specPath, 'utf8')
+      .replace('| Test Type | regression |', '| Test Type | smoke |')
+      .replace(
+        '| Target Test File | tests/regression/checkout.spec.ts |',
+        '| Target Test File | tests/smoke/checkout.spec.ts |'
+      )
+  );
+  const smokeTarget = path.join(webRoot, 'tests', 'smoke', 'checkout.spec.ts');
+  fs.mkdirSync(path.dirname(smokeTarget), { recursive: true });
+  fs.writeFileSync(smokeTarget, 'const oldTarget = true;\n');
+  let observed;
+
+  await runVerifiedGeneration({
+    specPath: 'specs/checkout.md',
+    out: 'tests/smoke/checkout.spec.ts',
+    webRoot,
+    env: { AI_ENV_PREFLIGHT: 'true', E2E_USER_PASSWORD: 'hunter2secret' },
+    candidateId: () => 'environment-preflight-local-profile',
+    environmentPreflight: async (options) => {
+      observed = options;
+      return { passed: true, probedOrigin: null, diagnostics: [] };
+    },
+    generate: async () => ({ code: 'const accepted = true;\n', result: {} }),
+    gate: async () => ({ passed: true, stage: 'accepted', reasonCode: 'PASSED' })
+  });
+
+  assert.ok(observed, 'the environment preflight must run');
+  assert.equal(observed.projects.every(({ project }) => project === 'local-chromium'), true);
+  assert.equal(observed.env.AI_GATE_SANITIZED_ENV, 'true');
+  // The fast-gate runs local-chromium under the local-runtime profile, so the
+  // preflight must not carry auth or API secrets for a local-only plan.
+  assert.equal(observed.env.E2E_USER_PASSWORD, '');
+  assert.equal(fs.readFileSync(smokeTarget, 'utf8'), 'const accepted = true;\n');
+});
+
+test('AI_ENV_PREFLIGHT=false records a skip event and never invokes the environment preflight', async () => {
+  const { webRoot, target } = fixture();
+  let preflighted = 0;
+
+  await runVerifiedGeneration({
+    specPath: 'specs/checkout.md',
+    out: 'tests/regression/checkout.spec.ts',
+    webRoot,
+    candidateId: () => 'environment-preflight-skipped',
+    environmentPreflight: async () => {
+      preflighted += 1;
+      return { passed: false, diagnostics: ['must never run'] };
+    },
+    generate: async () => ({ code: 'const accepted = true;\n', result: {} }),
+    gate: async () => ({ passed: true, stage: 'accepted', reasonCode: 'PASSED' })
+  });
+
+  assert.equal(preflighted, 0);
+  assert.equal(fs.readFileSync(target, 'utf8'), 'const accepted = true;\n');
+  const runDir = path.join(webRoot, '.ai-runs', 'generation', 'environment-preflight-skipped');
+  const events = fs.readFileSync(path.join(runDir, 'events.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
+  assert.equal(events.some((event) =>
+    event.type === 'stage-skipped' && event.stage === 'environment-preflight'), true);
+});
+
+test('an invalid AI_ENV_PREFLIGHT value fails closed before any run directory or provider call', async () => {
+  const { webRoot } = fixture();
+  let generated = false;
+
+  await assert.rejects(
+    runVerifiedGeneration({
+      specPath: 'specs/checkout.md',
+      out: 'tests/regression/checkout.spec.ts',
+      webRoot,
+      env: { AI_ENV_PREFLIGHT: 'maybe' },
+      candidateId: () => 'environment-preflight-invalid-flag',
+      generate: async () => {
+        generated = true;
+      }
+    }),
+    /AI_ENV_PREFLIGHT must be true or false/
+  );
+
+  assert.equal(generated, false);
+  assert.equal(
+    fs.existsSync(path.join(webRoot, '.ai-runs', 'generation', 'environment-preflight-invalid-flag')),
+    false
+  );
+});
+
+test('the default environment preflight is wired and fails a web root whose Playwright config is missing', async () => {
+  const { webRoot } = fixture();
+  let generated = false;
+
+  await assert.rejects(
+    runVerifiedGeneration({
+      specPath: 'specs/checkout.md',
+      out: 'tests/regression/checkout.spec.ts',
+      webRoot,
+      env: { AI_ENV_PREFLIGHT: 'true' },
+      candidateId: () => 'environment-preflight-default',
+      generate: async () => {
+        generated = true;
+      }
+    }),
+    /Environment preflight failed:.*playwright\.config\.ts/
+  );
+
+  assert.equal(generated, false);
+  const runDir = path.join(webRoot, '.ai-runs', 'generation', 'environment-preflight-default');
+  const events = fs.readFileSync(path.join(runDir, 'events.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
+  assert.equal(events.filter((event) => event.type === 'provider-attempt').length, 0);
 });

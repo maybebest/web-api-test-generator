@@ -51,6 +51,15 @@ const APPROVED_NECTAR_API_IMPORTS = new Set([
   'setMediaChannelSkuConfig',
   'setPlanningSkus'
 ]);
+// Blocking browser-evaluation member calls. evaluate/evaluateAll/
+// evaluateHandle run arbitrary page code; the deprecated $eval/$$eval twins
+// additionally take raw string selectors. Iteration 3 showed the fault class
+// rotating between members (wizard blocked on .evaluate(), catalog carrying a
+// strict-null fault through waitForFunction), so the whole family is owned
+// here. waitForFunction is reviewed separately (review-generated-test.mjs)
+// because the repository sanctions it behind an explicit
+// // locator-policy:exception annotation for collection-count waits.
+const BROWSER_EVALUATION_MEMBERS = new Set(['evaluate', 'evaluateAll', 'evaluateHandle', '$eval', '$$eval']);
 const FORBIDDEN_SYSTEM_MODULES = new Set([
   'axios', 'child_process', 'cluster', 'dgram', 'dns', 'fs', 'fs/promises', 'got', 'http', 'http2', 'https',
   'module', 'net', 'node-fetch', 'os', 'process', 'request', 'superagent', 'tls', 'undici', 'vm',
@@ -174,7 +183,7 @@ function reportPageCapability(member, report) {
     );
     return;
   }
-  if (['evaluate', 'evaluateAll', 'evaluateHandle'].includes(member)) {
+  if (BROWSER_EVALUATION_MEMBERS.has(member)) {
     report(
       `page-capability:${member}`,
       'Browser evaluation is forbidden in generated tests. Put browser logic behind a reviewed Page Object method.'
@@ -227,7 +236,7 @@ export function checkGeneratedRuntimeCapabilities(
     if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
       const container = normalizedCallText(node.expression, sourceFile);
       const member = propertyName(node);
-      if (pageAliases.has(container) && ['context', 'request', 'evaluate', 'evaluateAll', 'evaluateHandle'].includes(member)) {
+      if (pageAliases.has(container) && (['context', 'request'].includes(member) || BROWSER_EVALUATION_MEMBERS.has(member))) {
         reportPageCapability(member, report);
       }
       if (
@@ -299,7 +308,7 @@ export function checkGeneratedRuntimeCapabilities(
           'Dynamic-code constructor/prototype escape is forbidden in generated tests: reflective prototype access.'
         );
       }
-      if (/\.(?:evaluate|evaluateAll|evaluateHandle)$/.test(callText)) {
+      if (/\.(?:evaluate|evaluateAll|evaluateHandle|\$eval|\$\$eval)$/.test(callText)) {
         report(
           'browser-evaluate',
           'Browser evaluation is forbidden in generated tests. Put browser logic behind a reviewed Page Object method.'

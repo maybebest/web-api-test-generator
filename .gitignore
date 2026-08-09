@@ -13,6 +13,12 @@ yarn-error.log*
 /performance/
 /playwright-report/
 /test-results/
+/.ai-runs/
+# Root healer crash leftovers: exact hidden candidates and atomic promotion sources only.
+/tests/**/.*.heal-*.candidate*.spec.ts
+/tests-dev/**/.*.heal-*.candidate*.spec.ts
+/tests/**/.*.spec.ts.*.promotion
+/tests-dev/**/.*.spec.ts.*.promotion
 /tmp/
 /outputs/**/node_modules
 /.worktrees/

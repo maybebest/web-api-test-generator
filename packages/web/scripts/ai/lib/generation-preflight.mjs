@@ -6,7 +6,9 @@ import { chromium } from '@playwright/test';
 import { projectPlanForSpec } from '../generated-test-gate.mjs';
 import { validateAuthenticatedTarget } from './authenticated-target.mjs';
 
-const EXTERNAL_BROWSER_PROJECTS = new Set([
+// The Playwright projects whose baseURL is the external
+// PLAYWRIGHT_TEST_BASE_URL rather than the self-started local fixture server.
+export const EXTERNAL_BROWSER_PROJECTS = new Set([
   'chromium', 'firefox', 'webkit', 'mobile-chrome', 'chromium-auth'
 ]);
 

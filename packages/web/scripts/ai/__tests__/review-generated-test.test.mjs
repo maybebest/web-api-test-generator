@@ -730,6 +730,72 @@ test('reviewer rejects direct environment, system, and network capabilities in g
   assert.match(joined, /Direct page navigation must use a static relative path/);
 });
 
+// Iteration-3 gap: the blocking browser-evaluation rule caught .evaluate()
+// but not the sibling escape hatches. The catalog candidate carried its
+// strict-null fault inside a waitForFunction callback and sailed through
+// review while the wizard candidate was blocked on .evaluate() — the same
+// fault class rotating between members.
+test('reviewer blocks the waitForFunction browser-evaluation escape (catalog shape)', () => {
+  const workspace = createWorkspace();
+  const specPath = writeSpec(workspace);
+  const testPath = writeGeneratedTest(workspace, specPath, singleBodyWithExtras(`
+    await page.waitForFunction(
+      (element) => element?.getAttribute('aria-sort') === 'ascending',
+      await checkoutPage.confirmationRequest.elementHandle(),
+    );
+  `));
+
+  const result = reviewGeneratedTest({ specPath, testPath });
+
+  assert.equal(result.passed, false);
+  assert.match(result.issues.join('\n'), /Browser evaluation is forbidden[\s\S]*waitForFunction/);
+});
+
+test('reviewer blocks $eval, $$eval, and evaluateHandle member calls', () => {
+  const workspace = createWorkspace();
+  const specPath = writeSpec(workspace);
+  for (const extra of [
+    "const text = await page.$eval('#price', (element) => element.textContent); void text;",
+    "const rows = await page.$$eval('#rows', (elements) => elements.length); void rows;",
+    'const handle = await page.evaluateHandle(() => 1); void handle;'
+  ]) {
+    const testPath = writeGeneratedTest(workspace, specPath, singleBodyWithExtras(extra));
+    const result = reviewGeneratedTest({ specPath, testPath });
+    assert.equal(result.passed, false, extra);
+    assert.match(result.issues.join('\n'), /Browser evaluation is forbidden/);
+  }
+});
+
+test('an explicit locator-policy exception downgrades waitForFunction to a warning', () => {
+  const workspace = createWorkspace();
+  const specPath = writeSpec(workspace);
+  const testPath = writeGeneratedTest(workspace, specPath, singleBodyWithExtras(`
+    // locator-policy:exception counting the request collection requires a selector-count wait
+    await page.waitForFunction(() => 2 > 1);
+  `));
+
+  const result = reviewGeneratedTest({ specPath, testPath });
+
+  assert.equal(result.passed, true, result.issues.join('\n'));
+  assert.match(result.warnings.join('\n'), /waitForFunction/);
+});
+
+test('a locator-policy exception never excuses $eval or .evaluate()', () => {
+  const workspace = createWorkspace();
+  const specPath = writeSpec(workspace);
+  for (const extra of [
+    `// locator-policy:exception justification cannot excuse extraction
+    const text = await page.$eval('#price', (element) => element.textContent); void text;`,
+    `// locator-policy:exception justification cannot excuse evaluation
+    const value = await page.evaluate(() => 1); void value;`
+  ]) {
+    const testPath = writeGeneratedTest(workspace, specPath, singleBodyWithExtras(extra));
+    const result = reviewGeneratedTest({ specPath, testPath });
+    assert.equal(result.passed, false, extra);
+    assert.match(result.issues.join('\n'), /Browser evaluation is forbidden/);
+  }
+});
+
 test('reviewer permits only explicit non-secret generated-test configuration reads', () => {
   const workspace = createWorkspace();
   const specPath = writeSpec(workspace);
@@ -896,6 +962,64 @@ test('flow', async ({ page }) => {
 
   assert.equal(result.passed, false);
   assert.match(result.issues.join('\n'), /Locator hint requires exact locator/);
+});
+
+// Iteration-2 regression: both wizard generations were FALSE static-review
+// rejections. Candidates honored the pinned 46-char consent name, but the
+// formatter wrapped the getByRole options object multiline with a trailing
+// comma ('{ name: '...', }'), which the old normalized-substring match could
+// never equal. Hint matching must compare the parsed call (method + folded
+// arguments), not formatted text.
+test('reviewer matches locator hints across formatting variance (multiline, trailing comma, quote style)', () => {
+  const workspace = createWorkspace();
+  const consentName = 'I confirm the details above are correct';
+  const specPath = writeSpec(workspace, {
+    locatorHints: [
+      "- Prefer `getByRole('heading', { name: 'Checkout' })` for the page heading.",
+      `- Use \`getByRole('checkbox', { name: '${consentName}' })\` for the consent control.`
+    ]
+  });
+  const body = bodyWithPageObjectMembers({
+    fields: '  readonly consent: Locator;',
+    constructorLines: [
+      '    this.consent = this.page.getByRole("checkbox", {',
+      `      name: "${consentName}",`,
+      '    });'
+    ].join('\n')
+  });
+  const testPath = writeGeneratedTest(workspace, specPath, body);
+
+  const result = reviewGeneratedTest({ specPath, testPath });
+
+  assert.equal(result.passed, true, result.issues.join('\n'));
+  assert.doesNotMatch(result.issues.join('\n'), /Locator hint requires exact locator/);
+});
+
+test('reviewer still rejects a hint locator whose accessible name genuinely differs', () => {
+  const workspace = createWorkspace();
+  const specPath = writeSpec(workspace, {
+    locatorHints: [
+      "- Prefer `getByRole('heading', { name: 'Checkout' })` for the page heading.",
+      "- Use `getByRole('checkbox', { name: 'I confirm the details above are correct' })` for the consent control."
+    ]
+  });
+  const body = bodyWithPageObjectMembers({
+    fields: '  readonly consent: Locator;',
+    constructorLines: [
+      "    this.consent = this.page.getByRole('checkbox', {",
+      "      name: 'I agree to something entirely different',",
+      '    });'
+    ].join('\n')
+  });
+  const testPath = writeGeneratedTest(workspace, specPath, body);
+
+  const result = reviewGeneratedTest({ specPath, testPath });
+
+  assert.equal(result.passed, false);
+  assert.match(
+    result.issues.join('\n'),
+    /Locator hint requires exact locator usage or Page Object wrapper: getByRole\('checkbox', \{ name: 'I confirm the details above are correct' \}\)/
+  );
 });
 
 test('reviewer rejects production URLs (literal, concatenated, template)', () => {
@@ -2137,6 +2261,150 @@ test('bare ai:spec:validate defaults to validating the specs directory', () => {
   assert.match(result.stdout, /Flow spec directory validation passed: specs/);
 });
 
+// --- Iteration-2 reviewer AST-shape regressions -----------------------------
+// Shape 1 (8/10 blocking diagnostics): template-literal step titles whose
+// STATIC parts carry the AC-### tokens were read as '' by stringValue(), so
+// every such step failed "must name the AC id(s)" and cascaded into
+// covered-ac-ids derived mismatches. Minimal recreation of the archived
+// candidates dbc084f1/35cadb54/00559fb1 (.ai-runs/rejected/*/candidate.ts).
+
+test('reviewer accepts template-literal step titles whose static parts name the AC ids (iteration-2 shape 1)', () => {
+  const workspace = createWorkspace();
+  const specPath = writeSpec(workspace);
+  const body = singleBodyWithExtras('')
+    .replace(
+      "await test.step('Act AC-002: submit checkout request', async () => {",
+      'await test.step(`Act AC-002: submit checkout request for ${checkoutCase.email}`, async () => {'
+    )
+    .replace(
+      "await test.step('Assert AC-003: confirmation request is visible', async () => {",
+      'await test.step(`Assert AC-003: confirmation ${checkoutCase.requestId} is visible`, async () => {'
+    );
+  const testPath = writeGeneratedTest(workspace, specPath, body);
+
+  const result = reviewGeneratedTest({ specPath, testPath });
+
+  assert.equal(result.passed, true, result.issues.join('\n'));
+});
+
+test('reviewer still rejects a template step title whose AC id itself is interpolated (guard)', () => {
+  const workspace = createWorkspace();
+  const specPath = writeSpec(workspace);
+  const body = singleBodyWithExtras('')
+    .replace(
+      "const checkoutCase = {",
+      "const acLabel = 'AC-001';\n\nconst checkoutCase = {"
+    )
+    .replace(
+      "await test.step('Arrange AC-001: open checkout page', async () => {",
+      'await test.step(`Arrange ${acLabel}: open checkout page`, async () => {'
+    );
+  const testPath = writeGeneratedTest(workspace, specPath, body);
+
+  const result = reviewGeneratedTest({ specPath, testPath });
+
+  assert.equal(result.passed, false);
+  assert.match(result.issues.join('\n'), /must name the AC id\(s\)/);
+});
+
+test('reviewer still rejects a template step title with no AC id in its static parts', () => {
+  const workspace = createWorkspace();
+  const specPath = writeSpec(workspace);
+  const body = singleBodyWithExtras('').replace(
+    "await test.step('Arrange AC-001: open checkout page', async () => {",
+    'await test.step(`Arrange: open ${checkoutCase.email} checkout page`, async () => {'
+  );
+  const testPath = writeGeneratedTest(workspace, specPath, body);
+
+  const result = reviewGeneratedTest({ specPath, testPath });
+
+  assert.equal(result.passed, false);
+  assert.match(result.issues.join('\n'), /must name the AC id\(s\)/);
+});
+
+test('template interpolation wildcard cannot merge static spans into a fake AC id', () => {
+  const workspace = createWorkspace();
+  const specPath = writeSpec(workspace);
+  // Static parts "Arrange AC-" + "001..." must NOT be read as AC-001: the
+  // interpolation sits inside the token, so the id is not statically proven.
+  const body = singleBodyWithExtras('').replace(
+    "await test.step('Arrange AC-001: open checkout page', async () => {",
+    'await test.step(`Arrange AC-${checkoutCase.caseId}001: open checkout page`, async () => {'
+  );
+  const testPath = writeGeneratedTest(workspace, specPath, body);
+
+  const result = reviewGeneratedTest({ specPath, testPath });
+
+  assert.equal(result.passed, false);
+  assert.match(result.issues.join('\n'), /must name the AC id\(s\)/);
+});
+
+// Shape 2 (2/10 blocking diagnostics): `const badgeObject = pageObject.badgeObject();
+// expect(badgeObject)` — a bare identifier aliasing a Page-Object locator call
+// was never an accepted expect receiver.
+
+function poAliasBody(finalStepLines) {
+  return singleBodyWithExtras('')
+    .replace(
+      '  async open(): Promise<void> {',
+      '  confirmationRequestLocator(): Locator {\n    return this.confirmationRequest;\n  }\n\n  async open(): Promise<void> {'
+    )
+    .replace(
+      '    await expect(checkoutPage.confirmationRequest).toBeVisible();',
+      finalStepLines
+    );
+}
+
+test('reviewer accepts a const alias of a Page-Object locator call as expect receiver (iteration-2 shape 2)', () => {
+  const workspace = createWorkspace();
+  const specPath = writeSpec(workspace);
+  const testPath = writeGeneratedTest(
+    workspace,
+    specPath,
+    poAliasBody(
+      '    const confirmationRequestObject = checkoutPage.confirmationRequestLocator();\n    await expect(confirmationRequestObject).toBeVisible();'
+    )
+  );
+
+  const result = reviewGeneratedTest({ specPath, testPath });
+
+  assert.equal(result.passed, true, result.issues.join('\n'));
+});
+
+test('reviewer rejects an aliased expect receiver that is reassigned', () => {
+  const workspace = createWorkspace();
+  const specPath = writeSpec(workspace);
+  const testPath = writeGeneratedTest(
+    workspace,
+    specPath,
+    poAliasBody(
+      '    let confirmationRequestObject = checkoutPage.confirmationRequestLocator();\n    confirmationRequestObject = checkoutPage.confirmationRequestLocator();\n    await expect(confirmationRequestObject).toBeVisible();'
+    )
+  );
+
+  const result = reviewGeneratedTest({ specPath, testPath });
+
+  assert.equal(result.passed, false);
+  assert.match(result.issues.join('\n'), /must target a Page or Page Object locator expression/);
+});
+
+test('reviewer rejects a bare-identifier expect receiver aliasing a non-Page-Object expression', () => {
+  const workspace = createWorkspace();
+  const specPath = writeSpec(workspace);
+  const testPath = writeGeneratedTest(
+    workspace,
+    specPath,
+    poAliasBody(
+      '    const confirmationRequestObject = checkoutCase;\n    await expect(confirmationRequestObject).toBeVisible();'
+    )
+  );
+
+  const result = reviewGeneratedTest({ specPath, testPath });
+
+  assert.equal(result.passed, false);
+  assert.match(result.issues.join('\n'), /must target a Page or Page Object locator expression/);
+});
+
 function createWorkspace() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'ai-review-'));
 }
@@ -2677,3 +2945,133 @@ function writeGeneratedTest(workspace, specPath, body, headerHash = undefined) {
   fs.writeFileSync(testPath, `/* spec: ${specPath} version:1.0.0 sha256:${hash} */\n${body}`);
   return testPath;
 }
+
+// --- Non-blocking grounding warnings (iteration-1 runtime-rejection shapes) ---
+
+function bodyWithPageObjectMembers({ fields = '', constructorLines = '', methods = '' } = {}) {
+  return singleBodyWithExtras('')
+    .replace(
+      '  readonly confirmationRequest: Locator;',
+      `  readonly confirmationRequest: Locator;\n${fields}`
+    )
+    .replace(
+      '    this.confirmationRequest = this.page.getByText(checkoutCase.requestId);',
+      `    this.confirmationRequest = this.page.getByText(checkoutCase.requestId);\n${constructorLines}`
+    )
+    .replace(
+      '  async open(): Promise<void> {',
+      `${methods}  async open(): Promise<void> {`
+    );
+}
+
+test('reviewer warns (non-blocking) on accessible-name literals not traceable to hints or salient tokens', () => {
+  const workspace = createWorkspace();
+  const specPath = writeSpec(workspace);
+  // Iteration-1 rejection shapes: the wizard's hallucinated 'Consent' checkbox
+  // name and the catalog's exact-true 'Price' column header (real header text
+  // was 'Price ↑' because of a CSS ::after sort arrow).
+  const body = bodyWithPageObjectMembers({
+    fields: '  readonly consent: Locator;\n  readonly priceHeader: Locator;',
+    constructorLines: [
+      "    this.consent = this.page.getByRole('checkbox', { name: 'Consent' });",
+      "    this.priceHeader = this.page.getByRole('columnheader', { name: 'Price', exact: true });"
+    ].join('\n')
+  });
+  const testPath = writeGeneratedTest(workspace, specPath, body);
+
+  const result = reviewGeneratedTest({ specPath, testPath });
+
+  assert.equal(result.passed, true, result.issues.join('\n'));
+  const warningsText = result.warnings.join('\n');
+  assert.match(warningsText, /Ungrounded accessible name[^\n]*'Consent'/);
+  assert.match(warningsText, /Ungrounded accessible name[^\n]*'Price'/);
+});
+
+test('reviewer keeps grounded accessible names silent (hints, salient tokens, DOM candidates)', () => {
+  const workspace = createWorkspace();
+  const specPath = writeSpec(workspace, {
+    locatorHints: [
+      "- Prefer `getByRole('heading', { name: 'Checkout' })` for the page heading.",
+      "- Prefer `getByRole('button', { name: 'Place order request' })` for submission.",
+      "- The email field is `getByLabel('Email')`."
+    ]
+  });
+  // 'REQ-1001' is a salient expected value from the data cases; 'Price ↑' is
+  // only known from the DOM artifact candidate list.
+  const body = bodyWithPageObjectMembers({
+    fields: '  readonly requestBadge: Locator;\n  readonly priceHeader: Locator;',
+    constructorLines: [
+      "    this.requestBadge = this.page.getByRole('link', { name: 'REQ-1001', exact: true });",
+      "    this.priceHeader = this.page.getByRole('columnheader', { name: 'Price ↑', exact: true });"
+    ].join('\n')
+  });
+  const testPath = writeGeneratedTest(workspace, specPath, body);
+
+  const withDomCandidates = reviewGeneratedTest({
+    specPath,
+    testPath,
+    domCandidateNames: ['Price ↑']
+  });
+  assert.equal(withDomCandidates.passed, true, withDomCandidates.issues.join('\n'));
+  assert.doesNotMatch(withDomCandidates.warnings.join('\n'), /Ungrounded accessible name/);
+
+  // Without the DOM candidate list, the same 'Price ↑' literal is ungrounded.
+  const withoutDomCandidates = reviewGeneratedTest({ specPath, testPath });
+  assert.equal(withoutDomCandidates.passed, true);
+  assert.match(withoutDomCandidates.warnings.join('\n'), /Ungrounded accessible name[^\n]*'Price ↑'/);
+});
+
+test('reviewer warns (non-blocking) on getAttribute reads guarded by a manual throw', () => {
+  const workspace = createWorkspace();
+  const specPath = writeSpec(workspace);
+  // Iteration-1 catalog rejection shape: aria-sort read via getAttribute with
+  // a hand-rolled throw instead of the auto-retrying toHaveAttribute.
+  const body = bodyWithPageObjectMembers({
+    methods: `  async assertPriceSorted(expectedAriaSort: string): Promise<void> {
+    const actualAriaSort = await this.heading.getAttribute('aria-sort');
+    if (actualAriaSort !== expectedAriaSort) {
+      throw new Error('Expected Price header aria-sort=' + expectedAriaSort);
+    }
+  }
+
+  async assertInlineSorted(): Promise<void> {
+    if ((await this.heading.getAttribute('aria-sort')) !== 'ascending') {
+      throw new Error('Price header is not sorted ascending');
+    }
+  }
+
+`
+  });
+  const testPath = writeGeneratedTest(workspace, specPath, body);
+
+  const result = reviewGeneratedTest({ specPath, testPath });
+
+  assert.equal(result.passed, true, result.issues.join('\n'));
+  const attributeWarnings = result.warnings.filter((warning) => /Non-retrying attribute assertion/.test(warning));
+  assert.equal(attributeWarnings.length, 2, result.warnings.join('\n'));
+  assert.match(attributeWarnings.join('\n'), /toHaveAttribute/);
+});
+
+test('reviewer stays silent on retrying attribute assertions and unguarded attribute reads', () => {
+  const workspace = createWorkspace();
+  const specPath = writeSpec(workspace);
+  const body = bodyWithPageObjectMembers({
+    methods: `  async readSortState(): Promise<string | null> {
+    return this.heading.getAttribute('aria-sort');
+  }
+
+`
+  }).replace(
+    '    await expect(checkoutPage.confirmationRequest).toBeVisible();',
+    [
+      '    await expect(checkoutPage.confirmationRequest).toBeVisible();',
+      "    await expect(checkoutPage.heading).toHaveAttribute('aria-sort', 'ascending');"
+    ].join('\n')
+  );
+  const testPath = writeGeneratedTest(workspace, specPath, body);
+
+  const result = reviewGeneratedTest({ specPath, testPath });
+
+  assert.equal(result.passed, true, result.issues.join('\n'));
+  assert.doesNotMatch(result.warnings.join('\n'), /Non-retrying attribute assertion/);
+});

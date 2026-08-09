@@ -31,6 +31,14 @@ export default tseslint.config(
     }
   },
   {
+    files: ['scripts/**/*.mjs', 'local-fixture/**/*.mjs'],
+    languageOptions: {
+      globals: {
+        ...globals.node
+      }
+    }
+  },
+  {
     files: ['fixtures/test.ts'],
     rules: {
       // Playwright requires fixture dependency parameters to be object destructuring patterns,
