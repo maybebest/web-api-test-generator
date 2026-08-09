@@ -118,7 +118,7 @@ So that the dense catalog page proves the core browsing widgets work end to end.
 |---:|---|---|---|---|---|---|
 | 1 | AC-001 | Open the complex catalog page | `/complex/catalog` | none | The catalog page renders its level-one heading | The sticky header duplicates the H1 text, so scope the heading to role `heading` level 1 |
 | 2 | AC-002 | Check the Lighting category filter and activate Apply | Filters sidebar | checkbox `Lighting` | Filter status reads `Filters applied: 1 active` | Apply button accessible name is `Apply catalog filters` (aria-label differs from visible text `Apply`) |
-| 3 | AC-003 | Sort the product table by Price | Price column header button | none | The Price header carries `aria-sort="ascending"` | Sort buttons have no test ids; use role `button` name `Price` inside the table |
+| 3 | AC-003 | Sort the product table by Price | Price column header button | none | The Price header carries `aria-sort="ascending"` | Sort header buttons carry testids `sort-product`..`sort-updated`; use testid `sort-price` (the button's accessible name mutates to `Price ↑` once sorted) |
 | 4 | AC-004 | Go to page 2 of the product table | Pagination control `2` | none | The page indicator reads `Page 2 of 3` | Page buttons carry testids `page-1`..`page-3`; the indicator is testid `page-indicator` |
 | 5 | AC-005 | Open the quick view for the first featured product | Quick view button on the `Aurora Lamp` featured card | none | The modal dialog opens showing the product name | Use testid `quickview-1`; the dialog is role `dialog` with an accessible name from its heading |
 | 6 | AC-006 | Add the product to the basket from the modal | Modal `Add to cart` button | none | The modal closes and the basket badge increments | Scope `Add to cart` to the dialog: 17 identical `Add to cart` buttons exist page-wide (strict-mode trap) |
@@ -145,7 +145,8 @@ So that the dense catalog page proves the core browsing widgets work end to end.
 - The page contains strict-mode traps: the H1 text `Complex catalog` also appears in the sticky header and breadcrumb, `Aurora Lamp` appears on four elements, and `Add to cart` appears on 17 buttons. Always scope by role, landmark, or container testid.
 - Featured-section card controls carry testids (`quickview-1`, `addcart-1`); clearance-section cards deliberately have none.
 - The Apply button's accessible name is `Apply catalog filters` (aria-label), not its visible text `Apply`.
-- Use testids `page-indicator`, `page-2`, `basket-count`, and `modal-close` where they exist; use role/name for the sort header buttons and the filter checkbox.
+- Use testids `page-indicator`, `page-2`, `basket-count`, and `modal-close` where they exist; use role/name for the filter checkbox.
+- Sort header buttons carry testids `sort-product`, `sort-sku`, `sort-category`, `sort-price`, `sort-stock`, `sort-rating`, `sort-updated`. Activate the Price sort via `getByTestId('sort-price')` — never a role/name locator: a CSS `::after` arrow mutates the button's accessible name from `Price` to `Price ↑` as soon as `aria-sort` is set, so any name-pinned locator breaks after the first click.
 - Assert the sort state via the `aria-sort` attribute on the `Price` column header, not row order.
 
 ## Generated Test Requirements

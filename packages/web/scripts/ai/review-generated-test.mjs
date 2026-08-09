@@ -1311,9 +1311,97 @@ function checkSemanticLocatorPresence(sourceFile, content, issues) {
   }
 }
 
+// AST-grounded locator-hint matching (iteration-2). The previous
+// normalized-substring match compared formatted text, so a candidate that
+// honored a pinned 46-char accessible name but emitted the options object
+// multiline with a trailing comma ('{ name: '...', }') could never equal the
+// hint — a deterministic FALSE rejection for exactly what pin-the-name hints
+// produce. Instead, parse the hint's expected locator with the TS compiler
+// API and compare method name + folded arguments against every getBy*/locator
+// call in the candidate and its Page Object corpus. Formatting (line breaks,
+// trailing commas, quote style) cannot matter; a genuinely different name or
+// method still fails.
+const HINT_LOCATOR_METHOD_NAMES = new Set([...SEMANTIC_LOCATOR_NAMES, 'locator']);
+
+function foldedLocatorArgumentText(node, hintSourceFile, constStringIdentifiers) {
+  const folded = foldStringExpression(node, constStringIdentifiers);
+  if (folded !== undefined) {
+    return JSON.stringify(folded);
+  }
+  if (ts.isObjectLiteralExpression(node)) {
+    const entries = [];
+    for (const property of node.properties) {
+      if (!ts.isPropertyAssignment(property)) {
+        return normalizeCode(node.getText(hintSourceFile));
+      }
+      const key = objectLiteralPropertyName(property);
+      if (key === undefined) {
+        return normalizeCode(node.getText(hintSourceFile));
+      }
+      entries.push(`${key}:${foldedLocatorArgumentText(property.initializer, hintSourceFile, constStringIdentifiers)}`);
+    }
+    entries.sort();
+    return `{${entries.join(',')}}`;
+  }
+  return normalizeCode(node.getText(hintSourceFile));
+}
+
+function locatorCallSignature(callExpression, callSourceFile, constStringIdentifiers) {
+  const method = propertyName(callExpression.expression);
+  if (!method || !HINT_LOCATOR_METHOD_NAMES.has(method)) {
+    return undefined;
+  }
+  const argumentTexts = callExpression.arguments.map((argument) =>
+    foldedLocatorArgumentText(argument, callSourceFile, constStringIdentifiers)
+  );
+  return `${method}(${argumentTexts.join(',')})`;
+}
+
+function collectLocatorCallSignatures(rootSourceFile, signatures) {
+  const constStringIdentifiers = collectConstStringIdentifiers(rootSourceFile);
+  walk(rootSourceFile, (node) => {
+    if (!ts.isCallExpression(node)) {
+      return;
+    }
+    const signature = locatorCallSignature(node, rootSourceFile, constStringIdentifiers);
+    if (signature !== undefined) {
+      signatures.add(signature);
+    }
+  });
+}
+
+function parseHintLocatorSignature(locatorText) {
+  const hintSourceFile = ts.createSourceFile(
+    'locator-hint.ts',
+    `page.${locatorText};`,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS
+  );
+  let signature;
+  walk(hintSourceFile, (node) => {
+    if (signature === undefined && ts.isCallExpression(node)) {
+      signature = locatorCallSignature(node, hintSourceFile, new Map());
+    }
+  });
+  return signature;
+}
+
 function checkLocatorHints(locatorHints, sourceFile, content, issues) {
-  const searchCorpus = `${content}\n${readPageObjectCorpus()}`;
-  const normalizedCorpus = normalizeCode(searchCorpus);
+  const pageObjectCorpus = readPageObjectCorpus();
+  const corpusSignatures = new Set();
+  collectLocatorCallSignatures(sourceFile, corpusSignatures);
+  if (pageObjectCorpus) {
+    const corpusSourceFile = ts.createSourceFile(
+      'page-object-corpus.ts',
+      pageObjectCorpus,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS
+    );
+    collectLocatorCallSignatures(corpusSourceFile, corpusSignatures);
+  }
+  const normalizedCorpus = normalizeCode(`${content}\n${pageObjectCorpus}`);
 
   for (const hint of locatorHints) {
     const expectedLocators = [...hint.matchAll(/(getBy(?:Role|Label|Placeholder|Text|TestId)\([^`]+?\))/g)].map(
@@ -1321,7 +1409,13 @@ function checkLocatorHints(locatorHints, sourceFile, content, issues) {
     );
 
     for (const locator of expectedLocators) {
-      if (!normalizedCorpus.includes(normalizeCode(locator))) {
+      const expectedSignature = parseHintLocatorSignature(locator);
+      // Fall back to the legacy normalized-substring match only for hint
+      // fragments the parser cannot resolve into a locator call.
+      const matched = expectedSignature !== undefined
+        ? corpusSignatures.has(expectedSignature)
+        : normalizedCorpus.includes(normalizeCode(locator));
+      if (!matched) {
         issues.push(`Locator hint requires exact locator usage or Page Object wrapper: ${locator}`);
       }
     }

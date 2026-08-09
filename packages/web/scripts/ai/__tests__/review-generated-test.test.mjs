@@ -898,6 +898,64 @@ test('flow', async ({ page }) => {
   assert.match(result.issues.join('\n'), /Locator hint requires exact locator/);
 });
 
+// Iteration-2 regression: both wizard generations were FALSE static-review
+// rejections. Candidates honored the pinned 46-char consent name, but the
+// formatter wrapped the getByRole options object multiline with a trailing
+// comma ('{ name: '...', }'), which the old normalized-substring match could
+// never equal. Hint matching must compare the parsed call (method + folded
+// arguments), not formatted text.
+test('reviewer matches locator hints across formatting variance (multiline, trailing comma, quote style)', () => {
+  const workspace = createWorkspace();
+  const consentName = 'I confirm the details above are correct';
+  const specPath = writeSpec(workspace, {
+    locatorHints: [
+      "- Prefer `getByRole('heading', { name: 'Checkout' })` for the page heading.",
+      `- Use \`getByRole('checkbox', { name: '${consentName}' })\` for the consent control.`
+    ]
+  });
+  const body = bodyWithPageObjectMembers({
+    fields: '  readonly consent: Locator;',
+    constructorLines: [
+      '    this.consent = this.page.getByRole("checkbox", {',
+      `      name: "${consentName}",`,
+      '    });'
+    ].join('\n')
+  });
+  const testPath = writeGeneratedTest(workspace, specPath, body);
+
+  const result = reviewGeneratedTest({ specPath, testPath });
+
+  assert.equal(result.passed, true, result.issues.join('\n'));
+  assert.doesNotMatch(result.issues.join('\n'), /Locator hint requires exact locator/);
+});
+
+test('reviewer still rejects a hint locator whose accessible name genuinely differs', () => {
+  const workspace = createWorkspace();
+  const specPath = writeSpec(workspace, {
+    locatorHints: [
+      "- Prefer `getByRole('heading', { name: 'Checkout' })` for the page heading.",
+      "- Use `getByRole('checkbox', { name: 'I confirm the details above are correct' })` for the consent control."
+    ]
+  });
+  const body = bodyWithPageObjectMembers({
+    fields: '  readonly consent: Locator;',
+    constructorLines: [
+      "    this.consent = this.page.getByRole('checkbox', {",
+      "      name: 'I agree to something entirely different',",
+      '    });'
+    ].join('\n')
+  });
+  const testPath = writeGeneratedTest(workspace, specPath, body);
+
+  const result = reviewGeneratedTest({ specPath, testPath });
+
+  assert.equal(result.passed, false);
+  assert.match(
+    result.issues.join('\n'),
+    /Locator hint requires exact locator usage or Page Object wrapper: getByRole\('checkbox', \{ name: 'I confirm the details above are correct' \}\)/
+  );
+});
+
 test('reviewer rejects production URLs (literal, concatenated, template)', () => {
   const workspace = createWorkspace();
   const specPath = writeSpec(workspace);

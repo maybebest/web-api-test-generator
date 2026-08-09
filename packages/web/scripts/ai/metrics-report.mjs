@@ -339,18 +339,23 @@ export function computeMetrics({ usage, manifestFactsByRun, healRuns, triageAudi
   const successfulHealRuns = selectedHealRuns.filter((healRun) => SUCCESSFUL_HEAL_STATUSES.has(healRun.status));
   const healTokens = selectedHealRuns.reduce((total, healRun) => total + healRun.totalTokens, 0);
 
-  // Triage audit coverage over zero-provider-call heal runs. The latest audit
-  // row per heal run wins, so a re-audit supersedes an earlier verdict.
+  // Triage audit coverage over ALL heal runs in the window: every heal run
+  // carries a triage decision worth auditing, not only zero-provider-call
+  // ones (iteration-2's overturned audit — drift labeled synchronization, 1
+  // provider attempt — was invisible to zero-call-scoped coverage). The
+  // latest audit row per heal run wins, so a re-audit supersedes an earlier
+  // verdict. zeroCallRuns stays as the frugality counter.
   const auditByHealRun = new Map();
   for (const audit of triageAudits) auditByHealRun.set(audit.healRunId, audit);
-  const auditedFrugalRuns = frugalHealRuns.filter((healRun) => auditByHealRun.has(healRun.runId));
-  const overturnedRuns = auditedFrugalRuns.filter((healRun) =>
+  const auditedHealRuns = selectedHealRuns.filter((healRun) => auditByHealRun.has(healRun.runId));
+  const overturnedRuns = auditedHealRuns.filter((healRun) =>
     auditByHealRun.get(healRun.runId).verdict === 'overturned');
   const healTriage = {
+    healRuns: selectedHealRuns.length,
     zeroCallRuns: frugalHealRuns.length,
-    audited: auditedFrugalRuns.length,
+    audited: auditedHealRuns.length,
     overturned: overturnedRuns.length,
-    coverage: ratioOrNull(auditedFrugalRuns.length, frugalHealRuns.length)
+    coverage: ratioOrNull(auditedHealRuns.length, selectedHealRuns.length)
   };
 
   return {
@@ -473,7 +478,9 @@ export function renderHealFrugality(metrics) {
   const overturnText = triage && triage.audited > 0
     ? formatPercent(triage.overturned / triage.audited)
     : 'n/a - unaudited';
-  const coverageText = triage ? `${triage.audited}/${triage.zeroCallRuns}` : '-';
+  // Coverage denominator is ALL heal runs in the window; older snapshot rows
+  // predate healTriage.healRuns and fall back to their zero-call counter.
+  const coverageText = triage ? `${triage.audited}/${triage.healRuns ?? triage.zeroCallRuns}` : '-';
   return `Heal frugality: ${formatPercent(metrics.healFrugality)} of ${metrics.totals.healRuns} heal runs `
     + `(overturn ${overturnText}, audit coverage ${coverageText})`;
 }
@@ -592,7 +599,8 @@ rewritten; --trend renders mixed v1+v2 history ('-' for fields v1 lacks).
 
 --audit-triage appends a manual triage-audit row {healRunId, verdict,
 auditedAt, notes?} to .ai-metrics/triage-audits.jsonl after validating the
-heal run exists under <runs>/heal. Audit rows feed healTriage coverage and
+heal run exists under <runs>/heal. Audit rows feed healTriage coverage over
+ALL heal runs in the window (zeroCallRuns stays as the frugality counter) and
 the overturn annotation on the heal-frugality line ('n/a - unaudited' while
 coverage is zero).
 

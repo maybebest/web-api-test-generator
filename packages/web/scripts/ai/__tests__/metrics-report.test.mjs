@@ -392,24 +392,57 @@ test('triage audits produce coverage math and annotate the frugality line', (t) 
   });
 
   const audited = computeMetrics(readMetricsInputs(root, { auditsPath }), {});
-  assert.deepEqual(audited.healTriage, { zeroCallRuns: 2, audited: 2, overturned: 1, coverage: 1 });
+  assert.deepEqual(audited.healTriage, {
+    healRuns: 3, zeroCallRuns: 2, audited: 2, overturned: 1, coverage: 2 / 3
+  });
   const auditedLine = renderHealFrugality(audited);
   assert.match(auditedLine, /overturn 50\.0%/);
-  assert.match(auditedLine, /audit coverage 2\/2/);
+  assert.match(auditedLine, /audit coverage 2\/3/);
 
   // A later re-audit of the same heal run wins over the earlier row.
   appendTriageAudit(auditsPath, {
     healRunId: zeroCallOverturned, verdict: 'confirmed', auditedAt: '2026-08-08T21:00:00.000Z'
   });
   const reAudited = computeMetrics(readMetricsInputs(root, { auditsPath }), {});
-  assert.deepEqual(reAudited.healTriage, { zeroCallRuns: 2, audited: 2, overturned: 0, coverage: 1 });
+  assert.deepEqual(reAudited.healTriage, {
+    healRuns: 3, zeroCallRuns: 2, audited: 2, overturned: 0, coverage: 2 / 3
+  });
 
   // Without audits, coverage is zero and overturn renders as unaudited.
   const unaudited = computeMetrics(readMetricsInputs(root), {});
-  assert.deepEqual(unaudited.healTriage, { zeroCallRuns: 2, audited: 0, overturned: 0, coverage: 0 });
+  assert.deepEqual(unaudited.healTriage, {
+    healRuns: 3, zeroCallRuns: 2, audited: 0, overturned: 0, coverage: 0
+  });
   const unauditedLine = renderHealFrugality(unaudited);
   assert.match(unauditedLine, /overturn n\/a - unaudited/);
-  assert.match(unauditedLine, /audit coverage 0\/2/);
+  assert.match(unauditedLine, /audit coverage 0\/3/);
+});
+
+// Iteration-2 metrics gap: the window's only overturned audit belonged to a
+// heal run WITH provider attempts (drift labeled synchronization, 1 attempt),
+// so zero-call-scoped coverage reported overturned=0 while the sidecar held
+// an overturn row. Triage coverage must span every heal run's triage
+// decision, not only zero-provider-call runs.
+test('triage coverage counts audited heal runs with provider calls, not only zero-call runs', (t) => {
+  const root = tempDirectory(t);
+  writeHealRun(root, 1754040000000, { status: 'not-repairable' });
+  const calledOverturned = writeHealRun(root, 1754041000000, {
+    status: 'not-repairable',
+    providerAttempts: [{ attempt: 1, kind: 'anthropic', usage: { totalTokens: 22000 } }]
+  });
+  const auditsPath = path.join(root, 'triage-audits.jsonl');
+  appendTriageAudit(auditsPath, {
+    healRunId: calledOverturned, verdict: 'overturned',
+    auditedAt: '2026-08-09T12:00:00.000Z', notes: 'drift labeled synchronization'
+  });
+
+  const metrics = computeMetrics(readMetricsInputs(root, { auditsPath }), {});
+  assert.deepEqual(metrics.healTriage, {
+    healRuns: 2, zeroCallRuns: 1, audited: 1, overturned: 1, coverage: 0.5
+  });
+  const line = renderHealFrugality(metrics);
+  assert.match(line, /overturn 100\.0%/);
+  assert.match(line, /audit coverage 1\/2/);
 });
 
 test('triage audit sidecar rows validate on append and tolerate junk on read', (t) => {
@@ -445,7 +478,9 @@ test('computeMetrics returns nulls, not NaN, on an empty window', (t) => {
   assert.equal(metrics.cache.savedShare, null);
   assert.deepEqual(metrics.timeToAccepted, { p50Ms: null, p95Ms: null });
   assert.equal(metrics.healFrugality, null);
-  assert.deepEqual(metrics.healTriage, { zeroCallRuns: 0, audited: 0, overturned: 0, coverage: null });
+  assert.deepEqual(metrics.healTriage, {
+    healRuns: 0, zeroCallRuns: 0, audited: 0, overturned: 0, coverage: null
+  });
   assert.equal(metrics.tokensPerSuccessfulHeal, null);
   assert.deepEqual(metrics.accepted, { clean: 0, withWarning: 0, unknown: 0 });
   assert.deepEqual(classifyFailureFacts(metrics.failureFacts).wastedTokens, 0);

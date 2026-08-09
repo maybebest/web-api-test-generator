@@ -333,7 +333,7 @@ const complexCatalog = layout(
           <table class="cx-table" id="catalog-table">
             <thead>
               <tr>
-                ${cxTableHeaders.map(([label, type]) => `<th scope="col" aria-sort="none" data-type="${type}"><button type="button">${label}</button></th>`).join('\n                ')}
+                ${cxTableHeaders.map(([label, type]) => `<th scope="col" aria-sort="none" data-type="${type}"><button type="button" data-testid="sort-${label.toLowerCase()}">${label}</button></th>`).join('\n                ')}
               </tr>
             </thead>
             <tbody>
